@@ -126,4 +126,3 @@ chore: perbarui dependency
 
 ---
 
-Untuk pertanyaan akses environment, database, atau konfigurasi Firebase, hubungi administrator proyek Utama Corporation.
