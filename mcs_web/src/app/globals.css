@@ -1,0 +1,237 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+}
+
+* {
+  border-color: theme("colors.slate.200");
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: theme("colors.slate.50");
+  color: theme("colors.slate.900");
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .input-base {
+    @apply h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition
+      placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100
+      disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-700;
+  }
+
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+
+  /* Skeleton dengan efek shimmer — terasa "sedang memuat" lebih hidup
+     daripada animate-pulse yang datar. */
+  .skeleton {
+    @apply rounded-lg;
+    background-image: linear-gradient(
+      90deg,
+      theme("colors.slate.100") 25%,
+      theme("colors.slate.200") 37%,
+      theme("colors.slate.100") 63%
+    );
+    background-size: 400% 100%;
+    animation: mcs-shimmer 1.3s ease-in-out infinite;
+  }
+}
+
+@keyframes mcs-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* Hormati preferensi pengguna: matikan animasi non-esensial. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: theme("colors.slate.300");
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Sidebar tetap dapat digeser dengan mouse/touch, tanpa scrollbar visual. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================================
+   Label QR aset — desain identik halaman cetak backend
+   (equipment/views/equipment/qrcode_mcs.php): 60mm x 30mm,
+   bingkai ganda + outline, kiri "PROPERTY OF" + logo + nama,
+   kanan QR + kode aset. Semua ukuran dalam mm supaya presisi
+   dan identik antara pratinjau layar dan hasil cetak.
+   ============================================================ */
+.qr-label {
+  box-sizing: border-box;
+  width: 60mm;
+  height: 30mm;
+  border: 0.5mm double #000;
+  border-radius: 4mm;
+  outline: 0.4mm solid #000;
+  outline-offset: -2mm;
+  padding: 2.6mm 3mm;
+  background: #fff;
+  color: #000;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  overflow: hidden;
+}
+.qr-label__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  gap: 2mm;
+}
+.qr-label__left {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5mm;
+}
+.qr-label__right {
+  flex: 0 0 auto;
+  width: 26mm;
+  text-align: center;
+}
+.qr-label__caption {
+  font-size: 2.5mm;
+  letter-spacing: 0.03em;
+  line-height: 1.1;
+}
+.qr-label__logo {
+  width: 11mm;
+  height: 11mm;
+  object-fit: contain;
+  border-radius: 50%;
+  margin: 0.6mm auto;
+  background: #fff;
+}
+.qr-label__name {
+  font-size: 2.6mm;
+  font-weight: 700;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.qr-label__name--long {
+  font-size: 2mm;
+}
+.qr-label__qr {
+  width: 21mm;
+  height: 21mm;
+  display: block;
+  margin: 0 auto;
+}
+.qr-label__code {
+  display: block;
+  font-size: 2.3mm;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  margin-top: 0.6mm;
+}
+
+/* Pratinjau di modal — perbesar tanpa mengubah proporsi. */
+.qr-label-scale {
+  width: calc(60mm * 1.9);
+  height: calc(30mm * 1.9);
+}
+.qr-label-scale > .qr-label {
+  transform: scale(1.9);
+  transform-origin: top left;
+}
+
+/* Kontainer khusus cetak (portal ke <body>). Di layar disembunyikan;
+   saat print, HANYA elemen ini yang tampil -> tidak ada halaman kosong. */
+#qr-print-root {
+  display: none;
+}
+@media print {
+  @page {
+    size: 60mm 30mm;
+    margin: 0;
+  }
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body > *:not(#qr-print-root) {
+    display: none !important;
+  }
+  #qr-print-root {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  #qr-print-root .qr-label {
+    box-shadow: none !important;
+  }
+}

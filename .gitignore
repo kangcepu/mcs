@@ -1,0 +1,35 @@
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+**/google-services.json
+**/*firebase-adminsdk*.json
+**/*service-account*.json
+**/*credential*.json
+
+# JavaScript / TypeScript
+**/node_modules/
+**/.next/
+**/dist/
+**/out/
+**/*.tsbuildinfo
+
+# Flutter / Dart
+**/.dart_tool/
+**/.pub-cache/
+**/.pub/
+**/build/
+**/coverage/
+**/.flutter-plugins-dependencies
+
+# Runtime-generated files
+**/uploads/
+*.log
+
+# IDE and operating-system files
+.DS_Store
+**/.idea/
+*.iml
+*.ipr
+*.iws
+*.swp

@@ -1,0 +1,46 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import { config } from './config.js';
+import { pool } from './db.js';
+import { errorHandler, HttpError, ok } from './http.js';
+import { authRouter } from './routes/auth.js';
+import { healthRouter } from './routes/health.js';
+import { masterRouter } from './routes/master.js';
+import { assetRouter } from './routes/assets.js';
+import { workOrderRouter } from './routes/work-orders.js';
+import { dailyControlRouter } from './routes/daily-control.js';
+import { materialRouter } from './routes/materials.js';
+import { equipmentRouter } from './routes/equipment.js';
+import { scheduleRouter } from './routes/schedules.js';
+import { miscRouter } from './routes/misc.js';
+import { gaRouter } from './routes/wo-ga.js';
+import { isRouter } from './routes/wo-is.js';
+import { maintenanceRouter } from './routes/wo-maintenance.js';
+import { productionRouter } from './routes/wo-production.js';
+import { mesoRouter } from './routes/wo-meso.js';
+import { systemAuditMiddleware } from './system-audit.js';
+
+fs.mkdirSync(config.uploadDir, { recursive: true });
+const app = express();
+app.disable('x-powered-by');
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(cors({ origin: config.corsOrigin === '*' ? true : config.corsOrigin, credentials: false }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(systemAuditMiddleware);
+app.use('/uploads', express.static(path.resolve(config.uploadDir)));
+app.get('/', (_req,res)=>ok(res,{service:'mcs-backend',api:'/api/v2'},'MCS Backend is running'));
+
+const v2 = express.Router();
+v2.use(healthRouter); v2.use(authRouter); v2.use(masterRouter); v2.use(assetRouter); v2.use(workOrderRouter); v2.use(dailyControlRouter); v2.use(materialRouter); v2.use(equipmentRouter); v2.use(scheduleRouter); v2.use(miscRouter); v2.use(mesoRouter); v2.use(maintenanceRouter); v2.use(isRouter); v2.use(productionRouter); v2.use(gaRouter);
+app.use('/api/v2', v2);
+app.use('/api', authRouter);
+app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));
+app.use(errorHandler);
+
+const server = app.listen(config.port, () => console.log(`MCS backend listening on http://localhost:${config.port}`));
+const shutdown = async () => { server.close(); await pool.end(); };
+process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());
