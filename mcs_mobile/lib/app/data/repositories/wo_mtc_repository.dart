@@ -17,13 +17,6 @@ import '../models/work_order_model.dart'
 
 class WoMtcRepository {
   final ApiService _apiService = ApiService();
-  final Dio _materialService = Dio(
-    BaseOptions(
-      baseUrl: ApiConstants.materialBaseUrl,
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 20),
-    ),
-  );
 
   Future<List<PreventivePartExecution>> getPartExecution(
       String woNumber) async {
@@ -858,21 +851,6 @@ class WoMtcRepository {
     final collected = <String>[];
 
     try {
-      final response = await _materialService.get(
-        '/getMaterial/',
-        queryParameters: {'term': query},
-      );
-
-      if (response.statusCode == 200) {
-        collected.addAll(_extractSuggestions(response.data));
-      }
-    } catch (_) {}
-
-    if (collected.isNotEmpty) {
-      return collected.toSet().toList();
-    }
-
-    try {
       final response = await _apiService.get(
         ApiConstants.materialSuggestionWoOperational,
         queryParameters: {'term': query},
@@ -890,21 +868,6 @@ class WoMtcRepository {
     if (part.isEmpty) {
       return null;
     }
-
-    try {
-      final response = await _materialService.post(
-        '/getMaterialDetails/',
-        data: {'part': part},
-        options: Options(contentType: Headers.formUrlEncodedContentType),
-      );
-
-      if (response.statusCode == 200) {
-        final uom = _extractUom(response.data);
-        if (uom != null && uom.isNotEmpty) {
-          return uom;
-        }
-      }
-    } catch (_) {}
 
     try {
       final response = await _apiService.post(

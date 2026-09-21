@@ -1366,7 +1366,7 @@ class WoMtcDetailPage extends StatelessWidget {
       child: AspectRatio(
         aspectRatio: 1.25,
         child: Image.network(
-          (items.first['url'] ?? '').toString(),
+          ApiConstants.mediaUrl(items.first['url']?.toString()),
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => Container(
             color: const Color(0xFFF3F6FA),
@@ -1473,7 +1473,8 @@ class WoMtcDetailPage extends StatelessWidget {
                 itemCount: items.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
-                  final url = (items[index]['url'] ?? '').toString();
+                  final url =
+                      ApiConstants.mediaUrl(items[index]['url']?.toString());
                   return InkWell(
                     onTap: () => _showImagePreview(url),
                     borderRadius: BorderRadius.circular(12),

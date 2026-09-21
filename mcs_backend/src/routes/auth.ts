@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate, findUserByCredentials, findUserById, md5, publicUser, signToken } from '../auth.js';
+import { applyAutomaticAccess, authenticate, findUserByCredentials, findUserById, findUserByIdentity, isPasswordEmpty, md5, publicUser, requiresPasswordChange, signToken, syncEmployeeStatusFromApi } from '../auth.js';
 import { execute } from '../db.js';
 import { asyncHandler, HttpError, legacyOk, ok } from '../http.js';
 import type { AuthRequest } from '../types.js';
@@ -10,9 +10,29 @@ export const authRouter = Router();
 
 authRouter.post('/auth/login', asyncHandler(async (req, res) => {
   const input = credentials.parse(req.body);
-  const user = await findUserByCredentials(input.username, input.password);
+  let user = input.password !== '' ? await findUserByCredentials(input.username, input.password) : null;
+  if (!user && input.password === '') {
+    const byIdentity = await findUserByIdentity(input.username);
+    if (byIdentity && isPasswordEmpty(byIdentity)) user = byIdentity;
+  }
   if (!user) throw new HttpError(401, 'Invalid username or password');
+
+  user = await syncEmployeeStatusFromApi(user);
   if (Number(user.active) !== 1) throw new HttpError(403, 'This account is not active');
+  user = applyAutomaticAccess(user);
+
+  if (requiresPasswordChange(user)) {
+    const message = isPasswordEmpty(user)
+      ? 'Password akun belum diatur. Silakan buat password baru terlebih dahulu.'
+      : 'Password default terdeteksi. Silakan ganti password terlebih dahulu.';
+    legacyOk(res, {
+      requires_password_change: true,
+      change_password_endpoint: '/api/auth/change_password',
+      user: { id_user: user.id_user, username: user.username, fullname: user.fullname, email: user.email ?? '' },
+    }, message);
+    return;
+  }
+
   const data = { requires_password_change: false, token: signToken(user), token_type: 'Bearer', expires_in: 86400, user: publicUser(user) };
   legacyOk(res, data, 'Login successful');
 }));
@@ -20,10 +40,21 @@ authRouter.post('/auth/login', asyncHandler(async (req, res) => {
 authRouter.post('/auth/change_password', asyncHandler(async (req, res) => {
   const input = z.object({ username: z.string().min(1), current_password: z.string().optional().default(''), password: z.string().min(1), confirm_password: z.string().min(1) }).parse(req.body);
   if (input.password !== input.confirm_password) throw new HttpError(400, 'Confirm password does not match');
-  const user = await findUserByCredentials(input.username, input.current_password);
+
+  let user = input.current_password !== '' ? await findUserByCredentials(input.username, input.current_password) : null;
+  if (!user && input.current_password === '') {
+    const byIdentity = await findUserByIdentity(input.username);
+    if (byIdentity && isPasswordEmpty(byIdentity)) user = byIdentity;
+  }
   if (!user) throw new HttpError(401, 'Invalid username or current password');
-  if (md5(input.password) === md5(input.current_password)) throw new HttpError(400, 'New password must be different from current password');
-  await execute('UPDATE tb_user SET password = ?, updated_at = NOW() WHERE id_user = ?', [md5(input.password), user.id_user]);
+
+  user = applyAutomaticAccess(user);
+  if (Number(user.active) !== 1) throw new HttpError(403, 'This account is not active');
+  if (!isPasswordEmpty(user) && md5(input.password) === md5(input.current_password)) {
+    throw new HttpError(400, 'New password must be different from current password');
+  }
+
+  await execute('UPDATE tb_user SET password = ?, force_password_change = 0, updated_at = NOW() WHERE id_user = ?', [md5(input.password), user.id_user]);
   legacyOk(res, { requires_password_change: false }, 'Password changed successfully');
 }));
 

@@ -6,13 +6,6 @@ import '../../core/constants/api_constants.dart';
 
 class WoProductionRepository {
   final ApiService _apiService = ApiService();
-  final Dio _materialService = Dio(
-    BaseOptions(
-      baseUrl: ApiConstants.materialBaseUrl,
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 20),
-    ),
-  );
 
   dynamic _decodeMaybeJson(dynamic raw) {
     if (raw is String) {
@@ -282,7 +275,7 @@ class WoProductionRepository {
         final filename = normalized.split(RegExp(r'[\\/]')).last;
         formData.files.add(
           MapEntry(
-            'service_photos[]',
+            'service_photos',
             await MultipartFile.fromFile(normalized, filename: filename),
           ),
         );
@@ -418,8 +411,8 @@ class WoProductionRepository {
   }) async {
     try {
       final queryParams = {
-        if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
-        if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+        if (dateFrom != null && dateFrom.isNotEmpty) 'start_date': dateFrom,
+        if (dateTo != null && dateTo.isNotEmpty) 'end_date': dateTo,
         if (company != null && company.isNotEmpty) 'company': company,
       };
 
@@ -465,21 +458,6 @@ class WoProductionRepository {
     final collected = <String>[];
 
     try {
-      final response = await _materialService.get(
-        '/getMaterial/',
-        queryParameters: {'term': query},
-      );
-
-      if (response.statusCode == 200) {
-        collected.addAll(_extractSuggestions(response.data));
-      }
-    } catch (_) {}
-
-    if (collected.isNotEmpty) {
-      return collected.toSet().toList();
-    }
-
-    try {
       final response = await _apiService.get(
         ApiConstants.materialSuggestionWoOperational,
         queryParameters: {'term': query},
@@ -497,21 +475,6 @@ class WoProductionRepository {
     if (part.isEmpty) {
       return null;
     }
-
-    try {
-      final response = await _materialService.post(
-        '/getMaterialDetails/',
-        data: {'part': part},
-        options: Options(contentType: Headers.formUrlEncodedContentType),
-      );
-
-      if (response.statusCode == 200) {
-        final uom = _extractUom(response.data);
-        if (uom != null && uom.isNotEmpty) {
-          return uom;
-        }
-      }
-    } catch (_) {}
 
     try {
       final response = await _apiService.post(

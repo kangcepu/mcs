@@ -1,16 +1,108 @@
 import { Router } from 'express';
 import { authenticate, requirePermission } from '../auth.js';
-import { execute, one, rows, transaction } from '../db.js';
-import { asyncHandler, HttpError, ok, created } from '../http.js';
+import { asyncHandler, HttpError, ok } from '../http.js';
+import {
+  calendar,
+  fillMissingDetailDivisions,
+  getDetail,
+  getList,
+  save,
+  setPause,
+} from '../lib/preventive-schedule-crud.js';
+import {
+  generateScheduleNow,
+  getAssetCustomDetailScheduleRows,
+  rebuildScheduleDetailsFromCustomDetails,
+  removeSchedule,
+} from '../lib/preventive-schedule.js';
 import type { AuthRequest } from '../types.js';
 
 export const scheduleRouter = Router();
-scheduleRouter.get('/preventive-schedules', authenticate, asyncHandler(async (_req, res) => ok(res, await rows(`SELECT h.*,a.AssetName,COUNT(d.id) detail_count FROM tb_schedule_header h LEFT JOIN asset a ON a.AssetID=h.AssetID LEFT JOIN tbl_schedules_detail d ON d.tbl_schedules_id=h.id GROUP BY h.id ORDER BY h.id DESC`))));
-scheduleRouter.post('/preventive-schedules', authenticate, requirePermission('schedule'), asyncHandler(async (req, res) => { const b=req.body; const code=b.asset_code??b.AssetCode; if(!code)throw new HttpError(400,'asset_code is required'); const a=await one<Record<string,unknown>>('SELECT AssetID,AssetCode,CompanyName FROM asset WHERE AssetCode=?',[code]); if(!a)throw new HttpError(404,'Asset not found'); const r=await execute('INSERT INTO tb_schedule_header (AssetID,AssetCode,CompanyName,towo,is_schedule_check,type_schedule,choose_day) VALUES (?,?,?,?,?,?,?)',[a.AssetID,a.AssetCode,a.CompanyName,b.towo??'MTC',Number(b.is_schedule_check??1),b.type_schedule??b.period??'monthly',b.choose_day??null]);created(res,{id:r.insertId},'Preventive schedule created'); }));
-scheduleRouter.get('/preventive-schedules/detail', authenticate, asyncHandler(async(req,res)=>{const id=req.query.id;if(!id)throw new HttpError(400,'id is required');const s=await one('SELECT h.*,a.AssetName FROM tb_schedule_header h LEFT JOIN asset a ON a.AssetID=h.AssetID WHERE h.id=?',[id]);if(!s)throw new HttpError(404,'Schedule not found');ok(res,{...(s as object),details:await rows('SELECT * FROM tbl_schedules_detail WHERE tbl_schedules_id=? ORDER BY id',[id])});}));
-scheduleRouter.patch('/preventive-schedules/detail',authenticate,requirePermission('schedule'),asyncHandler(async(req,res)=>{const {id,...b}=req.body;if(!id)throw new HttpError(400,'id is required');const allowed=['AssetID','AssetCode','CompanyName','towo','is_schedule_check','type_schedule','choose_day'];const keys=Object.keys(b).filter(k=>allowed.includes(k));if(!keys.length)throw new HttpError(400,'No changes provided');await execute(`UPDATE tb_schedule_header SET ${keys.map(k=>`\`${k}\`=?`).join(',')} WHERE id=?`,[...keys.map(k=>b[k]),id]);ok(res,null,'Schedule updated');}));
-scheduleRouter.delete('/preventive-schedules/detail',authenticate,requirePermission('schedule'),asyncHandler(async(req,res)=>{const id=req.body.id??req.query.id;if(!id)throw new HttpError(400,'id is required');await transaction(async c=>{await c.execute('DELETE FROM tbl_schedules_detail WHERE tbl_schedules_id=?',[id] as never);await c.execute('DELETE FROM tb_schedule_header WHERE id=?',[id] as never);});ok(res,null,'Schedule deleted');}));
-scheduleRouter.post('/preventive-schedules/pause',authenticate,requirePermission('schedule'),asyncHandler(async(req,res)=>{const id=req.body.detail_id??req.body.id;if(!id)throw new HttpError(400,'detail_id is required');await execute('UPDATE tbl_schedules_detail SET is_pause=?,last_update=NOW() WHERE id=?',[req.body.is_pause?'1':'0',id]);ok(res,{id,is_pause:Boolean(req.body.is_pause)},'Schedule pause state updated');}));
-scheduleRouter.get('/preventive-schedules/calendar',authenticate,asyncHandler(async(req,res)=>ok(res,await rows('SELECT * FROM tb_work_calendar WHERE date BETWEEN ? AND ? ORDER BY date',[req.query.start??new Date().toISOString().slice(0,10),req.query.end??new Date(Date.now()+31*86400000).toISOString().slice(0,10)]))));
-scheduleRouter.get('/preventive-schedules/custom-detail-rows',authenticate,asyncHandler(async(req,res)=>{const code=req.query.asset_code??req.query.AssetCode;if(!code)throw new HttpError(400,'asset_code is required');ok(res,await rows('SELECT * FROM asset_custom_details WHERE asset_code=? ORDER BY row_order,id',[code]));}));
-scheduleRouter.post('/preventive-schedules/generate',authenticate,requirePermission('schedule'),asyncHandler(async(req,res)=>{const id=req.body.schedule_id??req.body.id;if(!id)throw new HttpError(400,'schedule_id is required');const s=await one<Record<string,unknown>>('SELECT * FROM tb_schedule_header WHERE id=?',[id]);if(!s)throw new HttpError(404,'Schedule not found');const user=(req as AuthRequest).user!;const number=await transaction(async c=>{const date=new Date();const prefix=`WOPR-${String(date.getMonth()+1).padStart(2,'0')}${date.getFullYear()}/${user.division_code??user.id_division}`;const [raw]=await c.query('SELECT MAX(CAST(RIGHT(wo_number,4) AS UNSIGNED)) seq FROM tb_wo_mtc_operational WHERE wo_number LIKE ?',[`${prefix}/%`]);const seq=(raw as Array<{seq:number|null}>)[0]?.seq??0;const wo=`${prefix}/${String(Number(seq)+1).padStart(4,'0')}`;await c.execute('INSERT INTO tb_wo_mtc_operational (wo_number,date,company,type_wo,priority,id_division,id_equipment,job_title,job_executor,status,pic,creator,created_at) VALUES (?,CURDATE(),?,"PREVENTIVE","NORMAL",?,?,"PREVENTIVE MAINTENANCE","MTC","IN_PROGRESS_EXECUTOR","MTC",?,NOW())',[wo,s.CompanyName??user.company_name??'',user.id_division,s.AssetID,user.fullname] as never);await c.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,"MTC","IN_PROGRESS",NOW())',[wo] as never);return wo;});created(res,{schedule_id:id,wo_number:number},'Preventive work order generated');}));
+
+const canRead = requirePermission('schedule', 'work_calendar');
+const canManage = requirePermission('schedule');
+
+scheduleRouter.get('/preventive-schedules', authenticate, canRead, asyncHandler(async (req, res) => {
+  const result = await getList({
+    q: req.query.q as string, company: req.query.company as string, towo: req.query.towo as string,
+    page: req.query.page as string, per_page: req.query.per_page as string,
+  });
+  ok(res, result.data, 'OK', result.meta);
+}));
+
+scheduleRouter.post('/preventive-schedules', authenticate, canManage, asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const result = await save(0, req.body, user);
+  if (!result.ok) throw new HttpError(422, result.message ?? 'Failed to create schedule', 'SCHEDULE_CREATE_FAILED');
+
+  const newId = Number((result.data?.header as Record<string, unknown> | undefined)?.id ?? 0);
+  const generated = newId > 0 ? await generateScheduleNow(newId) : [];
+  ok(res, { ...result.data, generated_work_orders: generated }, generated.length ? 'Preventive schedule dan WO awal dibuat' : 'Preventive schedule created');
+}));
+
+scheduleRouter.post('/preventive-schedules/generate', authenticate, canManage, asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const id = Number(req.body.id ?? req.body.schedule_id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id is required', 'SCHEDULE_ID_REQUIRED');
+  if (!(await getDetail(id))) throw new HttpError(404, 'Schedule not found', 'SCHEDULE_NOT_FOUND');
+
+  const repair = await fillMissingDetailDivisions(id, user);
+  if (!repair.ok) throw new HttpError(422, repair.message ?? 'Schedule division could not be repaired', 'SCHEDULE_DIVISION_REQUIRED');
+
+  const generated = await generateScheduleNow(id);
+  ok(res, { schedule_id: id, repaired_detail_divisions: repair.updated ?? 0, generated_work_orders: generated },
+    generated.length ? 'WO awal preventive berhasil dibuat' : 'Tidak ada WO yang dapat dibuat hari ini.');
+}));
+
+scheduleRouter.get('/preventive-schedules/detail', authenticate, canRead, asyncHandler(async (req, res) => {
+  const id = Number(req.query.id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id is required', 'SCHEDULE_ID_REQUIRED');
+  const data = await getDetail(id);
+  if (!data) throw new HttpError(404, 'Schedule not found', 'SCHEDULE_NOT_FOUND');
+  ok(res, data);
+}));
+
+scheduleRouter.patch('/preventive-schedules/detail', authenticate, canManage, asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const id = Number(req.query.id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id is required', 'SCHEDULE_ID_REQUIRED');
+  const result = await save(id, req.body, user);
+  if (!result.ok) throw new HttpError(result.not_found ? 404 : 422, result.message ?? 'Failed to update schedule', 'SCHEDULE_UPDATE_FAILED');
+  ok(res, result.data, 'Preventive schedule updated');
+}));
+
+scheduleRouter.delete('/preventive-schedules/detail', authenticate, canManage, asyncHandler(async (req, res) => {
+  const id = Number(req.query.id ?? req.body.id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id is required', 'SCHEDULE_ID_REQUIRED');
+  if (!(await getDetail(id))) throw new HttpError(404, 'Schedule not found', 'SCHEDULE_NOT_FOUND');
+  if (!(await removeSchedule(id))) throw new HttpError(422, 'Failed to remove schedule', 'SCHEDULE_DELETE_FAILED');
+  ok(res, { id }, 'Preventive schedule removed');
+}));
+
+scheduleRouter.post('/preventive-schedules/pause', authenticate, canManage, asyncHandler(async (req, res) => {
+  const detailId = Number(req.body.detail_id ?? req.body.id ?? 0);
+  const paused = 'pause' in req.body ? Boolean(req.body.pause) : Boolean(req.body.paused);
+  const result = await setPause(detailId, paused);
+  if (!result.ok) throw new HttpError(result.not_found ? 404 : 422, result.message ?? 'Failed to update schedule detail', 'SCHEDULE_PAUSE_FAILED');
+  ok(res, result.data, 'Schedule detail updated');
+}));
+
+scheduleRouter.post('/preventive-schedules/repair', authenticate, canManage, asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const id = Number(req.body.id ?? req.body.schedule_id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id is required', 'SCHEDULE_ID_REQUIRED');
+  const result = await rebuildScheduleDetailsFromCustomDetails(id, String(user.fullname ?? user.username ?? 'api v2'));
+  if (!result.success) throw new HttpError(422, result.message ?? 'Schedule repair failed', 'SCHEDULE_REPAIR_FAILED');
+  ok(res, { repair: result, schedule: await getDetail(id) }, 'Schedule repaired');
+}));
+
+scheduleRouter.get('/preventive-schedules/calendar', authenticate, canRead, asyncHandler(async (req, res) => {
+  ok(res, await calendar(req.query.year));
+}));
+
+scheduleRouter.get('/preventive-schedules/custom-detail-rows', authenticate, canRead, asyncHandler(async (req, res) => {
+  const assetCode = String(req.query.asset_code ?? req.query.asset ?? '').trim();
+  if (!assetCode) throw new HttpError(422, 'asset_code is required', 'ASSET_CODE_REQUIRED');
+  const rows = await getAssetCustomDetailScheduleRows(assetCode);
+  ok(res, { asset_code: assetCode, total: rows.length, rows });
+}));

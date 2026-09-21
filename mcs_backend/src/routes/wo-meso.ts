@@ -7,6 +7,7 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { getObjectStream, saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const mesoRouter = Router();
@@ -16,16 +17,6 @@ const PART_EXECUTION_DOCS_DIR = path.join(config.uploadDir, 'wo_mtc_part_executi
 fs.mkdirSync(MTC_DOCS_DIR, { recursive: true });
 fs.mkdirSync(PART_EXECUTION_DOCS_DIR, { recursive: true });
 
-function diskStorage(dir: string) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, dir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
-    },
-  });
-}
-
 function extensionFilter(allowed: string[]) {
   return (_req: unknown, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const ext = path.extname(file.originalname).slice(1).toLowerCase();
@@ -33,9 +24,9 @@ function extensionFilter(allowed: string[]) {
   };
 }
 
-const attachmentUpload = multer({ storage: diskStorage(MTC_DOCS_DIR), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi']) });
-const partExecutionMediaUpload = multer({ storage: diskStorage(PART_EXECUTION_DOCS_DIR), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
-const servicePhotoUpload = multer({ storage: diskStorage(MTC_DOCS_DIR), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi']) });
+const partExecutionMediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
@@ -222,8 +213,9 @@ async function saveLaborFromJobUpdate(woNumber: string, jobExecutor: string, bod
   return pics.length;
 }
 
-async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unit: string, jobExecutor: string, user: User): Promise<void> {
+async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unitInput: string | null, jobExecutor: string, user: User): Promise<void> {
   if (!woNumber || !material || qty <= 0) return;
+  const unit = unitInput?.trim() || 'PCS';
   const executor = jobExecutor || '-';
   const existingUsage = await one<{ id: number; request_code: string }>(
     "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
@@ -263,27 +255,26 @@ async function syncMaterialRequestFromMobile(woNumber: string, material: string,
   );
 }
 
-function decodeBase64Attachments(input: unknown, prefix: string): string[] {
+async function decodeBase64Attachments(input: unknown, prefix: string): Promise<string[]> {
   if (!Array.isArray(input)) return [];
   const saved: string[] = [];
-  input.forEach((item, index) => {
-    if (!item || typeof item !== 'object') return;
+  for (const [index, item] of input.entries()) {
+    if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
     const base64 = String(record.base64 ?? '');
     const filename = String(record.filename ?? `file-${index}`);
     const match = base64.match(/^data:([^;]+);base64,(.+)$/);
     const raw = match ? match[2] : base64;
-    if (!raw) return;
+    if (!raw) continue;
     const ext = path.extname(filename) || '.bin';
     const safeName = `${prefix}-${index}${ext}`;
-    fs.writeFileSync(path.join(MTC_DOCS_DIR, safeName), Buffer.from(raw, 'base64'));
-    saved.push(`wo_mtc/${safeName}`);
-  });
+    const contentType = match ? match[1] : undefined;
+    saved.push(await saveUploadedFile(Buffer.from(raw, 'base64'), 'wo_mtc', safeName, contentType));
+  }
   return saved;
 }
 
-mesoRouter.use(authenticate);
-mesoRouter.use((req, res, next) => {
+mesoRouter.use('/meso', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
@@ -466,7 +457,7 @@ mesoRouter.post('/meso/create', asyncHandler(async (req, res) => {
   const woNumber = b.wo_number ? String(b.wo_number) : await generateWoNumber(divisionCode);
   const idEquipment = String(b.id_equipment ?? '').split('|')[0].trim() || null;
   const safePrefix = woNumber.replace(/[-/\\ ]/g, '').replace(/[^a-zA-Z0-9_]/g, '') || 'WO';
-  const attachments = decodeBase64Attachments(b.attachments, safePrefix);
+  const attachments = await decodeBase64Attachments(b.attachments, safePrefix);
 
   await execute(
     `INSERT INTO tb_wo_mtc (wo_number, date, company, shift, type_wo, priority, id_division, id_equipment, job_title, running_hours, job_requirement, attachment, job_executor, status, pic, creator, created_at)
@@ -488,7 +479,7 @@ mesoRouter.post('/meso/update', asyncHandler(async (req, res) => {
 
   const existingAttachments = String(header.attachment ?? '').split(',').filter(Boolean);
   const safePrefix = woNumber.replace(/[-/\\ ]/g, '').replace(/[^a-zA-Z0-9_]/g, '') || 'WO';
-  const newAttachments = decodeBase64Attachments(b.attachments, `${safePrefix}-${existingAttachments.length}`);
+  const newAttachments = await decodeBase64Attachments(b.attachments, `${safePrefix}-${existingAttachments.length}`);
 
   const fields: Record<string, unknown> = {};
   for (const key of ['date', 'company', 'shift', 'type_wo', 'priority', 'job_title', 'running_hours', 'job_requirement']) {
@@ -554,11 +545,11 @@ mesoRouter.post('/meso/upload_attachment', attachmentUpload.single('file'), asyn
   const header = await one<{ attachment: string | null }>('SELECT attachment FROM tb_wo_mtc WHERE wo_number=?', [woNumber]);
   if (!header) throw new HttpError(404, 'Work Order not found');
 
-  const relativePath = path.relative(config.uploadDir, req.file.path).replaceAll('\\', '/');
+  const relativePath = await saveUploadedFile(req.file.buffer, 'wo_mtc', req.file.originalname, req.file.mimetype);
   const existing = String(header.attachment ?? '').split(',').filter(Boolean);
   await execute('UPDATE tb_wo_mtc SET attachment=? WHERE wo_number=?', [[...existing, relativePath].join(','), woNumber]);
 
-  legacyOk(res, { filename: req.file.filename, url: `/uploads/${relativePath}` }, 'File uploaded successfully');
+  legacyOk(res, { filename: path.basename(relativePath), url: `/uploads/${relativePath}` }, 'File uploaded successfully');
 }));
 
 mesoRouter.get('/meso/open_attachment', asyncHandler(async (req, res) => {
@@ -567,6 +558,13 @@ mesoRouter.get('/meso/open_attachment', asyncHandler(async (req, res) => {
   const candidates = [path.join(MTC_DOCS_DIR, filename), path.join(config.uploadDir, filename)];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) { res.sendFile(path.resolve(candidate)); return; }
+  }
+  const object = await getObjectStream(`wo_mtc/${filename}`);
+  if (object) {
+    res.setHeader('Content-Type', object.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    object.stream.pipe(res);
+    return;
   }
   throw new HttpError(404, 'File not found');
 }));
@@ -677,7 +675,8 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
   const status = String(req.body.status ?? 'IN_PROGRESS');
   if (status !== 'IN_PROGRESS' && status !== 'COMPLETE') throw new HttpError(400, 'status must be IN_PROGRESS or COMPLETE');
   const jobExplanation = String(req.body.job_explanation ?? '');
-  const isExternal = req.body.is_external ? '1' : '0';
+  const isExternalRaw = req.body.is_external;
+  const isExternal = (String(isExternalRaw ?? '') === '1' || Number(isExternalRaw) === 1) ? '1' : '0';
 
   const header = (await getWoDetail(woNumber, user)) ?? (await getHeader(woNumber));
   if (!header) throw new HttpError(404, 'Work Order not found');
@@ -705,10 +704,13 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
   if (isExternal === '1' && !currentExecutorString.includes(',EKS')) nextExecutorString = `${currentExecutorString},EKS`;
   if (isExternal === '0') nextExecutorString = currentExecutorString.replace(',EKS', '');
 
+  const uploaded = await Promise.all(files.map(async (file) => ({
+    file, relativePath: await saveUploadedFile(file.buffer, 'wo_mtc', file.originalname, file.mimetype),
+  })));
+
   await transaction(async (connection) => {
     await connection.execute('UPDATE tb_wo_mtc SET is_external=?, job_executor=?, updated_at=NOW() WHERE wo_number=?', [isExternal, nextExecutorString, woNumber]);
-    for (const file of files) {
-      const relativePath = path.relative(config.uploadDir, file.path).replaceAll('\\', '/');
+    for (const { file, relativePath } of uploaded) {
       await connection.execute(
         'INSERT INTO tb_wo_service_evidence (wo_number, executor_id, module_code, file_name, file_path, file_ext, file_size_kb, mime_type, source, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,NOW(),?)',
         [woNumber, executor!.id, 'MTC', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
@@ -738,7 +740,11 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
     await transaction(async (connection) => {
       await connection.execute('INSERT INTO tb_approval (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
         [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, jobExplanation]);
-      if (position === 'EXECUTOR_ADMIN') {
+      if (position === 'DIVHEAD') {
+        await connection.execute("UPDATE tb_wo_mtc SET status='WAIT_KA_DEPT_MESO', pic='MESO', job_explanation=?, updated_at=NOW() WHERE wo_number=?", [jobExplanation, woNumber]);
+      } else if (position === 'DEPTHEAD') {
+        await connection.execute("UPDATE tb_wo_mtc SET status='WAIT_EXECUTOR_ADMIN', pic=?, job_explanation=?, updated_at=NOW() WHERE wo_number=?", [header.job_executor ?? '', jobExplanation, woNumber] as never);
+      } else if (position === 'EXECUTOR_ADMIN') {
         const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
         await connection.execute("UPDATE tb_wo_mtc SET status='COMPLETE_EXECUTOR', pic=?, job_explanation=?, updated_at=NOW() WHERE wo_number=?", [divisionRow?.division_code ?? '', jobExplanation, woNumber]);
       } else {
@@ -770,8 +776,8 @@ mesoRouter.post('/meso/labor', asyncHandler(async (req, res) => {
   const trades = [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
   if (!trades.length) throw new HttpError(400, 'PIC wajib dipilih');
   if (trades.length > 10) throw new HttpError(400, 'Maksimal 10 PIC');
-  const men = String(req.body.men ?? '1');
-  const hours = String(req.body.hours ?? '1');
+  const men = req.body.men != null ? String(req.body.men) : null;
+  const hours = req.body.hours != null ? String(req.body.hours) : null;
   const jobExecutor = String(user.division_code ?? '');
 
   await transaction(async (connection) => {
@@ -791,6 +797,47 @@ mesoRouter.delete('/meso/labor', asyncHandler(async (req, res) => {
   legacyOk(res, null, 'Labor removed successfully');
 }));
 
+mesoRouter.post('/meso/update_executor', asyncHandler(async (req, res) => {
+  const b = req.body;
+  const id = b.id;
+  const woNumber = String(b.wo_number ?? '');
+  if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  if (['CLOSED', 'VOID', 'NEED_CLOSED'].includes(String(header.status))) throw new HttpError(409, 'WO sudah selesai dan tidak dapat diperbarui.');
+  const fields: Record<string, unknown> = {};
+  if (b.job_executor !== undefined) fields.job_executor = b.job_executor;
+  if (b.status !== undefined) fields.status = b.status;
+  const keys = Object.keys(fields);
+  if (!keys.length) throw new HttpError(400, 'No changes provided');
+  await execute(`UPDATE tb_job_executor SET ${keys.map((k) => `\`${k}\`=?`).join(',')} WHERE id=? AND wo_number=?`, [...keys.map((k) => fields[k]), id, woNumber] as never);
+  legacyOk(res, { id }, 'Executor updated successfully');
+}));
+
+mesoRouter.delete('/meso/delete_executor', asyncHandler(async (req, res) => {
+  const id = req.query.id ?? req.body.id;
+  if (!id) throw new HttpError(400, 'id is required');
+  await execute('DELETE FROM tb_job_executor WHERE id=?', [id]);
+  legacyOk(res, null, 'Executor removed successfully');
+}));
+
+mesoRouter.post('/meso/reject', asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? '');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const person = personPayload(user);
+
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_mtc SET status='REJECT' WHERE wo_number=?", [woNumber]);
+    await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [woNumber]);
+  });
+
+  legacyOk(res, { wo_number: woNumber, status: 'REJECT' }, 'WO rejected successfully');
+}));
+
 mesoRouter.get('/meso/material', asyncHandler(async (req, res) => {
   const woNumber = String(req.query.wo_number ?? '');
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
@@ -802,8 +849,8 @@ mesoRouter.post('/meso/material', asyncHandler(async (req, res) => {
   const woNumber = String(req.body.wo_number ?? '');
   const material = String(req.body.material ?? req.body.material_name ?? '');
   const qty = Number(req.body.qty ?? req.body.quantity ?? 0);
-  const unit = String(req.body.unit ?? 'PCS');
-  const pr = String(req.body.pr ?? '');
+  const unit = req.body.unit != null ? String(req.body.unit) : 'PCS';
+  const pr = req.body.pr != null ? String(req.body.pr) : null;
   if (!woNumber || !material || qty <= 0) throw new HttpError(400, 'wo_number, material and qty are required');
   const jobExecutor = String(user.division_code ?? '');
 
@@ -857,14 +904,9 @@ function normalizeMaterialRequestRows(raw: unknown): MaterialRequestRow[] {
   return [...merged.values()];
 }
 
-mesoRouter.post('/meso/material_request', asyncHandler(async (req, res) => {
-  const user = (req as AuthRequest).user!;
-  const woNumber = String(req.body.wo_number ?? '');
-  if (!woNumber) throw new HttpError(400, 'wo_number is required');
-  const normalized = normalizeMaterialRequestRows(req.body.materials);
-  if (!normalized.length) throw new HttpError(400, 'No valid material request items were provided');
+async function requestMaterialBatch(woNumber: string, divisionCode: string, user: User, normalized: MaterialRequestRow[]): Promise<void> {
+  if (!normalized.length) return;
 
-  const divisionCode = String(user.division_code ?? '');
   const existingUsage = await one<{ id: number; request_code: string }>(
     "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
     [woNumber, divisionCode],
@@ -873,35 +915,42 @@ mesoRouter.post('/meso/material_request', asyncHandler(async (req, res) => {
   if (existingUsage) {
     const signature = JSON.stringify(normalized.map((r) => [r.level, r.part, r.uom, r.qty]).sort());
     const existingRows = await rows<Record<string, unknown>>(
-      'SELECT level, part, uom_request, material_request FROM tb_material_request WHERE wo_number=? AND request_code=?',
+      'SELECT level, part, uom_request, material_request FROM tb_material_request WHERE wo_number=? AND request_code=? ORDER BY id ASC',
       [woNumber, existingUsage.request_code],
     );
     const existingSignature = JSON.stringify(existingRows.map((r) => [r.level, r.part, r.uom_request, Number(r.material_request)]).sort());
-    if (signature === existingSignature) { legacyOk(res, { wo_number: woNumber }, 'Material request submitted'); return; }
+    if (signature === existingSignature) return;
   }
 
   const header = await getHeader(woNumber);
   if (!header) throw new HttpError(404, 'Work Order not found');
   const person = personPayload(user);
-  const requestCode = existingUsage?.request_code ?? randomCode(10);
+  const requestCode = randomCode(10);
 
   await transaction(async (connection) => {
-    if (!existingUsage) {
-      await connection.execute(
-        'INSERT INTO tb_material_usage (wo_number, date, id_equipment, company, job_title, type_wo, id_division, job_executor, status, request_code, created_at) VALUES (?,CURDATE(),?,?,?,?,?,?,?,?,NOW())',
-        [woNumber, header.id_equipment, header.company, header.job_title, header.type_wo, header.id_division, divisionCode, 'OPEN', requestCode] as never,
-      );
-      await connection.execute("UPDATE tb_wo_mtc SET status='WAITING_PARTS', pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
-      await connection.execute("UPDATE tb_job_executor SET status='IN_PROGRESS' WHERE wo_number=? AND job_executor=?", [woNumber, divisionCode]);
-      await connection.execute('INSERT INTO tb_approval (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
-        [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, 'Excecutor Request Material.']);
-    }
+    await connection.execute(
+      'INSERT INTO tb_material_usage (wo_number, date, id_equipment, company, job_title, type_wo, id_division, job_executor, status, request_code, created_at) VALUES (?,CURDATE(),?,?,?,?,?,?,?,?,NOW())',
+      [woNumber, header.id_equipment, header.company, header.job_title, header.type_wo, header.id_division, divisionCode, 'OPEN', requestCode] as never,
+    );
+    await connection.execute("UPDATE tb_wo_mtc SET status='WAITING_PARTS', pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+    await connection.execute("UPDATE tb_job_executor SET status='IN_PROGRESS' WHERE wo_number=? AND job_executor=?", [woNumber, divisionCode]);
+    await connection.execute('INSERT INTO tb_approval (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, 'Excecutor Request Material.']);
     for (const row of normalized) {
       await connection.execute('INSERT INTO tb_material_request (wo_number, level, part, material_request, uom_request, job_executor, request_code, date) VALUES (?,?,?,?,?,?,?,NOW())',
         [woNumber, row.level, row.part, String(row.qty), row.uom, divisionCode, requestCode]);
     }
   });
+}
 
+mesoRouter.post('/meso/material_request', asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const normalized = normalizeMaterialRequestRows(req.body.materials);
+  if (!normalized.length) throw new HttpError(400, 'No valid material request items were provided');
+
+  await requestMaterialBatch(woNumber, String(user.division_code ?? ''), user, normalized);
   legacyOk(res, { wo_number: woNumber }, 'Material request submitted');
 }));
 
@@ -980,7 +1029,7 @@ mesoRouter.post('/meso/part_execution', asyncHandler(async (req, res) => {
   const assetCode = String(header.AssetCode ?? '');
   const definitions = await getPreventivePartDefinitions(woNumber, assetCode);
   const whitelist = new Map(definitions.map((d) => [partKey(d.custom_detail_id, d.part_mesin), d]));
-  const requestRows: { part: string; qty: number }[] = [];
+  const requestRows: Record<string, unknown>[] = [];
 
   await transaction(async (connection) => {
     for (const row of rowsInput as Record<string, unknown>[]) {
@@ -1014,15 +1063,13 @@ mesoRouter.post('/meso/part_execution', asyncHandler(async (req, res) => {
         );
       }
 
-      if (requestQty > 0 && requestPart) requestRows.push({ part: requestPart, qty: requestQty });
+      if (requestQty > 0 && requestPart) requestRows.push({ level: 'part_execution', part: requestPart, material_request: requestQty, uom: requestUom });
     }
   });
 
   if (requestRows.length) {
-    const merged = new Map<string, number>();
-    for (const r of requestRows) merged.set(r.part, (merged.get(r.part) ?? 0) + r.qty);
-    const divisionCode = String(user.division_code ?? '');
-    for (const [part, qty] of merged) await syncMaterialRequestFromMobile(woNumber, part, qty, 'PCS', divisionCode, user);
+    const normalized = normalizeMaterialRequestRows(requestRows);
+    await requestMaterialBatch(woNumber, String(user.division_code ?? ''), user, normalized);
   }
 
   legacyOk(res, null, 'Part execution updated');
@@ -1038,7 +1085,7 @@ mesoRouter.post('/meso/part_execution_media', partExecutionMediaUpload.single('m
 
   const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
   const mediaType = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) ? 'video' : 'image';
-  const relativePath = path.relative(config.uploadDir, req.file.path).replaceAll('\\', '/');
+  const relativePath = await saveUploadedFile(req.file.buffer, 'wo_mtc_part_execution', req.file.originalname, req.file.mimetype);
 
   const result = await execute(
     'INSERT INTO tb_wo_mtc_part_execution_media (wo_number, custom_detail_id, part_mesin, media_type, media_name, media_path, created_by, created_at) VALUES (?,?,?,?,?,?,?,NOW())',

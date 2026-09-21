@@ -20,6 +20,22 @@ export const config = {
     user: process.env.DB_USER ?? 'root',
     password: process.env.DB_PASSWORD ?? '',
   },
+  scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '0 * * * *',
+  preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
+  legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),
+  firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '',
+  erpMssql: {
+    host: process.env.ERP_MSSQL_HOST ?? '192.168.10.100',
+    user: process.env.ERP_MSSQL_USER ?? 'sa',
+    password: process.env.ERP_MSSQL_PASSWORD ?? '',
+    port: integer('ERP_MSSQL_PORT', 1433),
+    databases: {
+      UC: process.env.ERP_MSSQL_DB_UC ?? 'AS_UC_2017',
+      RU: process.env.ERP_MSSQL_DB_RU ?? 'AS_RU',
+      GSU: process.env.ERP_MSSQL_DB_GSU ?? 'AS_GSU',
+      GSU_TEST5: process.env.ERP_MSSQL_DB_GSU_TEST5 ?? 'AS_GSU_TEST5',
+    },
+  },
   employeeApi: {
     baseUrl: process.env.EMP_API_BASE_URL ?? 'https://emp.padmoasm.com',
     token: process.env.EMP_API_TOKEN ?? '',

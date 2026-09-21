@@ -30,9 +30,39 @@ class ApiConstants {
 
   static const String avatarPath = '/assets/img/profile/';
 
+  /// Avatar lama (sebelum migrasi) cuma nama file, disajikan dari web
+  /// legacy. Avatar baru (upload lewat backend baru) berupa path relatif
+  /// (mis. `uploads/avatars/xxx.jpg`) — disajikan dari origin API baru.
   static String getAvatarUrl(String? filename) {
     if (filename == null || filename.isEmpty) return '';
+    if (filename.contains('/')) return mediaUrl(filename);
     return '$webBaseUrl$avatarPath$filename';
+  }
+
+  /// `baseUrl` tanpa akhiran `/api` — sama seperti hubungan
+  /// `MCS_BASE_URL_LOCAL` ke `MCS_WEB_BASE_URL_LOCAL` di `.env` (beda cuma di
+  /// akhiran `/api`). Dipakai buat nyusun URL absolut dari path relatif yang
+  /// backend kembalikan (mis. `/uploads/...`), dan tetap menjaga prefix app
+  /// legacy (mis. `/mcs`) kalau `baseUrl` masih menunjuk ke server lama.
+  static String get apiOrigin {
+    final trimmed = baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    return trimmed.isEmpty ? baseUrl : trimmed;
+  }
+
+  /// Backend mengembalikan path relatif (mis. `/uploads/wo_ga/xxx.jpg`) yang
+  /// disajikan dari origin API yang sama (baik dari disk lokal maupun
+  /// proxy MinIO) — bukan dari `webBaseUrl` legacy. URL absolut (http/https)
+  /// dikembalikan apa adanya.
+  static String mediaUrl(String? path) {
+    if (path == null) return '';
+    final value = path.trim();
+    if (value.isEmpty) return '';
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    final origin = apiOrigin;
+    final cleanPath = value.replaceFirst(RegExp(r'^/+'), '');
+    return '$origin/$cleanPath';
   }
 
   static const Duration connectTimeout = Duration(seconds: 30);
@@ -42,170 +72,195 @@ class ApiConstants {
   // Default off to keep Logcat clean; enable when troubleshooting.
   static bool enableHttpLog = false;
 
-  static const String login = '/auth/login';
-  static const String changePassword = '/auth/change_password';
-  static const String validate = '/auth/validate';
-  static const String profile = '/auth/profile';
-  static const String registerDeviceToken = '/auth/register_device_token';
-  static const String unregisterDeviceToken = '/auth/unregister_device_token';
+  // Semua path di bawah ini diarahkan ke kontrak /v2 backend baru
+  // (mcs_backend). authRouter juga tersedia di /v2 selain di /api bare,
+  // jadi auth ikut dipindah ke /v2 supaya semua modul konsisten satu skema.
+  static const String login = '/v2/auth/login';
+  static const String changePassword = '/v2/auth/change_password';
+  static const String validate = '/v2/auth/validate';
+  static const String profile = '/v2/auth/profile';
+  static const String registerDeviceToken = '/v2/auth/register_device_token';
+  static const String unregisterDeviceToken =
+      '/v2/auth/unregister_device_token';
 
-  static const String woStatuses = '/master/wostatuses';
-  static const String woTypes = '/master/wotypes';
-  static const String priorities = '/master/priorities';
-  static const String companies = '/master/companies';
-  static const String divisions = '/master/divisions';
-  static const String sections = '/master/sections';
-  static const String assets = '/master/assets';
-  static const String assetDetail = '/master/asset_detail';
-  static const String assetMutations = '/master/asset_mutations';
-  static const String assetMutationMeta = '/asset_mutation/meta';
-  static const String assetMutationAssets = '/asset_mutation/assets';
-  static const String assetMutationRequests = '/asset_mutation/requests';
+  static const String woStatuses = '/v2/master/wotypes';
+  static const String woTypes = '/v2/master/wotypes';
+  static const String priorities = '/v2/master/priorities';
+  static const String companies = '/v2/master/companies';
+  static const String divisions = '/v2/master/divisions';
+  static const String sections = '/v2/master/sections';
+  static const String assets = '/v2/assets';
+  static const String assetDetail = '/v2/assets/detail';
+  static const String assetMutations = '/v2/assets';
+  static const String assetMutationMeta = '/v2/asset-mutations/meta';
+  static const String assetMutationAssets = '/v2/asset-mutations/assets';
+  static const String assetMutationRequests = '/v2/asset-mutations';
   static const String assetMutationRequestDetail =
-      '/asset_mutation/request_detail';
-  static const String assetMutationAddDetail = '/asset_mutation/detail';
+      '/v2/asset-mutations/detail';
+  static const String assetMutationAddDetail =
+      '/v2/asset-mutations/detail-item';
   static const String assetMutationDeleteDetail =
-      '/asset_mutation/detail_delete';
-  static const String assetMutationSubmit = '/asset_mutation/submit';
-  static const String assetMutationApprove = '/asset_mutation/approve';
+      '/v2/asset-mutations/detail-item-delete';
+  static const String assetMutationSubmit = '/v2/asset-mutations/submit';
+  static const String assetMutationApprove = '/v2/asset-mutations/approve';
 
-  static const String createWo = '/wo/create';
-  static const String updateWo = '/wo/update';
-  static const String detailWo = '/wo/detail';
-  static const String listWo = '/wo/list';
-  static const String approveWo = '/wo/approve';
-  static const String addJobExplanationWo = '/wo/add_job_explanation';
-  static const String addLaborWo = '/wo/add_labor';
-  static const String addMaterialWo = '/wo/add_material';
-  static const String completeWo = '/wo/complete';
-  static const String closeWo = '/wo/closed';
-  static const String voidWo = '/wo/void';
-  static const String dashboardWo = '/wo/dashboard';
-  static const String myWo = '/wo/my_wo';
-  static const String getNewWo = '/wo/get_new';
+  // Domain IT/IS (dulu '/wo/*' generik, sekarang eksplisit '/v2/is/*').
+  static const String createWo = '/v2/is/create';
+  static const String updateWo = '/v2/is/update';
+  static const String detailWo = '/v2/is/detail';
+  static const String listWo = '/v2/is/list';
+  static const String approveWo = '/v2/is/approve';
+  static const String addJobExplanationWo = '/v2/is/add_job_explanation';
+  static const String addLaborWo = '/v2/is/add_labor';
+  static const String addMaterialWo = '/v2/is/add_material';
+  static const String completeWo = '/v2/is/complete';
+  static const String closeWo = '/v2/is/closed';
+  static const String voidWo = '/v2/is/void';
+  static const String dashboardWo = '/v2/is/dashboard';
+  static const String myWo = '/v2/is/my_wo';
+  static const String getNewWo = '/v2/is/get_new';
+  static const String deleteExecutorWo = '/v2/is/delete_executor';
 
-  static const String createWoGa = '/wo_ga/create';
-  static const String updateWoGa = '/wo_ga/update';
-  static const String detailWoGa = '/wo_ga/detail';
-  static const String listWoGa = '/wo_ga/list';
-  static const String approveWoGa = '/wo_ga/approve';
-  static const String addJobExplanationWoGa = '/wo_ga/add_job_explanation';
-  static const String addLaborWoGa = '/wo_ga/add_labor';
-  static const String addMaterialWoGa = '/wo_ga/add_material';
-  static const String completeWoGa = '/wo_ga/complete';
-  static const String closeWoGa = '/wo_ga/closed';
-  static const String voidWoGa = '/wo_ga/void';
-  static const String dashboardWoGa = '/wo_ga/dashboard';
-  static const String myWoGa = '/wo_ga/my_wo';
-  static const String getNewWoGa = '/wo_ga/get_new';
+  static const String createWoGa = '/v2/ga/create';
+  static const String updateWoGa = '/v2/ga/update';
+  static const String detailWoGa = '/v2/ga/detail';
+  static const String listWoGa = '/v2/ga/list';
+  static const String approveWoGa = '/v2/ga/approve';
+  static const String addJobExplanationWoGa = '/v2/ga/add_job_explanation';
+  static const String addLaborWoGa = '/v2/ga/add_labor';
+  static const String addMaterialWoGa = '/v2/ga/add_material';
+  static const String completeWoGa = '/v2/ga/complete';
+  static const String closeWoGa = '/v2/ga/closed';
+  static const String voidWoGa = '/v2/ga/void';
+  static const String dashboardWoGa = '/v2/ga/dashboard';
+  static const String myWoGa = '/v2/ga/my_wo';
+  static const String getNewWoGa = '/v2/ga/get_new';
+  static const String deleteExecutorWoGa = '/v2/ga/delete_executor';
 
-  static const String createWoProduction = '/wo_production/create';
-  static const String updateWoProduction = '/wo_production/update';
-  static const String detailWoProduction = '/wo_production/detail';
-  static const String listWoProduction = '/wo_production/list';
-  static const String approveWoProduction = '/wo_production/approve';
+  static const String createWoProduction = '/v2/production/create';
+  static const String updateWoProduction = '/v2/production/update';
+  static const String detailWoProduction = '/v2/production/detail';
+  static const String listWoProduction = '/v2/production/list';
+  static const String approveWoProduction = '/v2/production/approve';
   static const String addJobExplanationWoProduction =
-      '/wo_production/add_job_explanation';
-  static const String addLaborWoProduction = '/wo_production/add_labor';
-  static const String addMaterialWoProduction = '/wo_production/add_material';
-  static const String completeWoProduction = '/wo_production/complete';
-  static const String closeWoProduction = '/wo_production/closed';
-  static const String voidWoProduction = '/wo_production/void';
-  static const String dashboardWoProduction = '/wo_production/dashboard';
-  static const String myWoProduction = '/wo_production/my_wo';
+      '/v2/production/add_job_explanation';
+  static const String addLaborWoProduction = '/v2/production/add_labor';
+  static const String addMaterialWoProduction =
+      '/v2/production/add_material';
+  static const String completeWoProduction = '/v2/production/complete';
+  static const String closeWoProduction = '/v2/production/closed';
+  static const String voidWoProduction = '/v2/production/void';
+  static const String dashboardWoProduction = '/v2/production/dashboard';
+  static const String myWoProduction = '/v2/production/my_wo';
+  static const String deleteExecutorWoProduction =
+      '/v2/production/delete_executor';
 
-  static const String listWoMtc = '/wo_mtc/list';
-  static const String pendingWoMtc = '/wo_mtc/pending';
-  static const String approvedWoMtc = '/wo_mtc/approved';
-  static const String rejectedWoMtc = '/wo_mtc/rejected';
-  static const String detailWoMtc = '/wo_mtc/detail';
-  static const String createWoMtc = '/wo_mtc/create';
-  static const String updateWoMtc = '/wo_mtc/update';
-  static const String deleteWoMtc = '/wo_mtc/delete';
-  static const String generateNumberWoMtc = '/wo_mtc/generate_number';
-  static const String dashboardWoMtc = '/wo_mtc/dashboard';
-  static const String uploadAttachmentWoMtc = '/wo_mtc/upload_attachment';
+  // Domain MESO (dulu '/wo_mtc/*', sekarang '/v2/meso/*').
+  static const String listWoMtc = '/v2/meso/list';
+  static const String pendingWoMtc = '/v2/meso/pending';
+  static const String approvedWoMtc = '/v2/meso/approved';
+  static const String rejectedWoMtc = '/v2/meso/rejected';
+  static const String detailWoMtc = '/v2/meso/detail';
+  static const String createWoMtc = '/v2/meso/create';
+  static const String updateWoMtc = '/v2/meso/update';
+  static const String deleteWoMtc = '/v2/meso/delete';
+  static const String generateNumberWoMtc = '/v2/meso/generate_number';
+  static const String dashboardWoMtc = '/v2/meso/dashboard';
+  static const String uploadAttachmentWoMtc = '/v2/meso/upload_attachment';
 
-  static const String executorWoMtc = '/wo_mtc/executor';
-  static const String executorDetailWoMtc = '/wo_mtc/executor_detail';
-  static const String jobExplanationWoMtc = '/wo_mtc/job_explanation';
+  static const String executorWoMtc = '/v2/meso/executor';
+  static const String executorDetailWoMtc = '/v2/meso/executor_detail';
+  static const String deleteExecutorWoMtc = '/v2/meso/delete_executor';
+  static const String jobExplanationWoMtc = '/v2/meso/job_explanation';
 
-  static const String laborWoMtc = '/wo_mtc/labor';
+  static const String laborWoMtc = '/v2/meso/labor';
 
-  static const String materialWoMtc = '/wo_mtc/material';
+  static const String materialWoMtc = '/v2/meso/material';
 
-  static const String approvalWoMtc = '/wo_mtc/approval';
-  static const String approveWoMtc = '/wo_mtc/approve';
-  static const String completeWoMtc = '/wo_mtc/complete';
-  static const String materialRequestWoMtc = '/wo_mtc/material_request';
-  static const String materialReceivedWoMtc = '/wo_mtc/material_received';
-  static const String materialPurchaseWoMtc = '/wo_mtc/material_purchase';
-  static const String openAttachmentWoMtc = '/wo_mtc/open_attachment';
+  static const String approvalWoMtc = '/v2/meso/approval';
+  static const String approveWoMtc = '/v2/meso/approve';
+  static const String completeWoMtc = '/v2/meso/complete';
+  static const String materialRequestWoMtc = '/v2/meso/material_request';
+  static const String materialReceivedWoMtc = '/v2/meso/material_received';
+  static const String materialPurchaseWoMtc = '/v2/meso/material_purchase';
+  static const String openAttachmentWoMtc = '/v2/meso/open_attachment';
 
-  static const String subWoMtc = '/wo_mtc/sub_wo';
-  static const String voidWoMtc = '/wo_mtc/void';
-  static const String assetHistoryWoMtc = '/wo_mtc/asset_history';
+  static const String subWoMtc = '/v2/meso/sub_wo';
+  static const String voidWoMtc = '/v2/meso/void';
+  static const String assetHistoryWoMtc = '/v2/meso/asset_history';
 
-  static const String listWoOperational = '/wo_operational/list';
-  static const String detailWoOperational = '/wo_operational/detail';
-  static const String dashboardWoOperational = '/wo_operational/dashboard';
-  static const String myWoOperational = '/wo_operational/my_wo';
-  static const String createWoOperational = '/wo_operational/create';
-  static const String updateWoOperational = '/wo_operational/update';
-  static const String updateAssetWoOperational = '/wo_operational/update_asset';
-  static const String deleteWoOperational = '/wo_operational/delete';
-  static const String approveWoOperational = '/wo_operational/approve';
-  static const String declineWoOperational = '/wo_operational/decline';
-  static const String forwardWoOperational = '/wo_operational/forward';
+  // Domain Maintenance/Operational (dulu '/wo_operational/*', sekarang '/v2/maintenance/*').
+  static const String listWoOperational = '/v2/maintenance/list';
+  static const String detailWoOperational = '/v2/maintenance/detail';
+  static const String dashboardWoOperational = '/v2/maintenance/dashboard';
+  static const String myWoOperational = '/v2/maintenance/my_wo';
+  static const String createWoOperational = '/v2/maintenance/create';
+  static const String updateWoOperational = '/v2/maintenance/update';
+  static const String updateAssetWoOperational =
+      '/v2/maintenance/update_asset';
+  static const String deleteWoOperational = '/v2/maintenance/delete';
+  static const String approveWoOperational = '/v2/maintenance/approve';
+  static const String declineWoOperational = '/v2/maintenance/decline';
+  static const String forwardWoOperational = '/v2/maintenance/forward';
   static const String addJobExplanationWoOperational =
-      '/wo_operational/add_job_explanation';
+      '/v2/maintenance/add_job_explanation';
   static const String updateExecutorWoOperational =
-      '/wo_operational/update_executor';
+      '/v2/maintenance/update_executor';
   static const String deleteExecutorWoOperational =
-      '/wo_operational/delete_executor';
-  static const String addLaborWoOperational = '/wo_operational/add_labor';
-  static const String removeLaborWoOperational = '/wo_operational/remove_labor';
-  static const String addMaterialWoOperational = '/wo_operational/add_material';
+      '/v2/maintenance/delete_executor';
+  static const String addLaborWoOperational = '/v2/maintenance/add_labor';
+  static const String removeLaborWoOperational =
+      '/v2/maintenance/remove_labor';
+  static const String addMaterialWoOperational =
+      '/v2/maintenance/add_material';
   static const String removeMaterialWoOperational =
-      '/wo_operational/remove_material';
+      '/v2/maintenance/remove_material';
   static const String getMaterialReceivedWoOperational =
-      '/wo_operational/get_material_received';
+      '/v2/maintenance/get_material_received';
   static const String partExecutionWoOperational =
-      '/wo_operational/part_execution';
+      '/v2/maintenance/part_execution';
   static const String partExecutionMediaWoOperational =
-      '/wo_operational/part_execution_media';
+      '/v2/maintenance/part_execution_media';
   static const String materialSuggestionWoOperational =
-      '/wo_operational/material_suggestions';
+      '/v2/maintenance/material_suggestions';
   static const String materialDetailWoOperational =
-      '/wo_operational/material_detail';
-  static const String addSubWoOperational = '/wo_operational/add_sub_wo';
+      '/v2/maintenance/material_detail';
+  static const String addSubWoOperational = '/v2/maintenance/add_sub_wo';
   static const String voidDocumentWoOperational =
-      '/wo_operational/void_document';
+      '/v2/maintenance/void_document';
   static const String voidCandidatesWoOperational =
-      '/wo_operational/void_candidates';
+      '/v2/maintenance/void_candidates';
   static const String voidPreventiveWoOperational =
-      '/wo_operational/void_preventive';
-  static const String voidHistoryWoOperational = '/wo_operational/void_history';
-  static const String getNewWoOperational = '/wo_operational/get_new';
+      '/v2/maintenance/void_preventive';
+  static const String voidHistoryWoOperational =
+      '/v2/maintenance/void_history';
+  static const String getNewWoOperational = '/v2/maintenance/get_new';
   static const String getListUserWoOperational =
-      '/wo_operational/get_list_user';
-  static const String partExecutionWoMtc = '/wo_mtc/part_execution';
-  static const String partExecutionMediaWoMtc = '/wo_mtc/part_execution_media';
-  static const String dailyControlList = '/daily_control/list';
-  static const String dailyControlCreate = '/daily_control/create';
-  static const String dailyControlAssetOptions = '/daily_control/asset_options';
+      '/v2/maintenance/get_list_user';
+  static const String partExecutionWoMtc = '/v2/meso/part_execution';
+  static const String partExecutionMediaWoMtc =
+      '/v2/meso/part_execution_media';
+
+  // Daily Control (dulu '/daily_control/*', sekarang '/v2/daily-control/*').
+  static const String dailyControlList = '/v2/daily-control';
+  static const String dailyControlCreate = '/v2/daily-control/create';
+  static const String dailyControlAssetOptions =
+      '/v2/daily-control/asset_options';
   static const String dailyControlAssetPartOptions =
-      '/daily_control/asset_part_options';
-  static const String dailyControlWoOptions = '/daily_control/wo_options';
-  static const String dailyControlComments = '/daily_control/comments';
-  static const String dailyControlCommentCreate = '/daily_control/comment';
-  static const String dailyControlPartMentions = '/daily_control/part_mentions';
-  static const String dailyControlMarkRead = '/daily_control/mark_read';
-  static const String dailyControlUnreadCount = '/daily_control/unread_count';
+      '/v2/daily-control/asset_part_options';
+  static const String dailyControlWoOptions = '/v2/daily-control/wo_options';
+  static const String dailyControlComments = '/v2/daily-control/comments';
+  static const String dailyControlCommentCreate = '/v2/daily-control/comment';
+  static const String dailyControlPartMentions =
+      '/v2/daily-control/part-mentions';
+  static const String dailyControlMarkRead = '/v2/daily-control/mark_read';
+  static const String dailyControlUnreadCount =
+      '/v2/daily-control/unread_count';
   static const String dailyControlUnreadActivities =
-      '/daily_control/unread_activities';
+      '/v2/daily-control/unread_activities';
   static const String dailyControlScheduledSummary =
-      '/daily_control/scheduled_summary';
+      '/v2/daily-control/scheduled_summary';
+
   // Approval memakai kontrak V2 yang sama dengan web agar scope approval_all,
   // status, dan filter WO hasil schedule selalu konsisten lintas platform.
   static const String approvalSummary = '/v2/approval-center/summary';
@@ -218,12 +273,23 @@ class ApiConstants {
   static const String approvalApproveMutation =
       '/v2/approval-center/mutation-approve';
 
-  static const String materialPartRequest = '/material_part_request/request';
-  static const String materialPartRequestList = '/material_part_request/list';
+  // Material/part request (dulu '/material_part_request/*', sekarang
+  // '/v2/material-usage/*' — kontrak sama dengan yang dipakai web).
+  static const String materialPartRequest = '/v2/material-usage/request';
+  static const String materialPartRequestList = '/v2/material-usage/list';
   static const String materialPartRequestSelect =
-      '/material_part_request/select';
+      '/v2/material-usage/select-parts';
   static const String materialPartRequestCancel =
-      '/material_part_request/cancel';
+      '/v2/material-usage/cancel';
+
+  // Notifikasi (dulu hardcode '/notification/summary' & '/notification/detail'
+  // langsung di repository-nya, bukan lewat ApiConstants — path itu tidak
+  // pernah ada di backend manapun; endpoint asli plural '/v2/notifications').
+  static const String notificationSummary = '/v2/notifications';
+  static const String notificationDetail = '/v2/notifications/detail';
+
+  // Rilis versi mobile ("cek update paksa"), dulu '/version/latest'.
+  static const String mobileRelease = '/v2/mcs-mobile/release';
 
   static String get listNoSO => '$soBaseUrl/api/no-stock-opname';
   static String get masterCompany => '$soBaseUrl/api/master-company';

@@ -45,7 +45,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        if (body['status'] == true) {
+        if (body['success'] == true) {
           return _asMap(body['data']);
         }
       }
@@ -82,7 +82,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        if (body['status'] == true) {
+        if (body['success'] == true) {
           final data = _asMap(body['data']);
           return _asMapList(data['items']);
         }
@@ -116,7 +116,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        if (body['status'] == true) {
+        if (body['success'] == true) {
           return _asMap(body['data']);
         }
       }
@@ -143,7 +143,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        if (body['status'] == true) {
+        if (body['success'] == true) {
           return _asMap(body['data']);
         }
       }
@@ -192,7 +192,7 @@ class AssetMutationRepository {
         final fileName = filePath.split(RegExp(r'[\\/]')).last;
         formData.files.add(
           MapEntry(
-            'attachments[]',
+            'attachments',
             await MultipartFile.fromFile(filePath, filename: fileName),
           ),
         );
@@ -206,7 +206,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         final body = _asMap(response.data);
-        if (body['status'] == true) {
+        if (body['success'] == true) {
           return _asMap(body['data']);
         }
       }
@@ -231,7 +231,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        return body['status'] == true;
+        return body['success'] == true;
       }
       return false;
     } on DioException catch (e) {
@@ -264,7 +264,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         final body = _asMap(response.data);
-        return body['status'] == true;
+        return body['success'] == true;
       }
       return false;
     } on DioException catch (e) {
@@ -287,7 +287,7 @@ class AssetMutationRepository {
 
       if (response.statusCode == 200) {
         final body = _asMap(response.data);
-        return body['status'] == true;
+        return body['success'] == true;
       }
       return false;
     } on DioException catch (e) {

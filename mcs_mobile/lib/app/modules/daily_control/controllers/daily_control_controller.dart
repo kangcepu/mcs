@@ -191,7 +191,7 @@ class DailyControlMedia {
     if (normalized.isEmpty) {
       return '';
     }
-    final selectedBaseUri = Uri.parse('${ApiConstants.webBaseUrl}/');
+    final selectedBaseUri = Uri.parse('${ApiConstants.apiOrigin}/');
     if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
       final parsed = Uri.tryParse(normalized);
       if (parsed == null || parsed.host.isEmpty) {
@@ -436,6 +436,7 @@ class DailyControlActivity {
   final List<String> participantNames;
   final List<String> laborNames;
   final List<String> readerNames;
+  final String displayFullname;
 
   const DailyControlActivity({
     required this.id,
@@ -467,6 +468,7 @@ class DailyControlActivity {
     required this.participantNames,
     required this.laborNames,
     required this.readerNames,
+    required this.displayFullname,
   });
 
   int get photoCount => media.where((item) => item.mediaType == 'image').length;
@@ -584,6 +586,7 @@ class DailyControlActivity {
           .where((item) => item.isNotEmpty)
           .toSet()
           .toList(),
+      displayFullname: '${json['display_fullname'] ?? ''}'.trim(),
     );
   }
 }
@@ -1340,6 +1343,9 @@ class DailyControlController extends GetxController
   }
 
   String resolveActivityDisplayName(DailyControlActivity activity) {
+    if (activity.displayFullname.isNotEmpty) {
+      return activity.displayFullname;
+    }
     final normalizedNames = <String>{};
 
     DailyControlUser? findUser({int? id, String? name}) {
@@ -1381,19 +1387,9 @@ class DailyControlController extends GetxController
     final updaterName =
         (updaterUser?.preferredDisplayName ?? activity.user).trim();
 
-    // Format: "PIC By Updater"
+    // Hanya tampilkan nama PIC/Labor, tanpa suffix updater.
     if (laborDisplayNames.isNotEmpty) {
-      final laborDisplay = laborDisplayNames.join(', ');
-      final updaterNormalized = updaterName.toUpperCase();
-      // Updater sama dengan salah satu PIC → tampilkan PIC saja
-      if (normalizedNames.contains(updaterNormalized)) {
-        return laborDisplay;
-      }
-      // Updater berbeda → "PIC By Updater"
-      if (updaterName.isNotEmpty) {
-        return '$laborDisplay By $updaterName';
-      }
-      return laborDisplay;
+      return laborDisplayNames.join(', ');
     }
 
     // Tidak ada PIC/Labor → cek participantNames sebagai fallback
@@ -1408,15 +1404,7 @@ class DailyControlController extends GetxController
     }
 
     if (laborDisplayNames.isNotEmpty) {
-      final laborDisplay = laborDisplayNames.join(', ');
-      final updaterNormalized = updaterName.toUpperCase();
-      if (normalizedNames.contains(updaterNormalized)) {
-        return laborDisplay;
-      }
-      if (updaterName.isNotEmpty) {
-        return '$laborDisplay By $updaterName';
-      }
-      return laborDisplay;
+      return laborDisplayNames.join(', ');
     }
 
     // Tidak ada PIC/Labor sama sekali → tampilkan updater saja
@@ -2636,6 +2624,7 @@ class DailyControlController extends GetxController
           participantNames: activity.participantNames,
           laborNames: activity.laborNames,
           readerNames: activity.readerNames,
+          displayFullname: activity.displayFullname,
         );
         activities.refresh();
       }
@@ -2724,6 +2713,7 @@ class DailyControlController extends GetxController
             laborNames: activity.laborNames,
             readerNames:
                 readerNames.isNotEmpty ? readerNames : activity.readerNames,
+            displayFullname: activity.displayFullname,
           );
           activities.refresh();
           await _syncBadgeCountFromActivities();

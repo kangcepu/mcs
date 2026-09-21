@@ -1,18 +1,10 @@
 import 'dart:convert';
 
-import 'package:dio/dio.dart';
 import '../providers/api_service.dart';
 import '../../core/constants/api_constants.dart';
 
 class MasterRepository {
   final ApiService _apiService = ApiService();
-  final Dio _webService = Dio(
-    BaseOptions(
-      baseUrl: ApiConstants.webBaseUrl,
-      connectTimeout: ApiConstants.connectTimeout,
-      receiveTimeout: ApiConstants.receiveTimeout,
-    ),
-  );
 
   Future<List<Map<String, dynamic>>> getCompanies() async {
     try {
@@ -65,7 +57,7 @@ class MasterRepository {
   Future<List<Map<String, dynamic>>> getAssets({String? search}) async {
     try {
       final queryParams = {
-        if (search != null && search.isNotEmpty) 'search': search,
+        if (search != null && search.isNotEmpty) 'q': search,
       };
 
       final response = await _apiService.get(
@@ -78,7 +70,7 @@ class MasterRepository {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        if (data['status'] == true) {
+        if (data['success'] == true) {
           final responseData = data['data'];
 
           if (responseData is List) {
@@ -122,7 +114,7 @@ class MasterRepository {
     try {
       final queryParams = <String, dynamic>{
         'limit': 300,
-        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
       };
 
       final response = await _apiService.get(
@@ -132,7 +124,7 @@ class MasterRepository {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        if (data['status'] == true && data['data'] is List) {
+        if (data['success'] == true && data['data'] is List) {
           return List<Map<String, dynamic>>.from(data['data']);
         }
       }
@@ -153,13 +145,13 @@ class MasterRepository {
     try {
       final response = await _apiService.get(
         ApiConstants.assetDetail,
-        queryParameters: {'asset_code': code},
+        queryParameters: {'id': code},
       );
 
       if (response.statusCode == 200) {
         final data = response.data;
         if (data is Map<String, dynamic> &&
-            data['status'] == true &&
+            data['success'] == true &&
             data['data'] is Map) {
           return Map<String, dynamic>.from(data['data'] as Map);
         }
@@ -258,31 +250,55 @@ class MasterRepository {
     return normalized;
   }
 
+  /// QR code asset di-generate dari `bin2hex(AssetCode)` (lihat `conv()` di
+  /// legacy `mcsh_helper.php`) — decode balik ke AssetCode lalu cari lewat
+  /// backend baru, bukan lagi lewat endpoint web legacy `/equipment/search_scan`.
+  String? _hexDecodeAssetCode(String hex) {
+    final cleaned = hex.trim();
+    if (cleaned.isEmpty || cleaned.length.isOdd) return null;
+    final bytes = <int>[];
+    for (var i = 0; i < cleaned.length; i += 2) {
+      final byte = int.tryParse(cleaned.substring(i, i + 2), radix: 16);
+      if (byte == null) return null;
+      bytes.add(byte);
+    }
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>?> getAssetByQrId(String qrId) async {
     final id = qrId.trim();
     if (id.isEmpty) {
       return null;
     }
 
+    final assetCode = _hexDecodeAssetCode(id) ?? id;
+
     try {
-      final response = await _webService.post(
-        '/equipment/search_scan',
-        data: {'id': id},
-        options: Options(contentType: Headers.formUrlEncodedContentType),
+      final response = await _apiService.get(
+        ApiConstants.assetDetail,
+        queryParameters: {'id': assetCode},
       );
 
       if (response.statusCode != 200) {
         return null;
       }
 
-      final decoded = _decodeMap(response.data);
+      final data = response.data;
+      if (data is! Map<String, dynamic> || data['success'] != true) {
+        return null;
+      }
+
+      final decoded = _decodeMap(data['data']);
       if (decoded == null || decoded.isEmpty) {
         return null;
       }
 
       return _normalizeAssetMap(decoded);
-    } catch (e) {
-      print('Error getAssetByQrId: $e');
+    } catch (_) {
       return null;
     }
   }

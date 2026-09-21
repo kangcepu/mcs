@@ -137,11 +137,15 @@ class MediaPickerHelper {
 
   static bool isImage(String path) {
     final ext = getFileExtension(path);
-    return ['jpg', 'jpeg', 'png'].contains(ext);
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext);
   }
 
   static bool isVideo(String path) {
     final ext = getFileExtension(path);
-    return ['mp4', 'mov', 'avi'].contains(ext);
+    return ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'].contains(ext);
+  }
+
+  static bool isPdf(String path) {
+    return getFileExtension(path) == 'pdf';
   }
 }

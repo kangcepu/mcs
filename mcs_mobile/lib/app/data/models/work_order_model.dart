@@ -1,3 +1,5 @@
+import '../../core/constants/api_constants.dart';
+
 class WorkOrder {
   final String woNumber;
   final String date;
@@ -252,7 +254,7 @@ class PartImage {
     return PartImage(
       name: json['name']?.toString() ?? '',
       path: json['path']?.toString() ?? '',
-      url: json['url']?.toString() ?? '',
+      url: ApiConstants.mediaUrl(json['url']?.toString()),
     );
   }
 
@@ -300,7 +302,7 @@ class PartExecutionMedia {
       mediaType: mediaType == 'video' ? 'video' : 'image',
       name: json['name']?.toString() ?? json['media_name']?.toString() ?? '',
       path: json['path']?.toString() ?? json['media_path']?.toString() ?? '',
-      url: json['url']?.toString() ?? '',
+      url: ApiConstants.mediaUrl(json['url']?.toString()),
       createdBy: json['created_by']?.toString() ?? '',
       createdAt: json['created_at']?.toString() ?? '',
     );

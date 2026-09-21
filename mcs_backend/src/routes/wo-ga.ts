@@ -7,22 +7,13 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const gaRouter = Router();
 
 const DOCS_DIR = path.join(config.uploadDir, 'wo_ga');
 fs.mkdirSync(DOCS_DIR, { recursive: true });
-
-function diskStorage(dir: string) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, dir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
-    },
-  });
-}
 
 function extensionFilter(allowed: string[]) {
   return (_req: unknown, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -31,8 +22,8 @@ function extensionFilter(allowed: string[]) {
   };
 }
 
-const attachmentUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
-const servicePhotoUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
@@ -84,6 +75,16 @@ async function getHeader(woNumber: string): Promise<Record<string, unknown> | nu
   return one<Record<string, unknown>>('SELECT * FROM tb_wo_ga WHERE wo_number=?', [woNumber]);
 }
 
+function getTypeWoAliases(value: string): string[] {
+  const normalized = normalizeTypeWo(value);
+  switch (normalized) {
+    case 'preventive': return ['preventive', 'PREVENTIVE', 'PREVENTIVE MAINTENANCE', 'PREV MAINTENANCE', 'PM'];
+    case 'corrective': return ['corrective', 'CORRECTIVE', 'CORRECTIVE MAINTENANCE', 'CM'];
+    case 'project': return ['project', 'PROJECT'];
+    default: return [];
+  }
+}
+
 function normalizeTypeWo(value: unknown): string {
   const upper = String(value ?? '').toUpperCase();
   if (['PREVENTIVE', 'PREVENTIVE MAINTENANCE', 'PREV MAINTENANCE', 'PM'].includes(upper)) return 'preventive';
@@ -105,27 +106,28 @@ async function getExecutorByDivision(woNumber: string, divisionCode: string): Pr
   return one<Record<string, unknown>>('SELECT * FROM tb_job_executor WHERE wo_number=? AND job_executor=? ORDER BY id ASC LIMIT 1', [woNumber, divisionCode]);
 }
 
-function decodeBase64Attachments(input: unknown, prefix: string): string[] {
+async function decodeBase64Attachments(input: unknown, prefix: string): Promise<string[]> {
   if (!Array.isArray(input)) return [];
   const saved: string[] = [];
-  input.forEach((item, index) => {
-    if (!item || typeof item !== 'object') return;
+  for (const [index, item] of input.entries()) {
+    if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
     const base64 = String(record.base64 ?? '');
     const filename = String(record.filename ?? `file-${index}`);
     const match = base64.match(/^data:([^;]+);base64,(.+)$/);
     const raw = match ? match[2] : base64;
-    if (!raw) return;
+    if (!raw) continue;
     const ext = path.extname(filename) || '.bin';
     const safeName = `${prefix}-${index}${ext}`;
-    fs.writeFileSync(path.join(DOCS_DIR, safeName), Buffer.from(raw, 'base64'));
-    saved.push(`wo_ga/${safeName}`);
-  });
+    const contentType = match ? match[1] : undefined;
+    saved.push(await saveUploadedFile(Buffer.from(raw, 'base64'), 'wo_ga', safeName, contentType));
+  }
   return saved;
 }
 
-async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unit: string, jobExecutor: string, user: User): Promise<void> {
+async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unitInput: string | null, jobExecutor: string, user: User): Promise<void> {
   if (!woNumber || !material || qty <= 0) return;
+  const unit = unitInput?.trim() || 'PCS';
   const executor = jobExecutor || '-';
   const existingUsage = await one<{ id: number; request_code: string }>(
     "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
@@ -165,8 +167,7 @@ async function syncMaterialRequestFromMobile(woNumber: string, material: string,
   );
 }
 
-gaRouter.use(authenticate);
-gaRouter.use((req, res, next) => {
+gaRouter.use('/ga', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
@@ -182,7 +183,7 @@ gaRouter.get('/ga/list', asyncHandler(async (req, res) => {
   const offset = (page - 1) * limit;
   const status = req.query.status ? String(req.query.status) : undefined;
   const search = req.query.search ? String(req.query.search) : undefined;
-  const typeWoFilter = req.query.type_wo ? normalizeTypeWo(String(req.query.type_wo)) : undefined;
+  const typeWo = req.query.type_wo ? String(req.query.type_wo) : undefined;
 
   const scope = visibilityScope(user, 'w');
   let where = "WHERE w.status != 'CLOSED'";
@@ -190,16 +191,19 @@ gaRouter.get('/ga/list', asyncHandler(async (req, res) => {
   if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
   if (status) { where += ' AND w.status = ?'; params.push(status); }
   if (search) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR a.AssetName LIKE ?)'; params.push(...Array(3).fill(`%${search}%`)); }
+  if (typeWo) {
+    const aliases = getTypeWoAliases(typeWo);
+    if (aliases.length) { where += ` AND w.type_wo IN (${aliases.map(() => '?').join(',')})`; params.push(...aliases); }
+    else { where += ' AND w.type_wo = ?'; params.push(typeWo); }
+  }
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_wo_ga w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
-  let items = await rows<Record<string, unknown>>(
+  const items = await rows<Record<string, unknown>>(
     `SELECT w.*, d.division_name, d.division_code, a.AssetID, a.AssetName FROM tb_wo_ga w
      LEFT JOIN tb_division d ON d.id_division=w.id_division LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
      ORDER BY w.date DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset],
-  );
-  if (typeWoFilter) items = items.filter((row) => normalizeTypeWo(row.type_wo) === typeWoFilter);
-  items = items.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) }));
+  ).then((r) => r.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) })));
 
   const totalCount = Number(total?.total ?? 0);
   legacyOk(res, { total: totalCount, limit, offset, items }, 'Work Order list retrieved successfully');
@@ -307,8 +311,9 @@ gaRouter.post('/ga/create', attachmentUpload.array('attachment', 10), asyncHandl
 
   const idEquipment = String(b.id_equipment).split('|')[0].trim() || null;
   const woNumber = b.wo_number ? String(b.wo_number) : await generateWoNumber(divisionCode);
-  const uploaded = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => `wo_ga/${f.filename}`);
-  const base64Attachments = decodeBase64Attachments(b.attachments, `${Date.now()}`);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_ga', f.originalname, f.mimetype)));
+  const base64Attachments = await decodeBase64Attachments(b.attachments, `${Date.now()}`);
   const attachment = [...uploaded, ...base64Attachments].join(',');
 
   await transaction(async (connection) => {
@@ -332,8 +337,9 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
   if (!header) throw new HttpError(404, 'Work Order not found');
 
   const existingAttachments = String(header.attachment ?? '').split(',').filter(Boolean);
-  const newAttachments = decodeBase64Attachments(req.body.attachments, `${woNumber.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`);
-  const uploaded = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => `wo_ga/${f.filename}`);
+  const newAttachments = await decodeBase64Attachments(req.body.attachments, `${woNumber.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_ga', f.originalname, f.mimetype)));
 
   const fields: Record<string, unknown> = {};
   for (const key of ['date', 'company', 'shift', 'type_wo', 'priority', 'job_title', 'running_hours', 'job_requirement']) {
@@ -359,7 +365,7 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
 gaRouter.put('/ga/update', asyncHandler((req, res) => updateHandler(req as AuthRequest, res)));
 gaRouter.post('/ga/update', attachmentUpload.array('attachment', 10), asyncHandler((req, res) => updateHandler(req as AuthRequest, res)));
 
-async function approveTransition(woNumber: string, person: ReturnType<typeof personPayload>, position: string, callerIsHrga: boolean): Promise<string> {
+async function approveTransition(woNumber: string, person: ReturnType<typeof personPayload>, position: string, callerIsHrga: boolean, comment: string): Promise<string> {
   const header = await getHeader(woNumber);
   if (!header) throw new HttpError(404, 'Work Order not found');
 
@@ -386,7 +392,7 @@ async function approveTransition(woNumber: string, person: ReturnType<typeof per
 
   await transaction(async (connection) => {
     await connection.execute('INSERT INTO tb_approval_ga (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
-      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, '']);
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
     if (targetStatus === 'CLOSED') {
       await connection.execute("UPDATE tb_wo_ga SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
     } else {
@@ -397,6 +403,29 @@ async function approveTransition(woNumber: string, person: ReturnType<typeof per
   return targetStatus;
 }
 
+async function jobExplationComplete(woNumber: string, person: ReturnType<typeof personPayload>, comment: string): Promise<void> {
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval_ga (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_ga SET status='COMPLETE_EXECUTOR', pic=?, updated_at=NOW() WHERE wo_number=?", [divisionRow?.division_code ?? '-', woNumber]);
+  });
+}
+
+async function approveWithoutStatus(woNumber: string, person: ReturnType<typeof personPayload>, comment: string): Promise<void> {
+  await insertApprovalGa(woNumber, person, comment);
+  await execute("UPDATE tb_wo_ga SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+  const firstExecutor = await one<{ id: number; job_executor: string; status: string }>(
+    'SELECT id, job_executor, status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [woNumber],
+  );
+  if (firstExecutor && String(firstExecutor.status) === 'IN_PROGRESS') {
+    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())',
+      [firstExecutor.job_executor, woNumber, comment, 'ADDITIONAL']);
+  }
+}
+
 gaRouter.post('/ga/approve', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   const woNumber = String(req.body.wo_number ?? '');
@@ -404,8 +433,9 @@ gaRouter.post('/ga/approve', asyncHandler(async (req, res) => {
   const person = personPayload(user);
   const position = String(user.id_position ?? '').toUpperCase();
   const callerIsHrga = String(user.division_code ?? '').toUpperCase() === 'HRGA';
+  const comment = String(req.body.comment ?? '');
 
-  await approveTransition(woNumber, person, position, callerIsHrga);
+  await approveTransition(woNumber, person, position, callerIsHrga, comment);
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
 }));
 
@@ -430,22 +460,25 @@ gaRouter.post('/ga/add_job_explanation', servicePhotoUpload.array('service_photo
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, 'At least one service photo is required');
 
+  const uploaded = await Promise.all(files.map(async (file) => ({
+    file, relativePath: await saveUploadedFile(file.buffer, 'wo_ga', file.originalname, file.mimetype),
+  })));
+
   const now = new Date();
   const nowDate = now.toISOString().slice(0, 10);
   const nowTime = now.toTimeString().slice(0, 8);
   const startedPlanner = b.started_planner ? String(b.started_planner) : null;
   const finishedPlanner = b.finished_planner ? String(b.finished_planner) : null;
   const estimatePlanner = b.estimate_planner ? String(b.estimate_planner) : null;
-  const startedActual = `${nowDate} ${b.started_actual_time ? String(b.started_actual_time) : nowTime}`;
-  const finishedActual = `${nowDate} ${b.finished_actual_time ? String(b.finished_actual_time) : nowTime}`;
+  const startedActual = `${startedPlanner || nowDate} ${b.started_actual_time ? String(b.started_actual_time) : nowTime}`;
+  const finishedActual = `${finishedPlanner || nowDate} ${b.finished_actual_time ? String(b.finished_actual_time) : nowTime}`;
 
   await transaction(async (connection) => {
     await connection.execute(
       'UPDATE tb_wo_ga SET started_planner=?, finished_planner=?, estimate_planner=?, started_actual=?, finished_actual=?, job_explanation=?, updated_at=NOW() WHERE wo_number=?',
       [startedPlanner, finishedPlanner, estimatePlanner, startedActual, finishedActual, jobExplanation, finalWoNumber],
     );
-    for (const file of files) {
-      const relativePath = path.relative(config.uploadDir, file.path).replaceAll('\\', '/');
+    for (const { file, relativePath } of uploaded) {
       await connection.execute(
         'INSERT INTO tb_wo_service_evidence (wo_number, executor_id, module_code, file_name, file_path, file_ext, file_size_kb, mime_type, source, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,NOW(),?)',
         [finalWoNumber, executor!.id, 'GA', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
@@ -457,23 +490,21 @@ gaRouter.post('/ga/add_job_explanation', servicePhotoUpload.array('service_photo
   const position = String(user.id_position ?? '').toUpperCase();
   const callerIsHrga = String(user.division_code ?? '').toUpperCase() === 'HRGA';
 
+  await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
+
   if (status === 'COMPLETE') {
-    await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
-    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', ['HRGA', finalWoNumber, jobExplanation, 'ADDITIONAL']);
-    await approveTransition(finalWoNumber, person, position, callerIsHrga);
-  } else if (status === 'IN_PROGRESS') {
-    await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
-    const firstExecutor = await one<{ id: number; job_executor: string; status: string }>('SELECT id, job_executor, status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [finalWoNumber]);
-    if (firstExecutor && String(firstExecutor.status) === 'IN_PROGRESS') {
-      await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [firstExecutor.job_executor, finalWoNumber, jobExplanation, 'ADDITIONAL']);
+    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [String(user.division_code ?? ''), finalWoNumber, jobExplanation, 'ADDITIONAL']);
+    if (position === 'DIVHEAD') {
+      await jobExplationComplete(finalWoNumber, person, jobExplanation);
+    } else {
+      await approveTransition(finalWoNumber, person, position, callerIsHrga, jobExplanation);
     }
-    await insertApprovalGa(finalWoNumber, person, jobExplanation);
-    await execute("UPDATE tb_wo_ga SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [finalWoNumber]);
+  } else if (status === 'IN_PROGRESS') {
+    await approveWithoutStatus(finalWoNumber, person, jobExplanation);
   } else {
     const stillWaiting = await one<{ total: number }>("SELECT COUNT(*) total FROM tb_job_executor WHERE wo_number=? AND (status='WAITING' OR status='IN_PROGRESS')", [finalWoNumber]);
     if (Number(stillWaiting?.total ?? 0) > 0) {
-      await insertApprovalGa(finalWoNumber, person, jobExplanation);
-      await execute("UPDATE tb_wo_ga SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [finalWoNumber]);
+      await approveWithoutStatus(finalWoNumber, person, jobExplanation);
     }
   }
 
@@ -496,8 +527,8 @@ gaRouter.post('/ga/add_labor', asyncHandler(async (req, res) => {
   const trades = [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
   if (!trades.length) throw new HttpError(400, 'PIC wajib dipilih');
   if (trades.length > 10) throw new HttpError(400, 'Maksimal 10 PIC');
-  const men = String(b.men ?? '1');
-  const hours = String(b.hours ?? '1');
+  const men = b.men != null ? String(b.men) : null;
+  const hours = b.hours != null ? String(b.hours) : null;
 
   await transaction(async (connection) => {
     for (const trade of trades) {
@@ -507,6 +538,49 @@ gaRouter.post('/ga/add_labor', asyncHandler(async (req, res) => {
   });
 
   legacyOk(res, { inserted: trades.length }, 'Labor added', 201);
+}));
+
+const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+
+gaRouter.post('/ga/update_executor', asyncHandler(async (req, res) => {
+  const b = req.body;
+  const id = b.id;
+  const woNumber = String(b.wo_number ?? '');
+  if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  if (FINAL_STATUSES.has(String(header.status ?? '').toUpperCase().trim())) throw new HttpError(409, 'WO sudah selesai dan tidak dapat diperbarui.');
+  const fields: Record<string, unknown> = {};
+  if (b.job_executor !== undefined) fields.job_executor = b.job_executor;
+  if (b.status !== undefined) fields.status = b.status;
+  const keys = Object.keys(fields);
+  if (!keys.length) throw new HttpError(400, 'No changes provided');
+  await execute(`UPDATE tb_job_executor SET ${keys.map((k) => `\`${k}\`=?`).join(',')} WHERE id=? AND wo_number=?`, [...keys.map((k) => fields[k]), id, woNumber] as never);
+  legacyOk(res, { id }, 'Executor updated successfully');
+}));
+
+gaRouter.delete('/ga/delete_executor', asyncHandler(async (req, res) => {
+  const id = req.query.id ?? req.body.id;
+  if (!id) throw new HttpError(400, 'id is required');
+  await execute('DELETE FROM tb_job_executor WHERE id=?', [id]);
+  legacyOk(res, null, 'Executor removed successfully');
+}));
+
+gaRouter.post('/ga/reject', asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? '');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const person = personPayload(user);
+
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval_ga (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_ga SET status='REJECT' WHERE wo_number=?", [woNumber]);
+    await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [woNumber]);
+  });
+
+  legacyOk(res, { wo_number: woNumber, status: 'REJECT' }, 'WO rejected successfully');
 }));
 
 gaRouter.post('/ga/add_material', asyncHandler(async (req, res) => {
@@ -522,8 +596,8 @@ gaRouter.post('/ga/add_material', asyncHandler(async (req, res) => {
   const woNumber = String(executor.wo_number);
   const jobExecutor = String(executor.job_executor ?? user.division_code ?? '');
   const qty = Number(b.qty ?? b.quantity ?? 0);
-  const unit = String(b.unit ?? 'PCS');
-  const pr = String(b.pr ?? '');
+  const unit = b.unit != null ? String(b.unit) : 'PCS';
+  const pr = b.pr != null ? String(b.pr) : null;
 
   const existing = await one<{ id_detail_material: number; qty: number }>(
     "SELECT id_detail_material, qty FROM tb_detail_material WHERE wo_number=? AND material=? AND job_executor=? AND `for`='MTC' ORDER BY id_detail_material DESC LIMIT 1",

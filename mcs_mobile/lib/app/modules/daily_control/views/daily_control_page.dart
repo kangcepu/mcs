@@ -131,54 +131,57 @@ class DailyControlPage extends StatelessWidget {
                         color: Color(0xFF1f2937),
                       ),
                     ),
-                    const Spacer(),
-                    Obx(() {
-                      return Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 6,
-                        children: [
-                          _buildMaintenanceTypeFilterChip(
-                            label: 'PRO:${controller.projectDoneCount}',
-                            selected:
-                                controller.isMaintenanceKindSelected('project'),
-                            onTap: () => controller
-                                .toggleMaintenanceKindFilter('project'),
-                          ),
-                          const Text(
-                            '|',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF9CA3AF),
+                    Expanded(
+                      child: Obx(() {
+                        return Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            _buildMaintenanceTypeFilterChip(
+                              label: 'PRO:${controller.projectDoneCount}',
+                              selected: controller
+                                  .isMaintenanceKindSelected('project'),
+                              onTap: () => controller
+                                  .toggleMaintenanceKindFilter('project'),
                             ),
-                          ),
-                          _buildMaintenanceTypeFilterChip(
-                            label: 'COR:${controller.correctiveDoneCount}',
-                            selected: controller
-                                .isMaintenanceKindSelected('corrective'),
-                            onTap: () => controller
-                                .toggleMaintenanceKindFilter('corrective'),
-                          ),
-                          const Text(
-                            '|',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF9CA3AF),
+                            const Text(
+                              '|',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF9CA3AF),
+                              ),
                             ),
-                          ),
-                          _buildMaintenanceTypeFilterChip(
-                            label:
-                                'PREV:${controller.preventiveDoneCount}/${controller.scheduledPreventiveTotal.value}',
-                            selected: controller
-                                .isMaintenanceKindSelected('preventive'),
-                            onTap: () => controller
-                                .toggleMaintenanceKindFilter('preventive'),
-                          ),
-                        ],
-                      );
-                    }),
-                    const Spacer(),
+                            _buildMaintenanceTypeFilterChip(
+                              label: 'COR:${controller.correctiveDoneCount}',
+                              selected: controller
+                                  .isMaintenanceKindSelected('corrective'),
+                              onTap: () => controller
+                                  .toggleMaintenanceKindFilter('corrective'),
+                            ),
+                            const Text(
+                              '|',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                            ),
+                            _buildMaintenanceTypeFilterChip(
+                              label:
+                                  'PREV:${controller.preventiveDoneCount}/${controller.scheduledPreventiveTotal.value}',
+                              selected: controller
+                                  .isMaintenanceKindSelected('preventive'),
+                              onTap: () => controller
+                                  .toggleMaintenanceKindFilter('preventive'),
+                            ),
+                          ],
+                        );
+                      }),
+                    ),
+                    const SizedBox(width: 8),
                     Obx(() => Text(
                           '(${controller.totalDoneCount})',
                           style: const TextStyle(
@@ -544,6 +547,7 @@ class DailyControlPage extends StatelessWidget {
       participantNames: const [],
       laborNames: const [],
       readerNames: const [],
+      displayFullname: item.displayName,
     );
     await _openChatSheet(activity);
     controller.clearPendingOpenActivity();
@@ -2523,6 +2527,9 @@ class DailyControlPage extends StatelessWidget {
           participantNames: const [],
           laborNames: const [],
           readerNames: const [],
+          displayFullname:
+              (payload['sender_name'] ?? payload['latest_unread_sender'] ?? '')
+                  .toString(),
         ),
         initialPreviewMessage: previewMessage);
     controller.clearPendingOpenActivity();

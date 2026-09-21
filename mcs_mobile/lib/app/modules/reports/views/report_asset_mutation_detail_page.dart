@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/constants/api_constants.dart';
 import '../../../data/repositories/asset_mutation_repository.dart';
 
 class ReportAssetMutationDetailPage extends StatefulWidget {
@@ -162,7 +163,8 @@ class _ReportAssetMutationDetailPageState
   }
 
   void _previewImage(String imageUrl, String title) {
-    if (imageUrl.trim().isEmpty) return;
+    final resolvedUrl = ApiConstants.mediaUrl(imageUrl);
+    if (resolvedUrl.isEmpty) return;
     showDialog<void>(
       context: context,
       builder: (_) => Dialog(
@@ -170,7 +172,7 @@ class _ReportAssetMutationDetailPageState
           children: [
             InteractiveViewer(
               child: Image.network(
-                imageUrl,
+                resolvedUrl,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const SizedBox(
                   height: 240,

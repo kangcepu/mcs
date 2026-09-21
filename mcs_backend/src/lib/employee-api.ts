@@ -90,7 +90,7 @@ export async function getEmployeesByCompany(companyCode: string): Promise<Employ
   const endpoint = config.employeeApi.endpointByCompany[code] ?? config.employeeApi.endpointByCompany.GSU;
   if (!endpoint) { employeeCache.set(code, null); return null; }
   const result = await requestJson(endpoint);
-  if (!result || !result.success || !Array.isArray(result.data)) { employeeCache.set(code, null); return null; }
+  if (!result || !result.success || !Array.isArray(result.data)) return null;
   employeeCache.set(code, result.data);
   return result.data;
 }

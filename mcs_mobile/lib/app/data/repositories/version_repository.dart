@@ -13,7 +13,7 @@ class VersionRepository {
     ),
   );
 
-  String get _versionUrl => '${ApiConstants.baseUrl}/version/latest';
+  String get _versionUrl => '${ApiConstants.baseUrl}${ApiConstants.mobileRelease}';
 
   Future<AppVersionModel> getLatestVersion() async {
     try {
@@ -30,11 +30,13 @@ class VersionRepository {
         ),
       );
       final raw = response.data;
-      if (raw is! Map) {
+      if (raw is! Map || raw['data'] is! Map) {
         throw Exception('Invalid version payload');
       }
 
-      final model = AppVersionModel.fromJson(Map<String, dynamic>.from(raw));
+      final model = AppVersionModel.fromJson(
+        Map<String, dynamic>.from(raw['data'] as Map),
+      );
       final normalizedUrl = _normalizeDownloadUrl(model.downloadUrl);
       if (normalizedUrl != model.downloadUrl) {
         return AppVersionModel(
@@ -77,6 +79,17 @@ class VersionRepository {
 
     final uri = Uri.tryParse(value);
     if (uri == null) return value;
+
+    // Backend baru mengembalikan path relatif (mis. `/uploads/downloads/x.apk`)
+    // yang disajikan dari origin API yang sama, bukan dari web base legacy.
+    if (!uri.hasScheme || uri.host.isEmpty) {
+      final apiOrigin = Uri.tryParse(ApiConstants.baseUrl);
+      if (apiOrigin == null) return value;
+      return apiOrigin.replace(
+        path: uri.path,
+        query: uri.query.isEmpty ? null : uri.query,
+      ).toString();
+    }
 
     // If the backend returns an internal/private URL, rewrite it to the public web base.
     if (_isPrivateHost(uri.host)) {

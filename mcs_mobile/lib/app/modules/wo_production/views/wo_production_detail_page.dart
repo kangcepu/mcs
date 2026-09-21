@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../controllers/wo_production_detail_controller.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
@@ -863,7 +864,8 @@ class WoProductionDetailPage extends StatelessWidget {
                 itemCount: items.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
-                  final url = (items[index]['url'] ?? '').toString();
+                  final url =
+                      ApiConstants.mediaUrl(items[index]['url']?.toString());
                   return InkWell(
                     onTap: () => _showImagePreview(url),
                     borderRadius: BorderRadius.circular(12),

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, md5, permissionFields } from '../auth.js';
 import { execute, one, rows, tableColumns, tableExists } from '../db.js';
-import { asyncHandler, created, HttpError, ok } from '../http.js';
+import { asyncHandler, created, HttpError, legacyOk, ok } from '../http.js';
 import { searchEmployees } from '../lib/employee-api.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -374,9 +374,57 @@ masterRouter.get('/master/options', authenticate, asyncHandler(async (req, res) 
   ok(res, await formOptions());
 }));
 
+masterRouter.get('/master/companies', authenticate, asyncHandler(async (_req, res) => {
+  legacyOk(res, await rows('SELECT * FROM tb_company'));
+}));
+
+masterRouter.get('/master/divisions', authenticate, asyncHandler(async (_req, res) => {
+  legacyOk(res, await rows('SELECT * FROM tb_division ORDER BY division_name'));
+}));
+
+masterRouter.get('/master/sections', authenticate, asyncHandler(async (_req, res) => {
+  legacyOk(res, await rows('SELECT * FROM tb_section ORDER BY section_name'));
+}));
+
+masterRouter.get('/master/wotypes', authenticate, asyncHandler(async (_req, res) => {
+  const values = await rows<{ value: string }>(
+    `SELECT DISTINCT type_wo AS value FROM tb_wo_mtc_operational WHERE type_wo IS NOT NULL AND TRIM(type_wo) <> ''
+     UNION SELECT DISTINCT type_wo FROM tb_wo_mtc WHERE type_wo IS NOT NULL AND TRIM(type_wo) <> ''
+     UNION SELECT DISTINCT type_wo FROM tb_wo_it WHERE type_wo IS NOT NULL AND TRIM(type_wo) <> ''
+     UNION SELECT DISTINCT type_wo FROM tb_wo_ga WHERE type_wo IS NOT NULL AND TRIM(type_wo) <> ''
+     ORDER BY value`,
+  );
+  legacyOk(res, values);
+}));
+
+masterRouter.get('/master/priorities', authenticate, asyncHandler(async (_req, res) => {
+  const values = await rows<{ value: string }>(
+    `SELECT DISTINCT priority AS value FROM tb_wo_mtc_operational WHERE priority IS NOT NULL AND TRIM(priority) <> ''
+     UNION SELECT DISTINCT priority FROM tb_wo_mtc WHERE priority IS NOT NULL AND TRIM(priority) <> ''
+     UNION SELECT DISTINCT priority FROM tb_wo_it WHERE priority IS NOT NULL AND TRIM(priority) <> ''
+     UNION SELECT DISTINCT priority FROM tb_wo_ga WHERE priority IS NOT NULL AND TRIM(priority) <> ''
+     ORDER BY value`,
+  );
+  legacyOk(res, values);
+}));
+
 masterRouter.get('/master/permission-catalog', authenticate, asyncHandler(async (req, res) => {
   requireUserManagement((req as AuthRequest).user!);
   ok(res, await permissionCatalog());
+}));
+
+masterRouter.get('/users/lookup', authenticate, asyncHandler(async (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20)));
+  if (q.length < 2) return ok(res, []);
+  const like = `%${q}%`;
+  ok(res, await rows(
+    `SELECT u.id_user, u.username, u.fullname, u.alias, d.division_name AS division, d.division_code
+     FROM tb_user u LEFT JOIN tb_division d ON d.id_division = u.id_division
+     WHERE u.active = 1 AND (u.fullname LIKE ? OR u.username LIKE ? OR u.alias LIKE ?)
+     ORDER BY u.fullname ASC LIMIT ?`,
+    [like, like, like, limit],
+  ));
 }));
 
 masterRouter.get('/master/employees', authenticate, asyncHandler(async (req, res) => {

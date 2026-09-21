@@ -7,13 +7,6 @@ import '../models/work_order_model.dart';
 
 class WoOperationalRepository {
   final ApiService _apiService = ApiService();
-  final Dio _materialService = Dio(
-    BaseOptions(
-      baseUrl: ApiConstants.materialBaseUrl,
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 20),
-    ),
-  );
 
   dynamic _decodeMaybeJson(dynamic raw) {
     if (raw is String) {
@@ -442,21 +435,6 @@ class WoOperationalRepository {
       }
     } catch (_) {}
 
-    if (collected.isNotEmpty) {
-      return collected.toSet().toList();
-    }
-
-    // Fallback: source yang sama seperti autocomplete web.
-    try {
-      final response = await _materialService.get(
-        '/getMaterial/',
-        queryParameters: {'term': query},
-      );
-      if (response.statusCode == 200) {
-        collected.addAll(_extractSuggestions(response.data));
-      }
-    } catch (_) {}
-
     return collected.toSet().toList();
   }
 
@@ -478,23 +456,6 @@ class WoOperationalRepository {
         }
       }
     } catch (_) {}
-
-    // Fallback: source yang sama seperti web detail material.
-    try {
-      final response = await _materialService.post(
-        '/getMaterialDetails/',
-        data: {'part': part},
-        options: Options(contentType: Headers.formUrlEncodedContentType),
-      );
-      if (response.statusCode == 200) {
-        final uom = _extractUom(response.data);
-        if (uom != null && uom.isNotEmpty) {
-          return uom;
-        }
-      }
-    } catch (_) {
-      return null;
-    }
 
     return null;
   }
@@ -928,7 +889,7 @@ class WoOperationalRepository {
         final filename = normalized.split(RegExp(r'[\\/]')).last;
         formData.files.add(
           MapEntry(
-            'service_photos[]',
+            'service_photos',
             await MultipartFile.fromFile(normalized, filename: filename),
           ),
         );

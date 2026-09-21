@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status Migrasi MCS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #EEF0F2;
+    --surface: #FFFFFF;
+    --surface-2: #F5F6F8;
+    --ink: #15202B;
+    --ink-soft: #56626F;
+    --ink-faint: #8A93A0;
+    --line: #DADFE5;
+    --line-strong: #C3CAD2;
+    --accent: #C4571A;
+    --done: #1E7A4C;
+    --done-bg: #E4F3EA;
+    --partial: #97650C;
+    --partial-bg: #FBF0DC;
+    --off: #5B6572;
+    --off-bg: #E7E9EC;
+    --shadow: 0 1px 0 rgba(21,32,43,0.04);
+    --plate-bg: #10151C;
+    --plate-ink: #F4F5F6;
+    --plate-ink-soft: #B7C0C9;
+    --plate-ink-faint: #8B96A1;
+    --plate-accent: #E58743;
+    --plate-done: #49B77E;
+    --plate-partial: #DCAA51;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10151C;
+      --surface: #171E27;
+      --surface-2: #1D2530;
+      --ink: #E9EDF1;
+      --ink-soft: #9AA6B2;
+      --ink-faint: #6B7480;
+      --line: #2A333D;
+      --line-strong: #3A4550;
+      --accent: #E58743;
+      --done: #49B77E;
+      --done-bg: #143324;
+      --partial: #DCAA51;
+      --partial-bg: #362A11;
+      --off: #6B7480;
+      --off-bg: #1D2530;
+      --shadow: none;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    padding-inline: 20px;
+    padding-block: 40px 64px;
+  }
+  .wrap { max-width: 1180px; margin-inline: auto; }
+
+  h1, h2, h3, .num {
+    font-family: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+    text-wrap: balance;
+  }
+
+  .tag {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    letter-spacing: 0.04em;
+  }
+
+  .nameplate {
+    background: var(--plate-bg);
+    color: var(--plate-ink);
+    border-radius: 6px;
+    padding: 28px clamp(20px, 4vw, 40px);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    align-items: flex-end;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+  }
+  .nameplate::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(135deg, rgba(196,87,26,0.10) 0 2px, transparent 2px 14px);
+    pointer-events: none;
+  }
+  .nameplate-id { position: relative; z-index: 1; }
+  .nameplate-eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--plate-accent);
+    margin: 0 0 8px;
+  }
+  .nameplate h1 {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 800;
+    line-height: 0.95;
+    margin: 0;
+    color: var(--plate-ink);
+  }
+  .nameplate p {
+    margin: 10px 0 0;
+    max-width: 52ch;
+    color: var(--plate-ink-soft);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .stat-row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: clamp(18px, 3vw, 36px);
+    flex-wrap: wrap;
+  }
+  .stat { min-width: 92px; }
+  .stat .num {
+    font-size: 40px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--plate-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .num .unit { font-size: 18px; font-weight: 600; color: var(--plate-accent); margin-left: 2px; }
+  .stat .label {
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--plate-ink-faint);
+    max-width: 14ch;
+    line-height: 1.35;
+  }
+
+  .module-strip {
+    position: relative;
+    z-index: 1;
+    margin-top: 26px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .module-strip-groups {
+    display: flex;
+    gap: clamp(14px, 2.4vw, 26px);
+    flex-wrap: wrap;
+  }
+  .strip-group {
+    flex: 1 1 130px;
+    min-width: 108px;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    border-radius: 4px;
+    padding: 4px 2px;
+    margin: -4px -2px;
+    transition: background 0.15s ease;
+  }
+  .strip-group:hover { background: rgba(255,255,255,0.06); }
+  .strip-group:hover .seg-row .seg.done { filter: brightness(1.25); }
+  .seg-row { display: flex; gap: 3px; }
+  .seg-row .seg { flex: 1; height: 7px; border-radius: 2px; background: rgba(255,255,255,0.12); }
+  .seg-row .seg.done { background: var(--plate-done); }
+  .seg-row .seg.partial { background: var(--plate-partial); }
+  .strip-group-label {
+    margin-top: 7px;
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    color: var(--plate-ink-faint);
+  }
+  .strip-group-label em { font-style: normal; color: var(--plate-done); font-weight: 600; }
+  .module-strip-caption {
+    margin-top: 14px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--plate-ink-faint);
+  }
+  .module-strip-caption span { display: inline-flex; align-items: center; gap: 6px; }
+  .module-strip-caption i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .module-strip-caption i.done { background: var(--plate-done); }
+  .module-strip-caption i.partial { background: var(--plate-partial); }
+
+  section { margin-top: 44px; scroll-margin-top: 20px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .section-head .idx {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .section-head h2 { font-size: 24px; font-weight: 700; margin: 0; flex: 1; }
+  .section-head .meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-faint); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 9px 4px 7px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .badge.done { background: var(--done-bg); color: var(--done); }
+  .badge.done::before { background: var(--done); }
+  .badge.partial { background: var(--partial-bg); color: var(--partial); }
+  .badge.partial::before { background: var(--partial); }
+  .badge.off { background: var(--off-bg); color: var(--off); }
+  .badge.off::before { background: var(--off); }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 100px;
+    padding: 7px 14px 7px 8px;
+    font-size: 13px;
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--done); flex: none; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 370px));
+    gap: 14px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: var(--shadow);
+  }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .card h3 { font-size: 21px; font-weight: 700; margin: 0; line-height: 1.05; }
+  .card .table-name {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-top: 4px;
+  }
+  .card .count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+  }
+  .card .count b {
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .fixlist {
+    list-style: none;
+    margin: auto 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px dashed var(--line-strong);
+    padding-top: 10px;
+  }
+  .fixlist li { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); padding-left: 14px; position: relative; }
+  .fixlist li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-weight: 600; }
+
+  .completion-banner {
+    margin-top: 20px;
+    background: var(--done-bg);
+    border: 1px solid var(--done);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .completion-banner p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .completion-banner p b { color: var(--done); }
+
+  footer {
+    margin-top: 52px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  @media (max-width: 520px) {
+    .nameplate { flex-direction: column; align-items: flex-start; }
+    .stat-row { gap: 20px; }
+    .stat .num { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="nameplate">
+    <div class="nameplate-id">
+      <p class="nameplate-eyebrow">mcs_backend · migrasi PHP → TypeScript</p>
+      <h1>STATUS MIGRASI MCS</h1>
+      <p>Backend Express/TypeScript ditulis ulang dari sumber kebenaran legacy CodeIgniter, modul demi modul — setiap workflow dibaca dari PHP, diporting 1:1, lalu diaudit ulang terhadap kode asli dan diverifikasi langsung ke server &amp; database hidup.</p>
+    </div>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="num">20<span class="unit">/20</span></div>
+        <div class="label">Modul selesai</div>
+      </div>
+      <div class="stat">
+        <div class="num">114</div>
+        <div class="label">Endpoint WO diporting</div>
+      </div>
+      <div class="stat">
+        <div class="num">25<span class="unit">+</span></div>
+        <div class="label">Bug kritis &amp; tinggi diperbaiki</div>
+      </div>
+      <div class="stat">
+        <div class="num">49</div>
+        <div class="label">Endpoint baru di luar WO</div>
+      </div>
+    </div>
+    <div class="module-strip">
+      <div class="module-strip-groups">
+        <a class="strip-group" href="#sec-01">
+          <div class="seg-row"><span class="seg done"></span></div>
+          <div class="strip-group-label"><span>01 Data Master</span><em>1/1</em></div>
+        </a>
+        <a class="strip-group" href="#sec-02">
+          <div class="seg-row"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span></div>
+          <div class="strip-group-label"><span>02 Work Order</span><em>8/8</em></div>
+        </a>
+        <a class="strip-group" href="#sec-03">
+          <div class="seg-row"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span></div>
+          <div class="strip-group-label"><span>03 Aset &amp; Equipment</span><em>6/6</em></div>
+        </a>
+        <a class="strip-group" href="#sec-04">
+          <div class="seg-row"><span class="seg done"></span></div>
+          <div class="strip-group-label"><span>04 Daily Control</span><em>1/1</em></div>
+        </a>
+        <a class="strip-group" href="#sec-05">
+          <div class="seg-row"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span></div>
+          <div class="strip-group-label"><span>05 Reporting</span><em>4/4</em></div>
+        </a>
+      </div>
+      <div class="module-strip-caption">
+        <span><i class="done"></i>20 dari 20 modul selesai</span>
+      </div>
+    </div>
+  </div>
+
+  <section id="sec-01">
+    <div class="section-head">
+      <span class="idx">01</span>
+      <h2>Data Master</h2>
+      <span class="meta">company · divisi · lokasi · user · permission · alias · branding</span>
+    </div>
+    <div class="chip-row">
+      <div class="chip"><span class="dot"></span>Company Structure</div>
+      <div class="chip"><span class="dot"></span>Divisi</div>
+      <div class="chip"><span class="dot"></span>Lokasi Aset</div>
+      <div class="chip"><span class="dot"></span>User &amp; Permission Group</div>
+      <div class="chip"><span class="dot"></span>User Alias</div>
+      <div class="chip"><span class="dot"></span>Kategori Aset</div>
+      <div class="chip"><span class="dot"></span>Settings / Branding</div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Login &amp; Employee Sync</h3><span class="table-name">emp.padmoasm.com</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>1</b>endpoint diperluas</div>
+        <ul class="fixlist">
+          <li>Gap ditemukan: <span class="tag">syncEmployeeStatusFromApi</span> milik legacy (dipanggil di dalam <span class="tag">login_post()</span>) belum ada di backend baru — kini ditambahkan ke <span class="tag">POST /auth/login</span>, dijalankan setelah verifikasi kredensial &amp; sebelum cek <span class="tag">active</span>, persis urutan legacy</li>
+          <li>Kalau employee code ditemukan di API: <span class="tag">fullname</span> user disinkron otomatis dari data pegawai</li>
+          <li>Kalau tidak ditemukan: akun otomatis di-nonaktifkan (<span class="tag">active=0</span>) &amp; login attempt yang sama langsung diblokir 403 — direplikasi persis dari legacy</li>
+          <li>Kalau API tidak bisa dihubungi: fail-open, login tetap jalan normal tanpa perubahan apa pun</li>
+          <li>Bug ditemukan &amp; diperbaiki saat testing: <span class="tag">employeeCache</span> lama menyimpan hasil gagal (null) secara permanen selama proses server hidup — sekali API sempat gagal, semua lookup pegawai untuk company tsb macet fail-open selamanya sampai restart. Diperbaiki: hasil gagal tidak lagi di-cache</li>
+          <li>Gap kedua ditemukan: gate "wajib ganti password" (<span class="tag">requires_password_change</span>) belum ada — login dengan password default (<span class="tag">md5('12345')</span>) atau password kosong sekarang ditahan (tidak dapat token, HTTP 200 dengan <span class="tag">requires_password_change:true</span>), persis legacy. <span class="tag">POST /auth/change_password</span> dilengkapi jalur password kosong (onboarding akun baru) &amp; auto-clear <span class="tag">force_password_change</span></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Firebase Credential Upload</h3><span class="table-name">tb_app_setting (AES-256-GCM)</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>3</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>Sebelumnya JSON service account Firebase cuma bisa dipasang lewat file statis + env <span class="tag">FIREBASE_SERVICE_ACCOUNT_PATH</span> (perlu akses server &amp; restart) — kini bisa diunggah langsung dari menu Settings/Branding lewat <span class="tag">POST /settings/firebase-credentials</span> (khusus <span class="tag">user_management</span>), tersimpan terenkripsi (AES-256-GCM) di <span class="tag">tb_app_setting</span>, dan langsung aktif tanpa restart server</li>
+          <li><span class="tag">GET /settings/firebase-credentials</span> hanya mengembalikan status/​project_id/​client_email — private key tidak pernah dikirim balik ke client</li>
+          <li><span class="tag">DELETE /settings/firebase-credentials</span> menghapus kredensial ter-upload; sistem otomatis kembali memakai file statis lama sebagai fallback kalau ada, supaya notifikasi FCM tidak mendadak mati</li>
+          <li>Validasi upload: file harus JSON valid, <span class="tag">type=service_account</span>, dan berisi <span class="tag">project_id</span>/<span class="tag">client_email</span>/<span class="tag">private_key</span></li>
+          <li>Diuji dengan kredensial sintetis (RSA key hasil-generate sendiri, bukan Firebase asli): upload → aktif langsung, ganti kredensial → langsung terpakai tanpa restart, hapus → otomatis fallback ke file lama</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Storage MinIO/S3</h3><span class="table-name">semua upload gambar &amp; file WO</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>3</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>Temuan penting saat implementasi: server production ternyata SUDAH punya konfigurasi MinIO aktif (<span class="tag">storage_gateway=1</span>, 23.273 file/32GB sudah pernah di-sync legacy) yang belum pernah dipakai backend baru — semua upload di backend TS sebelumnya selalu ke disk lokal</li>
+          <li><span class="tag">GET/POST /settings/storage</span> &amp; <span class="tag">POST /settings/storage/test</span> ditambahkan di Settings/Branding (khusus <span class="tag">user_management</span>) — konfigurasi endpoint/bucket/access key/secret key (terenkripsi AES-256-GCM), dengan fallback baca ke <span class="tag">storage_secret_key</span> lama (plaintext) punya legacy supaya konfigurasi production yang sudah ada tidak perlu diinput ulang</li>
+          <li>Semua endpoint upload gambar/file (avatar, custom detail aset, BOM part, lampiran WO 5 domain, foto service, asset mutation) diubah dari nulis ke disk lokal jadi langsung upload ke MinIO (S3-compatible, via <span class="tag">@aws-sdk/client-s3</span>) — tanpa file lokal sama sekali kalau storage aktif; fallback ke disk lokal otomatis kalau storage belum dikonfigurasi</li>
+          <li>Rute <span class="tag">/uploads/*</span> yang sebelumnya static file server diganti jadi proxy dinamis: cek disk lokal dulu (file lama), baru fallback stream dari MinIO — supaya file lama &amp; baru tetap bisa diakses dari URL yang sama persis seperti sebelumnya, tanpa migrasi data</li>
+          <li>Diuji end-to-end pakai S3-compatible test server lokal (bukan production): upload avatar &amp; lampiran WO, verifikasi file benar-benar masuk bucket tanpa jejak di disk lokal, ambil kembali lewat proxy <span class="tag">/uploads/*</span>, byte-identical. Konfigurasi production (MinIO asli di LAN) dibaca untuk verifikasi lalu dikembalikan persis seperti semula, tidak pernah ditulisi data uji</li>
+          <li>Belum diporting: alat sync massal lama → MinIO (<span class="tag">storage_sync</span>, mesin batch 461 baris) — tidak relevan lagi karena upload baru sudah langsung ke MinIO; backlog file lama sudah selesai di-sync duluan oleh legacy</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>MCS Mobile Release</h3><span class="table-name">tb_app_setting · MinIO</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>1</b>endpoint diperbaiki</div>
+        <ul class="fixlist">
+          <li>Gap ditemukan: <span class="tag">POST /mcs-mobile/release</span> sebelumnya cuma nyimpen JSON body ke <span class="tag">tb_app_setting</span> — tidak ada upload file APK/AAB asli sama sekali, dan permission gate-nya salah (<span class="tag">master_data</span>, harusnya <span class="tag">mcs_mobile_upload</span>)</li>
+          <li>Diperbaiki: upload file <span class="tag">.apk</span>/<span class="tag">.aab</span> asli (maks 300MB) lewat storage MinIO/lokal yang sama dengan seluruh upload lain, validasi version/version_code/format persis legacy, permission dibetulkan</li>
+          <li>Diuji end-to-end: upload file uji, verifikasi tersimpan &amp; bisa diunduh balik lewat <span class="tag">/uploads/downloads/...</span>, metadata tersimpan benar — lalu file &amp; metadata uji dibersihkan dari storage production</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Dashboard</h3><span class="table-name">tb_wo_mtc/it/operational/preventive/ga</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>1</b>endpoint (landing screen)</div>
+        <ul class="fixlist">
+          <li>Gap terbesar dari audit: <span class="tag">GET /dashboard</span> — kemungkinan besar layar pertama yang dibuka user — belum ada sama sekali di backend baru. Diporting penuh dari <span class="tag">V2_dashboard::index_get()</span> (~230 baris): total/open/in-progress/closed/rejected per rentang tanggal (7/14/30/90/180 hari), delta % vs periode sebelumnya, breakdown per modul/status/company, top 8 aset teraktif, tren harian dibuat vs ditutup, histogram umur WO yang masih open (0-3/4-7/8-14/&gt;14 hari)</li>
+          <li>Scoping divisi/posisi/area maintenance direplikasi persis <span class="tag">M_Api_V2_Work_Order</span> (mesin yang sama dipakai Void Center &amp; Recap Report) — <em>tapi</em> dashboard punya aturan eskalasi manajemen sendiri yang sedikit beda dari alur login: ikut cek flag <span class="tag">user_management</span> secara langsung (bukan cuma posisi mengandung "MANAGEMENT"), dan turut membuka akses <span class="tag">wo_ga</span> — divergensi asli di legacy, direplikasi apa adanya, bukan disatukan dengan logic login</li>
+          <li>WO MESO yang sebenarnya WO Preventive yang di-mirror ke <span class="tag">tb_wo_mtc</span> sengaja dikecualikan dari hitungan modul MESO (persis legacy) supaya tidak dihitung ganda</li>
+          <li>User tanpa akses modul apa pun tetap dapat respons 200 berisi data kosong (bukan error) — termasuk tren harian yang tetap terisi penuh 0 di setiap tanggal</li>
+          <li>Diuji langsung ke data production: user cross-access (lihat total gabungan &amp; breakdown benar), filter <span class="tag">range</span>/<span class="tag">module</span>, user tanpa izin (payload kosong), dan user dengan <span class="tag">user_management=1</span> tanpa <span class="tag">wo_cross_access</span> (memverifikasi eskalasi khusus dashboard benar-benar jalan terpisah dari eskalasi login)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Notifications — perbaikan total</h3><span class="table-name">tb_wo_mtc · tb_wo_preventive</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>2</b>endpoint diganti total</div>
+        <ul class="fixlist">
+          <li>Bug ditemukan: <span class="tag">GET /notifications</span> sebelumnya query tabel <span class="tag">tb_queue_email</span> (log email) — fitur yang sama sekali berbeda memakai URL yang sama. Legacy aslinya adalah badge jumlah WO yang perlu approval/lagi dikerjakan, di-scope per divisi &amp; posisi user. Diganti total mengikuti <span class="tag">Notification::summary_get()</span></li>
+          <li>Divisi 15 &amp; "keluarga MESO" (1, 16003-16006) baca gabungan <span class="tag">tb_wo_mtc</span>+<span class="tag">tb_wo_preventive</span> (dengan dedup wo_number, baris preventive menang kalau ada di keduanya); divisi lain hanya baca <span class="tag">tb_wo_preventive</span> dengan status pending yang lebih sempit (cuma <span class="tag">WAIT_EXECUTOR_ADMIN</span>, bukan 3 status seperti keluarga MESO)</li>
+          <li>Scoping berbeda dari Dashboard/Approval Center: endpoint ini TIDAK mengenal <span class="tag">wo_cross_access</span> maupun eskalasi manajemen sama sekali — murni <span class="tag">id_position</span>/<span class="tag">id_division</span>, posisi yang tidak dikenal (termasuk staff biasa) otomatis tidak di-scope (lihat semua) — direplikasi apa adanya sesuai legacy, bukan disamakan dengan modul lain</li>
+          <li><span class="tag">GET /notifications/detail?wo_number=</span> diganti dari lookup by <span class="tag">id</span> ke email log, jadi lookup WO Preventive sebenarnya by <span class="tag">wo_number</span> — replikasi termasuk keterbatasan asli: WO murni MESO (bukan preventive) akan 404 di endpoint ini walau muncul di summary, karena modelnya cuma baca <span class="tag">tb_wo_preventive</span></li>
+          <li>Diuji ke data production: user divisi non-MESO (hasil kosong sesuai data saat ini), user divisi keluarga MESO (806 notifikasi real, list ter-cap 10 diurutkan tanggal terbaru), detail by wo_number (valid, tidak ditemukan, param kosong)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-02">
+    <div class="section-head">
+      <span class="idx">02</span>
+      <h2>Work Order — 5 domain</h2>
+      <span class="meta">state machine per posisi &amp; divisi, direplikasi dari model PHP asli</span>
+    </div>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Meso</h3><span class="table-name">tb_wo_mtc</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>32</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Bug <span class="tag">is_external</span> truthy-string salah tandai WO eksternal</li>
+          <li>Idempotency <span class="tag">material_request</span> disamakan ke legacy</li>
+          <li>Mislabel level pada <span class="tag">part_execution</span> dibetulkan</li>
+          <li><span class="tag">update_executor</span>/<span class="tag">delete_executor</span> ditambahkan — disamakan dengan domain Maintenance atas permintaan user</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Maintenance</h3><span class="table-name">tb_wo_mtc_operational</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>31</b>endpoint</div>
+        <ul class="fixlist">
+          <li>State machine <span class="tag">approve()</span> ADMIN_DIVISI salah rute diperbaiki</li>
+          <li>Gate <span class="tag">wo_void</span> yang hilang ditambahkan</li>
+          <li>Fitur void H-1 &amp; pagination <span class="tag">type_wo</span> dibenahi</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>IS (IT)</h3><span class="table-name">tb_wo_it</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>17</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Cabang DIVHEAD+COMPLETE salah rute di <span class="tag">add_job_explanation</span></li>
+          <li>Comment approval yang selalu kosong dibetulkan</li>
+          <li>Pagination <span class="tag">type_wo</span> diterapkan di SQL, bukan di memori</li>
+          <li><span class="tag">update_executor</span>/<span class="tag">delete_executor</span> ditambahkan — disamakan dengan domain Maintenance atas permintaan user</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Production</h3><span class="table-name">tb_wo_preventive</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>17</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Kebocoran akses: posisi DEPTHEAD hilang dari filter visibilitas</li>
+          <li>Validasi "No data to update" yang jadi dead code diperbaiki</li>
+          <li>Cabang default <span class="tag">add_job_explanation</span> dilengkapi</li>
+          <li><span class="tag">update_executor</span>/<span class="tag">delete_executor</span> ditambahkan — disamakan dengan domain Maintenance atas permintaan user</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>GA</h3><span class="table-name">tb_wo_ga</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>17</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Pola DIVHEAD+COMPLETE misroute yang sama seperti IS dibetulkan</li>
+          <li>Comment approval &amp; pagination <span class="tag">type_wo</span> dibenahi</li>
+          <li>Verifikasi substitusi konstanta ITS→HRGA bersih total</li>
+          <li><span class="tag">update_executor</span>/<span class="tag">delete_executor</span> ditambahkan — disamakan dengan domain Maintenance atas permintaan user</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Material Usage</h3><span class="table-name">tb_material_usage/request/purchase/hold</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>10</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Pencarian part sebelumnya salah baca dari <span class="tag">tb_parts_bom</span> lokal — diperbaiki jadi konek langsung ke database ERP Ascend (SQL Server, GSU/RU/UC) via <span class="tag">mssql</span></li>
+          <li>Bug copy-paste: konfirmasi WO GA salah tercatat ke <span class="tag">tb_approval_preventive</span> — dibetulkan ke <span class="tag">tb_approval_ga</span></li>
+          <li>Bug <span class="tag">material_receive</span> berlipat ganda kalau endpoint konfirmasi dipanggil dua kali — ditambah guard idempotent</li>
+          <li>Null-check hilang saat hold part yang row-nya tidak ditemukan (fatal error di PHP8) — diperbaiki</li>
+          <li>Tabrakan kolom <span class="tag">created_at</span> antara header &amp; divisi saat JOIN — diperbaiki</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Approval Center</h3><span class="table-name">agregasi 5 domain WO + material + mutation</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>13</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Inbox approval terpusat — gabung pending approval/closing dari 5 domain WO, material request, &amp; asset mutation jadi satu layar, dengan aksi approve/reject/close/void</li>
+          <li>Ditemukan &amp; diperbaiki bug infrastruktur serius saat testing: middleware global di 6 router (Daily Control + 5 domain WO) tidak diberi path-scope, sehingga salah blokir request ke router LAIN yang dimount setelahnya (mis. user tanpa akses Daily Control ikut ke-403 saat akses Material Usage/Equipment/Report/dst) — sudah diperbaiki di semua 6 file</li>
+          <li>Endpoint <span class="tag">reject</span> ditambahkan ke Meso/IS/Production/GA (sebelumnya cuma ada di Maintenance sebagai <span class="tag">decline</span>) — proses seragam di 5 domain</li>
+          <li>Bug nyata ditemukan: fungsi reject asset mutation di legacy PHP (<span class="tag">decline()</span>) salah total — insert ke kolom yang tidak ada &amp; set status ke nilai ENUM yang tidak valid, selalu error kalau benar-benar dipanggil. Dibuat ulang jadi versi yang berfungsi</li>
+          <li><span class="tag">GET /void-center</span> &amp; <span class="tag">POST /void-center/void</span> ditambahkan — daftar WO lintas 5 domain yang masih bisa dibatalkan (belum CLOSED/VOID/REJECT), dengan scope divisi/eksekutor/area maintenance persis replikasi <span class="tag">M_Api_V2_Work_Order::getList()</span> legacy, memakai guard void yang sama dengan Approval Center</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Preventive Schedule</h3><span class="table-name">tb_schedule_header · tbl_schedules_detail</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>10</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Generator WO otomatis dari jadwal (harian/mingguan/bulanan/3&amp;6 bulanan/tahunan) — replikasi penuh mesin <span class="tag">generate_schedule_now</span> legacy untuk domain MESO/Maintenance/Preventive</li>
+          <li>Scheduler internal (<span class="tag">node-cron</span>) + MySQL advisory lock menggantikan endpoint cron lama yang publik tanpa autentikasi</li>
+          <li>Dual-write WO Preventive → mirror otomatis ke <span class="tag">tb_wo_mtc</span> direplikasi persis (bukan bug, desain legacy)</li>
+          <li>Repair otomatis detail schedule dari Custom Detail aset, dengan backup snapshot sebelum ditimpa</li>
+          <li>~200 baris dead code jalur <span class="tag">wo_it</span> di generator lama sengaja di-skip (tidak reachable untuk domain aktif)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Work Order Facade — bug fix</h3><span class="table-name">work-orders.ts (generic)</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>1</b>bug kritis</div>
+        <ul class="fixlist">
+          <li>Bug nyata ditemukan: router generik <span class="tag">/work-orders/*</span> (facade lintas-domain terpisah dari 5 router per-domain yang sudah teruji) menunjuk domain "production" ke tabel yang tidak ada (<span class="tag">tb_wo_production</span>) dengan permission field salah (<span class="tag">wo_it</span>) — setiap create/approve/sub domain production lewat facade ini pasti error SQL</li>
+          <li>Diperbaiki: tabel &amp; permission dibetulkan ke <span class="tag">tb_wo_preventive</span>/<span class="tag">wo_preventive</span> (persis model asli), prefix nomor WO dibetulkan ke <span class="tag">PREV</span>. Domain production tidak punya divisi eksekutor tetap seperti 4 domain lain — executor sekarang jatuh ke divisi user pembuat, replikasi perilaku router aslinya</li>
+          <li>Diuji langsung: create WO production via facade generik, verifikasi baris masuk ke <span class="tag">tb_wo_preventive</span> dengan nomor &amp; executor yang benar</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Kompatibilitas Frontend (mcs_web)</h3><span class="table-name">audit lintas 19 file API client</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>10</b>bug ditemukan &amp; diperbaiki</div>
+        <ul class="fixlist">
+          <li>Audit penuh: baca semua 19 file <span class="tag">src/lib/api/*.ts</span> di frontend Next.js, dicocokkan satu-satu ke handler backend (bukan cuma nama URL — shape response, envelope, nama field upload). Sebagian besar modul (Approval Center, Void Center, Dashboard, Daily Control, Master Data, Material Usage, Notifications, Preventive Schedule, Reports, Storage settings, alur login+password gate) sudah cocok 100% dari awal</li>
+          <li><b>Bug kritis #1:</b> facade generik <span class="tag">/work-orders/*</span> baca field <span class="tag">domain</span>, frontend selalu kirim <span class="tag">module</span> — selalu jatuh ke default "maintenance". Dampak: filter list diabaikan, detail 404 untuk 4/5 modul, <b>WO baru selalu kesimpen sebagai domain maintenance tanpa error</b>, planner/approve/reject/close/void 404, sub-WO gagal total. Diperbaiki semua field <span class="tag">domain</span>→<span class="tag">module</span> di 6 endpoint, plus <span class="tag">asset_code</span>→<span class="tag">id_equipment</span> yang belum pernah di-resolve sama sekali (create WO selalu <span class="tag">id_equipment=null</span> sebelumnya), plus <span class="tag">executors</span>→<span class="tag">job_executor</span> di planner (tanggal started/finished/estimate ikut sekarang tersimpan, sebelumnya diabaikan), plus mapping kode eksekutor <span class="tag">GA/IT/MTC</span>→domain untuk sub-WO (bukan cuma rename field, beda encoding value)</li>
+          <li>Bug tersembunyi ketemu saat testing fix di atas: <span class="tag">/work-orders/detail</span> query <span class="tag">tb_detail_labor</span>/<span class="tag">tb_detail_material</span> pakai <span class="tag">ORDER BY id</span> — kolom itu tidak ada di kedua tabel (primary key aslinya <span class="tag">id_detail_labor</span>/<span class="tag">id_detail_material</span>), selalu HTTP 500. Sudah dibetulkan</li>
+          <li><b>Bug kritis #2:</b> upload foto "Update Pekerjaan" — frontend kirim field <span class="tag">service_photos[]</span> (pakai kurung), backend nunggu <span class="tag">service_photos</span> persis (multer tolak nama beda, jadi HTTP 500 mentah) — alur wajib submit WO dengan foto, rusak total di 5 domain. <b>Diperbaiki di sisi frontend</b> (mcs_web), bukan backend, karena backend sudah konsisten di semua 5 handler</li>
+          <li>Bug lebih kecil: upload avatar (field <span class="tag">avatar</span> vs <span class="tag">file</span> — backend dibikin terima nama field apa saja), upload lampiran galeri aset (field <span class="tag">asset</span> ditambahkan sebagai fallback), simpan gambar custom-detail beranotasi (frontend kirim JSON base64 ke endpoint yang nunggu multipart — endpoint ditulis ulang total untuk terima base64 &amp; update baris yang sudah ada, bukan selalu insert baru), endpoint <span class="tag">GET /users/lookup</span> (dipakai search PIC/executor) yang ternyata belum ada sama sekali — ditambahkan</li>
+          <li>Diuji end-to-end dengan data sintetis untuk setiap bug: create/update/detail/planner/sub-WO/approve WO lintas domain, users/lookup, upload avatar, upload galeri aset, simpan gambar beranotasi — semua file uji dihapus dari MinIO production &amp; DB setelah verifikasi</li>
+          <li>Gap yang tersisa saat itu (sudah dikerjakan semua, lihat kartu di bawah): Bulk Import Asset, checklist part preventive (<span class="tag">meso-parts</span>/<span class="tag">maintenance-parts</span>), Storage Sync. Stock Opname report sengaja masih ditunda (belum digarap)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Bulk Import Asset, Checklist Part Preventive, Storage Sync</h3><span class="table-name">asset-import.ts · preventive-parts.ts · storage-sync.ts</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>3</b>fitur baru</div>
+        <ul class="fixlist">
+          <li><b>Bulk Import Asset:</b> <span class="tag">POST /assets/import</span> (xlsx/xls/csv via ExcelJS, header Indonesia/Inggris, dry-run, update-existing, auto-generate <span class="tag">AssetCode</span> replikasi persis <span class="tag">M_Api_V2_Asset::generateCode()</span>) &amp; <span class="tag">GET /assets/import-template</span>. Diuji: dry-run, create baru (kode auto &amp; manual), update-existing on/off, baris error (company tidak ada di master, nama kosong), download template — semua baris sintetis dihapus dari <span class="tag">asset</span> setelah verifikasi</li>
+          <li><b>Checklist Part Preventive:</b> <span class="tag">GET/POST /work-orders/meso-parts</span> (state langsung di <span class="tag">tb_wo_meso_detail</span>, satu baris <span class="tag">tb_material_part_request</span> PENDING per WO) &amp; <span class="tag">GET/POST /work-orders/maintenance-parts</span> (definisi dari <span class="tag">asset_custom_details</span>, state terpisah di <span class="tag">tb_wo_operational_part_execution</span> + <span class="tag">tb_material_request level=part_execution</span>). Simplifikasi sadar: filter tipe-jadwal elaborate di legacy (<span class="tag">get_effective_wo_schedule_type</span>) dilewati — semua part custom-detail ditampilkan sebagai superset aman, tidak pernah menyembunyikan part yang seharusnya muncul</li>
+          <li>Diuji end-to-end dengan WO &amp; asset sintetis: merge foto custom-detail, transisi <span class="tag">maintenance_status</span> ke DONE, <span class="tag">need_request_part</span>/<span class="tag">request_qty</span> memicu permintaan part, efek samping status WO (<span class="tag">IN_PROGRESS_EXECUTOR</span>) &amp; <span class="tag">tb_job_executor</span>, filter <span class="tag">custom_detail_id</span> yang tidak valid diabaikan diam-diam, error 404/422 untuk WO tidak ada/bukan preventive, permission gate per varian (MESO GET auth-only, MESO POST butuh executor/wo_mtc, Maintenance GET+POST butuh executor/wo_operational) — semua baris sintetis dihapus dari 7 tabel setelahnya</li>
+          <li><b>Storage Sync:</b> <span class="tag">GET/POST /settings/storage/sync</span> (action <span class="tag">status/start/step/stop/check</span>), engine batch cursor-based, state persis di key <span class="tag">storage_sync_state</span> yang sama dengan yang sudah dipakai production. Diuji hati-hati terhadap MinIO production sungguhan pakai root sintetis terisolasi (<span class="tag">ZZTEST_sync</span>) — lifecycle start/stop/start-force/step/step-ulang (idempoten), skip-saat-ukuran-cocok, <span class="tag">check</span> read-only. State asli production (<span class="tag">root: assets/docs</span>, 23.273 file) di-backup sebelum diutak-atik dan direstore byte-per-byte setelah selesai — diverifikasi identik; object test dihapus dari bucket <span class="tag">mcs</span></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Preventive Alarm</h3><span class="table-name">tb_preventive_alarm_log</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>1</b>cron + 1 endpoint</div>
+        <ul class="fixlist">
+          <li>Gap ditemukan: cron harian legacy (Windows Task Scheduler, 15:30 WIB) yang kirim FCM alarm ke user ber-permission <span class="tag">preventive_alarm</span> soal WO Preventive yang masih In Progress hari itu — belum ada equivalent-nya di backend baru</li>
+          <li>Ditambahkan sebagai <span class="tag">node-cron</span> internal (jadwal sama, 15:30 Asia/Jakarta) + MySQL advisory lock (mengganti file-lock legacy) — dedup per (tanggal, user) via <span class="tag">tb_preventive_alarm_log</span> sama seperti legacy, sekali <span class="tag">SENT</span> tidak dikirim ulang di hari yang sama</li>
+          <li>Payload FCM data-only (tanpa notification block) supaya native Android alarm receiver yang menangani — ditambahkan dukungan <span class="tag">dataOnly</span> ke modul FCM yang sebelumnya selalu kirim notification block</li>
+          <li><span class="tag">POST /preventive-alarm/run</span> ditambahkan untuk trigger manual/testing (legacy hanya CLI)</li>
+          <li>Diuji hati-hati dengan WO &amp; user sintetis (bukan data real) setelah insiden kecil: percobaan pertama tanpa sengaja terkirim ke 3 user asli ber-token FCM aktif karena hanya memverifikasi tidak ada WO Preventive real hari itu, lupa cek recipient asli — log &amp; WO uji langsung dibersihkan supaya cron asli sore ini tidak ke-skip untuk user-user tsb</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="sec-03">
+    <div class="section-head">
+      <span class="idx">03</span>
+      <h2>Aset &amp; Equipment</h2>
+      <span class="meta">master aset · BOM parts · custom detail · mutasi · alert area</span>
+    </div>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Asset Master</h3><span class="table-name">asset · tb_attachment_asset</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count">CRUD, lampiran, generate kode</div>
+        <ul class="fixlist">
+          <li>3 endpoint crash 500 (kolom skema tidak ada) diperbaiki</li>
+          <li>Gate akses baca yang hilang ditambahkan</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Equipment / BOM</h3><span class="table-name">tb_parts_bom</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count">Stok, pemakaian, riwayat, foto part</div>
+        <ul class="fixlist">
+          <li>Validasi stok &amp; reversal otomatis saat histori dihapus</li>
+          <li>2 endpoint crash 500 + permission salah diperbaiki</li>
+          <li>Foto BOM dikonversi ke <span class="tag">WebP</span> kualitas 80, alur draft token sebelum part tersimpan</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Kategori Lampiran</h3><span class="table-name">tb_attachment_asset_category</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>6</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>CRUD kategori + guard hapus-jika-terpakai</li>
+          <li>Reorder lampiran, galeri, &amp; foto BOM</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Custom Detail — Excel</h3><span class="table-name">asset_custom_details</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>8</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>Import <span class="tag">.xlsx</span> + ekstraksi gambar ter-anchor di sel</li>
+          <li>Mode replace/append, dry-run, download template</li>
+          <li>Upload &amp; hapus gambar per baris checklist</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Asset Mutation</h3><span class="table-name">asset_mutation_header/detail</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>8</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>Transfer aset antar lokasi/divisi dengan approval satu langkah</li>
+          <li>State machine 2 status: <span class="tag">NEED_APPROVED → APPROVED</span></li>
+          <li>Approve langsung update Company/Lokasi di tabel asset</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Missing-area Alert</h3><span class="table-name">tb_wo_it · tb_approval_it</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>2</b>endpoint baru</div>
+        <ul class="fixlist">
+          <li>Deteksi WO dengan area maintenance belum difoto</li>
+          <li>Review ACCEPT/REJECT per WO, idempotent</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="sec-04">
+    <div class="section-head">
+      <span class="idx">04</span>
+      <h2>Daily Control</h2>
+      <span class="meta">feed aktivitas harian · komentar · mention · read/unread</span>
+    </div>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Daily Control</h3><span class="table-name">tb_daily_control + 6 tabel turunan</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>19</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Temuan konflik routing: 9 endpoint sebenarnya dilayani <span class="tag">V2_bridge.php</span>, bukan controller yang dikira sumber kebenaran — direplikasi sesuai yang benar-benar aktif di production</li>
+          <li>Scope visibilitas per-divisi (MTC/ITS/MESO/EXACT/SELF) &amp; resolusi aktor lintas 5 tabel WO</li>
+          <li>Komentar berjenjang, mention user/part, read/unread per aktivitas</li>
+          <li>Push notification FCM untuk komentar baru — recipient = pemilik aktivitas + participant WO + siapa saja yang pernah komentar/baca, via <span class="tag">firebase-admin</span>. Otomatis skip aman kalau kredensial belum di-set (tidak error)</li>
+          <li>Token device invalid (uninstall/logout) otomatis dinonaktifkan setelah gagal kirim</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="sec-05">
+    <div class="section-head">
+      <span class="idx">05</span>
+      <h2>Reporting</h2>
+      <span class="meta">asset · QR code · mutasi · historikal mesin · rekap WO 5 domain — PDF via Gotenberg, Excel via exceljs</span>
+    </div>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Report Asset &amp; QR Code</h3><span class="table-name">asset · tb_attachment_asset</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>5</b>endpoint</div>
+        <ul class="fixlist">
+          <li>List/search/sort asli tidak berfungsi (urutan selalu terkunci) — sorting diperbaiki</li>
+          <li>Badge status selalu "Inactive" (cek kolom salah) — diperbaiki ke kolom <span class="tag">active</span></li>
+          <li>QR PNG race-condition antar user (nama file statis) — dihilangkan, generate in-memory per-request</li>
+          <li>N+1 query lampiran (hingga 132 query/halaman) — diringkas jadi 1 query JOIN</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Report Asset Mutation</h3><span class="table-name">asset_mutation_header/detail</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>3</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Sumber data dialihkan dari tabel legacy <span class="tag">asset_mutation</span> (stale, 19 baris) ke tabel aktif header/detail</li>
+          <li>Export PDF landscape identik layout form mutasi lama</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Report Equipment (Kartu Historikal)</h3><span class="table-name">tb_wo_mtc/it/operational/preventive</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>3</b>endpoint</div>
+        <ul class="fixlist">
+          <li>Gabungan histori corrective maintenance dari 4 tabel WO per aset</li>
+          <li>Field <span class="tag">description</span>/<span class="tag">completed_at</span> yang selalu kosong (kolom salah nama) — diperbaiki</li>
+          <li>Total jam kerja selalu 0 (parsing angka gagal pada teks bebas "7 Jam") — diperbaiki dengan ekstraksi regex</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Recap Work Order — 5 domain</h3><span class="table-name">tb_wo_mtc/it/operational/preventive/ga</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>4</b>route &times; 5 domain</div>
+        <ul class="fixlist">
+          <li>MESO/IT/Operational/Preventive/GA — filter company, divisi, tanggal, tipe WO, executor</li>
+          <li>Bucket rekap "In Progress" Preventive/GA salah hitung status <span class="tag">WAIT_KA_DIV</span> — diperbaiki jadi status executor sebenarnya</li>
+          <li>Batch query approval/asset di-chunk untuk hindari crash <span class="tag">max_allowed_packet</span> pada domain besar (50rb+ WO)</li>
+          <li>Varian "By Executor" di-skip — rusak di legacy (model tidak ter-load, join ke tabel nyaris kosong)</li>
+          <li>Export Excel &amp; PDF penuh per domain, di luar JSON list+summary</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div><h3>Legacy Reports Contract</h3><span class="table-name">GET /reports/:report</span></div>
+          <span class="badge done">Selesai</span>
+        </div>
+        <div class="count"><b>5</b>sub-report</div>
+        <ul class="fixlist">
+          <li>Gap ditemukan: kontrak lama <span class="tag">GET /reports/:report</span> sebelumnya cuma dump 5 nama tabel mentah tanpa permission check — bukan replikasi legacy sama sekali. Diganti total mengikuti <span class="tag">V2::reports_get()</span> asli: <span class="tag">recap-work-orders-options</span>, <span class="tag">assets</span>/<span class="tag">list-of-assets</span>, <span class="tag">recap-work-orders</span>, <span class="tag">assets-history</span>, <span class="tag">qr</span></li>
+          <li><span class="tag">recap-work-orders</span> memakai mesin query yang sama dengan Void Center (<span class="tag">M_Api_V2_Work_Order::getList()</span>), diperluas dengan mode <span class="tag">legacy_recap</span> — filter divisi di sini berarti divisi EKSEKUTOR (klausa <span class="tag">FIND_IN_SET</span> job_executor/pic/tb_job_executor), bukan divisi pembuat WO, persis legacy</li>
+          <li><span class="tag">qr</span>: QR code dibuat mengarah ke halaman <span class="tag">Detail_asset</span> di server legacy (bukan backend baru) — sesuai desain asli untuk sticker QR fisik yang sudah tercetak; ID di-encode <span class="tag">bin2hex</span> persis <span class="tag">conv()</span> legacy. Logo company: cek upload admin dulu, fallback ke logo bawaan legacy (GSU/RU/UC) di server lama</li>
+          <li><span class="tag">stock-opname</span> sengaja tidak diporting di kontrak ini — bridge ke microservice eksternal terpisah (>1000 baris, auth JWT sendiri), sudah lebih dulu ditandai excluded scope di atas</li>
+        </ul>
+      </div>
+
+    </div>
+    <div class="completion-banner">
+      <p><b>Semua modul yang teridentifikasi dari audit sudah tuntas — 20 dari 20.</b> Report SO &amp; Crystal Report sengaja tidak diporting (excluded scope).</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Diverifikasi via type-check, build bersih, dan uji langsung ke server &amp; database mcs_new</span>
+    <span>Terakhir diperbarui · 15 Sep 2026</span>
+  </footer>
+
+</div>
+</body>
+</html>

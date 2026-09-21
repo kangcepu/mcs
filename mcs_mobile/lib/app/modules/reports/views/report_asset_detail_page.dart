@@ -1,9 +1,15 @@
-import 'package:dio/dio.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
+import '../../../core/widgets/video_player_page.dart';
+import '../../../data/providers/api_service.dart';
 import '../../../data/repositories/master_repository.dart';
 
 class ReportAssetDetailPage extends StatefulWidget {
@@ -15,7 +21,7 @@ class ReportAssetDetailPage extends StatefulWidget {
 
 class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
   final MasterRepository _repository = MasterRepository();
-  final Dio _dio = Dio();
+  final ApiService _apiService = ApiService();
 
   bool _isLoading = true;
   bool _isDownloading = false;
@@ -118,7 +124,7 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
     for (final key in keys) {
       final value = row[key];
       if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
+        return ApiConstants.mediaUrl(value.toString().trim());
       }
     }
     return '';
@@ -171,7 +177,22 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
       final tempDir = await getTemporaryDirectory();
       final filePath = '${tempDir.path}/$fileName';
 
-      await _dio.download(url, filePath);
+      await _apiService.dio.download(url, filePath);
+      final file = File(filePath);
+
+      if (MediaPickerHelper.isPdf(fileName)) {
+        if (mounted) {
+          Get.to(() => PdfViewerPage(title: fileName, file: file));
+        }
+        return;
+      }
+
+      if (MediaPickerHelper.isVideo(fileName)) {
+        if (mounted) {
+          Get.to(() => VideoPlayerPage(title: fileName, file: file));
+        }
+        return;
+      }
 
       final result = await OpenFile.open(filePath);
       if (result.type != ResultType.done) {
@@ -500,7 +521,7 @@ class _AssetImagePreviewDialogState extends State<_AssetImagePreviewDialog> {
     for (final key in keys) {
       final value = item[key];
       if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
+        return ApiConstants.mediaUrl(value.toString().trim());
       }
     }
     return '';

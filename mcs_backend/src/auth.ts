@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import type { NextFunction, Response } from 'express';
 import { config } from './config.js';
-import { one } from './db.js';
+import { execute, one } from './db.js';
 import { HttpError } from './http.js';
+import { findEmployeeForUserResult, resolveCompanyCode } from './lib/employee-api.js';
 import type { AuthRequest, User } from './types.js';
 
 export const permissionFields = [
@@ -33,6 +34,57 @@ export async function findUserByCredentials(username: string, password: string):
     LEFT JOIN tb_division d ON d.id_division = u.id_division
     LEFT JOIN tb_company c ON c.id_company = u.id_company
     WHERE (u.username = ? OR u.email = ?) AND u.password = ? LIMIT 1`, [username, username, md5(password)]);
+}
+
+export async function findUserByIdentity(username: string): Promise<User | null> {
+  return one<User>(`SELECT u.*, d.division_code, d.division_name, c.company_name
+    FROM tb_user u
+    LEFT JOIN tb_division d ON d.id_division = u.id_division
+    LEFT JOIN tb_company c ON c.id_company = u.id_company
+    WHERE (u.username = ? OR u.email = ?) LIMIT 1`, [username, username]);
+}
+
+const DEFAULT_PASSWORD_HASH = md5('12345');
+
+export function isPasswordEmpty(user: User): boolean {
+  return String(user.password ?? '').trim() === '';
+}
+
+export function isUsingDefaultPassword(user: User): boolean {
+  const password = String(user.password ?? '');
+  return password !== '' && password === DEFAULT_PASSWORD_HASH;
+}
+
+export function requiresPasswordChange(user: User): boolean {
+  const forced = Number(user.force_password_change ?? 0) === 1;
+  return forced || isUsingDefaultPassword(user) || isPasswordEmpty(user);
+}
+
+export async function syncEmployeeStatusFromApi(user: User): Promise<User> {
+  const username = String(user.username ?? '').trim();
+  const email = String(user.email ?? '').trim();
+  const companyCode = resolveCompanyCode(String(user.company_name ?? ''));
+  if (username === '' || companyCode === '') return user;
+
+  const result = await findEmployeeForUserResult(companyCode, username, email);
+  const emp = result.employee;
+
+  if (result.status === 'found' && emp && String(emp.EmployeeCode ?? '') !== '') {
+    const newFullname = String(emp.FullName ?? '');
+    if (newFullname !== '' && newFullname !== String(user.fullname ?? '')) {
+      await execute('UPDATE tb_user SET fullname = ? WHERE id_user = ?', [newFullname, user.id_user]);
+      user.fullname = newFullname;
+    }
+    return user;
+  }
+
+  if (result.status !== 'not_found') return user;
+
+  if (Number(user.active ?? 0) !== 0) {
+    await execute('UPDATE tb_user SET active = 0 WHERE id_user = ?', [user.id_user]);
+  }
+  user.active = 0;
+  return user;
 }
 
 export function applyAutomaticAccess(user: User): User {

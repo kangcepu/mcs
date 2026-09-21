@@ -58,7 +58,7 @@ class WorkOrderMtc {
       woNumber: json['wo_number'] ?? '',
       date: json['date'] ?? '',
       assetName: json['AssetName'],
-      idEquipment: json['id_equipment'],
+      idEquipment: json['id_equipment']?.toString(),
       company: json['company'],
       shift: json['shift'],
       jobTitle: json['job_title'] ?? '',

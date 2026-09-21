@@ -22,6 +22,9 @@ import '../../../data/models/material_request_payload.dart';
 import '../../../data/models/wo_constants.dart';
 import '../../../data/models/work_order_model.dart' as wo_model;
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
+import '../../../core/widgets/video_player_page.dart';
 
 class WoMtcDetailController extends GetxController {
   final WoMtcRepository _woMtcRepository = WoMtcRepository();
@@ -993,13 +996,6 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  String getAttachmentApiPath(String filename) {
-    final clean = filename.trim();
-    if (clean.isEmpty) {
-      return '';
-    }
-    return '${ApiConstants.openAttachmentWoMtc}/${Uri.encodeComponent(clean)}';
-  }
 
   bool isImageAttachment(String filename) {
     final lower = filename.toLowerCase();
@@ -1017,9 +1013,9 @@ class WoMtcDetailController extends GetxController {
   }
 
   Future<Uint8List> _downloadAttachmentBytes(String filename) async {
-    final path = getAttachmentApiPath(filename);
     final response = await _apiService.get(
-      path,
+      ApiConstants.openAttachmentWoMtc,
+      queryParameters: {'filename': filename},
       options: Options(
         responseType: ResponseType.bytes,
         validateStatus: (status) => status != null && status < 500,
@@ -1084,10 +1080,20 @@ class WoMtcDetailController extends GetxController {
         return;
       }
 
+      if (MediaPickerHelper.isPdf(clean)) {
+        Get.to(() => PdfViewerPage(title: clean, bytes: bytes));
+        return;
+      }
+
       final tempDir = await getTemporaryDirectory();
       final filePath = '${tempDir.path}/${_sanitizeFilename(clean)}';
       final file = File(filePath);
       await file.writeAsBytes(bytes, flush: true);
+
+      if (MediaPickerHelper.isVideo(clean)) {
+        Get.to(() => VideoPlayerPage(title: clean, file: file));
+        return;
+      }
 
       final result = await OpenFile.open(filePath);
       if (result.type != ResultType.done) {

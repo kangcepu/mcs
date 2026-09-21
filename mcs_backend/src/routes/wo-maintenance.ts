@@ -9,6 +9,7 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const maintenanceRouter = Router();
@@ -18,16 +19,6 @@ const PART_EXECUTION_DOCS_DIR = path.join(config.uploadDir, 'wo_operational_part
 fs.mkdirSync(DOCS_DIR, { recursive: true });
 fs.mkdirSync(PART_EXECUTION_DOCS_DIR, { recursive: true });
 
-function diskStorage(dir: string) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, dir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
-    },
-  });
-}
-
 function extensionFilter(allowed: string[]) {
   return (_req: unknown, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const ext = path.extname(file.originalname).slice(1).toLowerCase();
@@ -35,9 +26,9 @@ function extensionFilter(allowed: string[]) {
   };
 }
 
-const attachmentUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
-const partExecutionMediaUpload = multer({ storage: diskStorage(PART_EXECUTION_DOCS_DIR), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
-const servicePhotoUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
+const partExecutionMediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
@@ -162,6 +153,25 @@ function normalizeTypeWo(value: unknown): string {
   return String(value ?? '').toLowerCase();
 }
 
+function normalizeTypeWoForWrite(value: unknown): string {
+  const upper = String(value ?? '').toUpperCase().trim();
+  if (upper === 'PM' || upper === 'PREVENTIVE') return 'preventive';
+  if (upper === 'CM' || upper === 'CORRECTIVE') return 'corrective';
+  if (upper === 'BM' || upper === 'BREAKDOWN') return 'breakdown';
+  return String(value ?? '').trim();
+}
+
+function getTypeWoAliases(value: string): string[] {
+  const normalized = normalizeTypeWo(value);
+  switch (normalized) {
+    case 'preventive': return ['preventive', 'PREVENTIVE', 'PREVENTIVE MAINTENANCE', 'PREV MAINTENANCE', 'PM'];
+    case 'corrective': return ['corrective', 'CORRECTIVE', 'CORRECTIVE MAINTENANCE', 'CM'];
+    case 'project': return ['project', 'PROJECT'];
+    case 'breakdown': return ['breakdown', 'BREAKDOWN', 'BM'];
+    default: { const raw = String(value ?? '').trim(); return raw ? [raw] : []; }
+  }
+}
+
 async function getServicePhotos(woNumber: string): Promise<Record<string, unknown>[]> {
   const evidenceRows = await rows<Record<string, unknown>>(
     'SELECT file_name, file_path, created_at FROM tb_wo_service_evidence WHERE wo_number=? ORDER BY created_at DESC',
@@ -206,22 +216,22 @@ async function saveLaborFromJobUpdate(woNumber: string, jobExecutor: string, bod
   return pics.length;
 }
 
-function decodeBase64Attachments(input: unknown, prefix: string): string[] {
+async function decodeBase64Attachments(input: unknown, prefix: string): Promise<string[]> {
   if (!Array.isArray(input)) return [];
   const saved: string[] = [];
-  input.forEach((item, index) => {
-    if (!item || typeof item !== 'object') return;
+  for (const [index, item] of input.entries()) {
+    if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
     const base64 = String(record.base64 ?? '');
     const filename = String(record.filename ?? `file-${index}`);
     const match = base64.match(/^data:([^;]+);base64,(.+)$/);
     const raw = match ? match[2] : base64;
-    if (!raw) return;
+    if (!raw) continue;
     const ext = path.extname(filename) || '.bin';
     const safeName = `${prefix}-${index}${ext}`;
-    fs.writeFileSync(path.join(DOCS_DIR, safeName), Buffer.from(raw, 'base64'));
-    saved.push(`wo_operational/${safeName}`);
-  });
+    const contentType = match ? match[1] : undefined;
+    saved.push(await saveUploadedFile(Buffer.from(raw, 'base64'), 'wo_operational', safeName, contentType));
+  }
   return saved;
 }
 
@@ -332,8 +342,9 @@ async function validatePreventiveCompletion(woNumber: string, assetCode: string)
   return { ok: true };
 }
 
-async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unit: string, jobExecutor: string, user: User): Promise<void> {
+async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unitInput: string | null, jobExecutor: string, user: User): Promise<void> {
   if (!woNumber || !material || qty <= 0) return;
+  const unit = unitInput?.trim() || 'PCS';
   const executor = jobExecutor || '-';
   const existingUsage = await one<{ id: number; request_code: string }>(
     "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
@@ -386,19 +397,26 @@ const VOID_SOURCE_TABLES: VoidSourceConfig[] = [
 const VOID_TERMINAL_STATUSES = ['VOID', 'CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE'];
 
 async function getVoidEligibleFromTable(config: VoidSourceConfig, woNumber?: string): Promise<Record<string, unknown>[]> {
-  let sql = `SELECT w.*, '${config.table}' AS source_table FROM \`${config.table}\` w WHERE w.type_wo IN ('PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM','preventive')
-    AND (w.finished_planner IS NULL OR DATE(w.finished_planner) <= DATE_ADD(CURDATE(), INTERVAL 1 DAY))
-    AND w.status NOT IN (${VOID_TERMINAL_STATUSES.map(() => '?').join(',')})
-    AND (w.started_actual IS NULL) AND (w.finished_actual IS NULL) AND (w.job_explanation IS NULL OR w.job_explanation='')
-    AND NOT EXISTS (SELECT 1 FROM tb_detail_labor l WHERE l.wo_number=w.wo_number)
-    AND NOT EXISTS (SELECT 1 FROM tb_detail_material m WHERE m.wo_number=w.wo_number)`;
+  let sql = `SELECT wo.wo_number, wo.job_title, wo.finished_planner, wo.created_at, wo.status, wo.job_executor,
+      asset.AssetName AS asset_name, division.division_name, '${config.table}' AS source_table
+    FROM \`${config.table}\` wo
+    LEFT JOIN asset ON asset.AssetID = wo.id_equipment
+    LEFT JOIN tb_division division ON division.id_division = wo.id_division
+    WHERE UPPER(TRIM(wo.type_wo)) IN ('PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')
+    AND (wo.finished_planner IS NULL OR TRIM(wo.finished_planner) = '' OR DATE(wo.finished_planner) <= DATE_ADD(CURDATE(), INTERVAL 1 DAY))
+    AND UPPER(TRIM(wo.status)) NOT IN (${VOID_TERMINAL_STATUSES.map(() => '?').join(',')})
+    AND TRIM(IFNULL(wo.started_actual, '')) = ''
+    AND TRIM(IFNULL(wo.finished_actual, '')) = ''
+    AND TRIM(IFNULL(wo.job_explanation, '')) = ''
+    AND NOT EXISTS (SELECT 1 FROM tb_detail_labor l WHERE l.wo_number=wo.wo_number)
+    AND NOT EXISTS (SELECT 1 FROM tb_detail_material m WHERE m.wo_number=wo.wo_number)`;
   const params: unknown[] = [...VOID_TERMINAL_STATUSES];
   if (config.table === 'tb_wo_mtc_operational') {
-    sql += ` AND NOT EXISTS (SELECT 1 FROM tb_wo_operational_part_execution pe WHERE pe.wo_number=w.wo_number AND (pe.maintenance_status='DONE' OR pe.request_qty>0 OR (pe.keterangan IS NOT NULL AND pe.keterangan<>'')))
-      AND NOT EXISTS (SELECT 1 FROM tb_wo_operational_part_execution_media pm WHERE pm.wo_number=w.wo_number)`;
+    sql += ` AND NOT EXISTS (SELECT 1 FROM tb_wo_operational_part_execution pe WHERE pe.wo_number=wo.wo_number AND (pe.maintenance_status='DONE' OR IFNULL(pe.request_qty,0)>0 OR TRIM(IFNULL(pe.request_part,''))<>'' OR TRIM(IFNULL(pe.keterangan,''))<>''))
+      AND NOT EXISTS (SELECT 1 FROM tb_wo_operational_part_execution_media pm WHERE pm.wo_number=wo.wo_number)`;
   }
-  if (woNumber) { sql += ' AND w.wo_number=?'; params.push(woNumber); }
-  sql += ' ORDER BY (w.finished_planner IS NULL), w.finished_planner ASC, w.created_at ASC';
+  if (woNumber) { sql += ' AND wo.wo_number=?'; params.push(woNumber); }
+  sql += ' ORDER BY (wo.finished_planner IS NULL), wo.finished_planner ASC, wo.created_at ASC';
   return rows<Record<string, unknown>>(sql, params);
 }
 
@@ -463,8 +481,7 @@ function callMaterialService(pathSuffix: string, method: 'GET' | 'POST', query: 
   });
 }
 
-maintenanceRouter.use(authenticate);
-maintenanceRouter.use((req, res, next) => {
+maintenanceRouter.use('/maintenance', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
@@ -475,7 +492,7 @@ maintenanceRouter.use((req, res, next) => {
 
 const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE'];
 
-async function buildListQuery(user: User, mtcDivisionId: string, params0: { creatorOnly?: string; status?: string; search?: string; typeWo?: string; applyCategoryScope?: boolean }) {
+async function buildListQuery(user: User, mtcDivisionId: string, params0: { creatorOnly?: string; status?: string; search?: string; typeWo?: string; dateFrom?: string; dateTo?: string; company?: string; applyCategoryScope?: boolean }) {
   const scope = params0.creatorOnly ? { sql: 'w.creator = ?', params: [params0.creatorOnly] } : visibilityScope(user, 'w', mtcDivisionId);
   const areas = getAllowedAssetAreas(user);
   const areaScope = assetAreaScopeSql(areas, 'a');
@@ -488,6 +505,13 @@ async function buildListQuery(user: User, mtcDivisionId: string, params0: { crea
   params.push(...LIST_EXCLUDED_STATUSES);
   if (params0.status) { where += ' AND w.status=?'; params.push(params0.status); }
   if (params0.search) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR a.AssetCode LIKE ? OR a.AssetName LIKE ?)'; params.push(...Array(4).fill(`%${params0.search}%`)); }
+  if (params0.typeWo) {
+    const aliases = getTypeWoAliases(params0.typeWo);
+    if (aliases.length) { where += ` AND w.type_wo IN (${aliases.map(() => '?').join(',')})`; params.push(...aliases); }
+  }
+  if (params0.dateFrom) { where += ' AND w.date >= ?'; params.push(params0.dateFrom); }
+  if (params0.dateTo) { where += ' AND w.date <= ?'; params.push(params0.dateTo); }
+  if (params0.company) { where += ' AND w.company = ?'; params.push(params0.company); }
   if (params0.applyCategoryScope) {
     const categories = getUserCategories(user);
     if (categories.length) {
@@ -507,20 +531,20 @@ maintenanceRouter.get('/maintenance/list', asyncHandler(async (req, res) => {
   const { where, params } = await buildListQuery(user, mtcDivisionId, {
     status: req.query.status ? String(req.query.status) : undefined,
     search: req.query.search ? String(req.query.search) : undefined,
+    typeWo: req.query.type_wo ? String(req.query.type_wo) : undefined,
+    dateFrom: req.query.date_from ? String(req.query.date_from) : undefined,
+    dateTo: req.query.date_to ? String(req.query.date_to) : undefined,
+    company: req.query.company ? String(req.query.company) : undefined,
     applyCategoryScope: ['1', 'true'].includes(String(req.query.apply_category_scope ?? '')),
   });
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_wo_mtc_operational w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
-  let items = await rows<Record<string, unknown>>(
+  const items = await rows<Record<string, unknown>>(
     `SELECT w.*, d.division_name, d.division_code, a.AssetCode, a.AssetName FROM tb_wo_mtc_operational w
      LEFT JOIN tb_division d ON d.id_division=w.id_division LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
      ORDER BY w.date ${sortOrder}, w.created_at ${sortOrder} LIMIT ? OFFSET ?`,
     [...params, limit, (page - 1) * limit],
-  );
-
-  const typeWoFilter = req.query.type_wo ? normalizeTypeWo(String(req.query.type_wo)) : undefined;
-  if (typeWoFilter) items = items.filter((row) => normalizeTypeWo(row.type_wo) === typeWoFilter);
-  items = items.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) }));
+  ).then((r) => r.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) })));
 
   const totalCount = Number(total?.total ?? 0);
   legacyOk(res, { items, pagination: { total: totalCount, page, limit, total_pages: Math.max(1, Math.ceil(totalCount / limit)) } }, 'WO Operational list retrieved');
@@ -581,6 +605,7 @@ maintenanceRouter.get('/maintenance/detail', asyncHandler(async (req, res) => {
 
   legacyOk(res, {
     ...header,
+    type_wo: normalizeTypeWo(header.type_wo),
     executors, labor,
     material: [...materialA, ...materialB],
     approvals, preventive_parts: preventiveParts, part_execution: partExecution, service_photos: servicePhotos,
@@ -596,12 +621,14 @@ maintenanceRouter.get('/maintenance/dashboard', asyncHandler(async (req, res) =>
   const areas = getAllowedAssetAreas(user);
   const categories = getUserCategories(user);
 
-  const buildWhere = (statuses: string[], dateColumn: string, closedDefault: boolean): { sql: string; params: unknown[] } => {
+  const buildWhere = (statuses: string[], dateColumn: string, applyDateFilter: boolean): { sql: string; params: unknown[] } => {
     let sql = `WHERE w.status IN (${statuses.map(() => '?').join(',')})`;
     const params: unknown[] = [...statuses];
-    const effectiveStart = startDate || (closedDefault ? new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10) : '');
-    if (effectiveStart) { sql += ` AND w.${dateColumn} >= ?`; params.push(effectiveStart); }
-    if (endDate) { sql += ` AND w.${dateColumn} <= ?`; params.push(endDate); }
+    if (applyDateFilter) {
+      const effectiveStart = startDate || new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+      sql += ` AND w.${dateColumn} >= ?`; params.push(effectiveStart);
+      if (endDate) { sql += ` AND w.${dateColumn} <= ?`; params.push(endDate); }
+    }
     if (company !== 'ALL') { sql += ' AND w.company = ?'; params.push(company); }
     if (!crossAccess && user.id_division) { sql += ' AND w.id_division = ?'; params.push(user.id_division); }
     const areaScope = assetAreaScopeSql(areas, 'a');
@@ -659,8 +686,9 @@ maintenanceRouter.post('/maintenance/create', attachmentUpload.array('attachment
   if (b.wo_number) await rejectIfFinal(woNumber).catch((err) => { if (err instanceof HttpError && err.status === 404) return; throw err; });
 
   const safePrefix = woNumber.replace(/[-/\\ ]/g, '').replace(/[^a-zA-Z0-9_]/g, '') || 'WOPR';
-  const uploaded = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => `wo_operational/${f.filename}`);
-  const base64Attachments = decodeBase64Attachments(b.attachments, safePrefix);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_operational', f.originalname, f.mimetype)));
+  const base64Attachments = await decodeBase64Attachments(b.attachments, safePrefix);
   const attachment = [...uploaded, ...base64Attachments].join(',');
 
   const isPreventive = isPreventiveType(b.type_wo);
@@ -671,7 +699,7 @@ maintenanceRouter.post('/maintenance/create', attachmentUpload.array('attachment
     await connection.execute(
       `INSERT INTO tb_wo_mtc_operational (wo_number, date, company, shift, type_wo, category_maintenance, priority, id_division, id_equipment, job_title, running_hours, job_requirement, attachment, job_executor, status, pic, creator, created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-      [woNumber, b.date ?? new Date().toISOString().slice(0, 10), b.company ?? '', b.shift ?? '', b.type_wo ?? 'CORRECTIVE', b.category_maintenance ?? null, b.priority ?? 'NORMAL',
+      [woNumber, b.date ?? new Date().toISOString().slice(0, 10), b.company ?? '', b.shift ?? '', normalizeTypeWoForWrite(b.type_wo), b.category_maintenance ?? null, b.priority ?? 'NORMAL',
         b.id_division ?? user.id_division, idEquipment, b.job_title, b.running_hours ?? null, b.job_requirement ?? '', attachment, 'MTC', status, 'MTC', user.fullname] as never,
     );
     await connection.execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', ['MTC', woNumber, '', executorStatus]);
@@ -695,12 +723,14 @@ maintenanceRouter.post('/maintenance/update', asyncHandler(async (req, res) => {
 
   const existingAttachments = String(header.attachment ?? '').split(',').filter(Boolean);
   const safePrefix = woNumber.replace(/[-/\\ ]/g, '').replace(/[^a-zA-Z0-9_]/g, '') || 'WOPR';
-  const newAttachments = decodeBase64Attachments(b.attachments, `${safePrefix}-${existingAttachments.length}`);
+  const newAttachments = await decodeBase64Attachments(b.attachments, `${safePrefix}-${existingAttachments.length}`);
 
   const fields: Record<string, unknown> = {};
   for (const key of ['date', 'company', 'shift', 'type_wo', 'category_maintenance', 'priority', 'job_title', 'running_hours', 'job_requirement']) {
     if (b[key] !== undefined && b[key] !== null && b[key] !== '') fields[key] = b[key];
   }
+  if (fields.type_wo !== undefined) fields.type_wo = normalizeTypeWoForWrite(fields.type_wo);
+  fields.id_division = b.id_division || user.id_division;
   if (b.id_equipment !== undefined && String(b.id_equipment).trim() !== '') fields.id_equipment = String(b.id_equipment).split('|')[0].trim() || null;
   if (newAttachments.length) fields.attachment = [...existingAttachments, ...newAttachments].join(',');
 
@@ -754,7 +784,6 @@ maintenanceRouter.post('/maintenance/approve', asyncHandler(async (req, res) => 
   const comment = String(req.body.comment ?? '');
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
   const header = await rejectIfFinal(woNumber);
-  const mtcDivisionId = await getMtcDivisionId();
   const person = personPayload(user);
   const position = String(user.id_position ?? '').toUpperCase();
   const callerIsMtc = String(user.division_code ?? '').toUpperCase() === 'MTC';
@@ -770,8 +799,8 @@ maintenanceRouter.post('/maintenance/approve', asyncHandler(async (req, res) => 
   } else if (position === 'ADMIN_DIVISI' && callerIsMtc) {
     targetStatus = 'COMPLETE_EXECUTOR';
     const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
-    pic = divisionRow?.division_code ?? '';
-  } else if (position === 'ADMIN_DIVISI' && String(user.id_division ?? '') === mtcDivisionId) {
+    pic = divisionRow?.division_code ?? '-';
+  } else if (position === 'ADMIN_DIVISI') {
     targetStatus = 'CLOSED';
     pic = '-';
   } else {
@@ -783,11 +812,7 @@ maintenanceRouter.post('/maintenance/approve', asyncHandler(async (req, res) => 
   await transaction(async (connection) => {
     await connection.execute('INSERT INTO tb_approval_operational (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
       [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
-    if (targetStatus === 'CLOSED') {
-      await connection.execute("UPDATE tb_wo_mtc_operational SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
-    } else {
-      await connection.execute('UPDATE tb_wo_mtc_operational SET status=?, pic=?, updated_at=NOW() WHERE wo_number=?', [targetStatus, pic, woNumber]);
-    }
+    await connection.execute('UPDATE tb_wo_mtc_operational SET status=?, pic=?, updated_at=NOW() WHERE wo_number=?', [targetStatus, pic, woNumber]);
   });
 
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
@@ -865,6 +890,7 @@ async function forwardToMeso(woNumber: string, user: User): Promise<void> {
 
 maintenanceRouter.post('/maintenance/void_document', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
+  if (Number(user.wo_void ?? 0) !== 1) throw new HttpError(403, 'You do not have permission to void this work order');
   const woNumber = String(req.body.wo_number ?? '');
   const reason = String(req.body.reason ?? '');
   if (!woNumber || !reason) throw new HttpError(400, 'wo_number and reason are required');
@@ -909,6 +935,10 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, 'At least one service photo is required');
 
+  const uploaded = await Promise.all(files.map(async (file) => ({
+    file, relativePath: await saveUploadedFile(file.buffer, 'wo_operational', file.originalname, file.mimetype),
+  })));
+
   const now = new Date();
   const nowDate = now.toISOString().slice(0, 10);
   const nowTime = now.toTimeString().slice(0, 8);
@@ -923,8 +953,7 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
       'UPDATE tb_wo_mtc_operational SET started_planner=?, finished_planner=?, estimate_planner=?, started_actual=?, finished_actual=?, job_explanation=?, updated_at=NOW() WHERE wo_number=?',
       [startedPlanner, finishedPlanner, estimatePlanner, startedActual, finishedActual, jobExplanation, woNumber],
     );
-    for (const file of files) {
-      const relativePath = path.relative(config.uploadDir, file.path).replaceAll('\\', '/');
+    for (const { file, relativePath } of uploaded) {
       await connection.execute(
         'INSERT INTO tb_wo_service_evidence (wo_number, executor_id, module_code, file_name, file_path, file_ext, file_size_kb, mime_type, source, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,NOW(),?)',
         [woNumber, executor!.id, 'MTC', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
@@ -934,10 +963,11 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
 
   const person = personPayload(user);
   const position = String(user.id_position ?? '').toUpperCase();
+  const callerIsMtc = String(user.division_code ?? '').toUpperCase() === 'MTC';
 
   if (status === 'COMPLETE') {
     await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
-    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', ['MTC', woNumber, '', 'ADDITIONAL']);
+    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [divisionCode, woNumber, jobExplanation, 'ADDITIONAL']);
 
     if (isPreventive) {
       await insertApprovalOperational(woNumber, person, jobExplanation);
@@ -945,7 +975,14 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
     } else if (position === 'DIVHEAD') {
       const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
       await insertApprovalOperational(woNumber, person, jobExplanation);
-      await execute("UPDATE tb_wo_mtc_operational SET status='COMPLETE_EXECUTOR', pic=?, updated_at=NOW() WHERE wo_number=?", [divisionRow?.division_code ?? '', woNumber]);
+      await execute("UPDATE tb_wo_mtc_operational SET status='COMPLETE_EXECUTOR', pic=?, updated_at=NOW() WHERE wo_number=?", [divisionRow?.division_code ?? '-', woNumber]);
+    } else if (position === 'ADMIN_DIVISI' && callerIsMtc) {
+      const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
+      await insertApprovalOperational(woNumber, person, jobExplanation);
+      await execute("UPDATE tb_wo_mtc_operational SET status='COMPLETE_EXECUTOR', pic=?, updated_at=NOW() WHERE wo_number=?", [divisionRow?.division_code ?? '-', woNumber]);
+    } else if (position === 'ADMIN_DIVISI') {
+      await insertApprovalOperational(woNumber, person, jobExplanation);
+      await execute("UPDATE tb_wo_mtc_operational SET status='CLOSED', pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
     } else {
       const divisionRow = await one<{ division_code: string }>('SELECT division_code FROM tb_division WHERE id_division=?', [header.id_division]);
       await insertApprovalOperational(woNumber, person, jobExplanation);
@@ -953,9 +990,9 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
     }
   } else if (status === 'IN_PROGRESS') {
     await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
-    const firstExecutor = await one<{ status: string }>('SELECT status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [woNumber]);
+    const firstExecutor = await one<{ job_executor: string; status: string }>('SELECT job_executor, status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [woNumber]);
     if (firstExecutor && String(firstExecutor.status) === 'IN_PROGRESS') {
-      await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', ['MTC', woNumber, '', 'ADDITIONAL']);
+      await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [firstExecutor.job_executor, woNumber, jobExplanation, 'ADDITIONAL']);
     }
     await insertApprovalOperational(woNumber, person, jobExplanation);
     await execute("UPDATE tb_wo_mtc_operational SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
@@ -1037,8 +1074,8 @@ maintenanceRouter.post('/maintenance/add_labor', asyncHandler(async (req, res) =
   const invalidUsers = trades.filter((t) => !allowedSet.has(t));
   if (invalidUsers.length) throw new HttpError(400, 'PIC harus berasal dari divisi yang sama dan masih aktif.');
 
-  const men = String(req.body.men ?? '1');
-  const hours = String(req.body.hours ?? '1');
+  const men = req.body.men != null ? String(req.body.men) : null;
+  const hours = req.body.hours != null ? String(req.body.hours) : null;
   const jobExecutor = String(user.division_code ?? '');
 
   await transaction(async (connection) => {
@@ -1052,8 +1089,9 @@ maintenanceRouter.post('/maintenance/add_labor', asyncHandler(async (req, res) =
 
 maintenanceRouter.delete('/maintenance/remove_labor', asyncHandler(async (req, res) => {
   const id = req.query.id ?? req.body.id;
-  if (!id) throw new HttpError(400, 'id is required');
-  await execute('DELETE FROM tb_detail_labor WHERE id_detail_labor=?', [id]);
+  const woNumber = req.query.wo_number ?? req.body.wo_number;
+  if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
+  await execute('DELETE FROM tb_detail_labor WHERE id_detail_labor=? AND wo_number=?', [id, woNumber]);
   legacyOk(res, null, 'Labor removed successfully');
 }));
 
@@ -1062,8 +1100,8 @@ maintenanceRouter.post('/maintenance/add_material', asyncHandler(async (req, res
   const woNumber = String(req.body.wo_number ?? '');
   const material = String(req.body.material ?? req.body.material_name ?? '');
   const qty = Number(req.body.qty ?? req.body.quantity ?? 0);
-  const unit = String(req.body.unit ?? 'PCS');
-  const pr = String(req.body.pr ?? '');
+  const unit = req.body.unit != null ? String(req.body.unit) : 'PCS';
+  const pr = req.body.pr != null ? String(req.body.pr) : null;
   if (!woNumber || !material || qty <= 0) throw new HttpError(400, 'wo_number, material and qty are required');
   await rejectIfFinal(woNumber);
   const jobExecutor = String(user.division_code ?? '');
@@ -1080,7 +1118,7 @@ maintenanceRouter.post('/maintenance/add_material', asyncHandler(async (req, res
 
   const header = await getHeader(woNumber);
   if (isPreventiveType(header?.type_wo)) {
-    await upsertPartExecution(woNumber, { custom_detail_id: 0, part_mesin: material, bagian_mesin: null, maintenance_status: 'PENDING', request_qty: qty, request_part: material, request_uom: unit, keterangan: '' }, String(user.fullname ?? ''));
+    await upsertPartExecution(woNumber, { custom_detail_id: 0, part_mesin: material, bagian_mesin: null, maintenance_status: 'PENDING', request_qty: qty, request_part: material, request_uom: unit ?? 'PCS', keterangan: '' }, String(user.fullname ?? ''));
   }
 
   await syncMaterialRequestFromMobile(woNumber, material, qty, unit, jobExecutor, user);
@@ -1089,8 +1127,9 @@ maintenanceRouter.post('/maintenance/add_material', asyncHandler(async (req, res
 
 maintenanceRouter.delete('/maintenance/remove_material', asyncHandler(async (req, res) => {
   const id = req.query.id ?? req.body.id;
-  if (!id) throw new HttpError(400, 'id is required');
-  await execute('DELETE FROM tb_detail_material WHERE id_detail_material=?', [id]);
+  const woNumber = req.query.wo_number ?? req.body.wo_number;
+  if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
+  await execute('DELETE FROM tb_detail_material WHERE id_detail_material=? AND wo_number=?', [id, woNumber]);
   legacyOk(res, null, 'Material removed successfully');
 }));
 
@@ -1178,7 +1217,7 @@ maintenanceRouter.post('/maintenance/part_execution_media', partExecutionMediaUp
 
   const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
   const mediaType = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) ? 'video' : 'image';
-  const relativePath = path.relative(config.uploadDir, req.file.path).replaceAll('\\', '/');
+  const relativePath = await saveUploadedFile(req.file.buffer, 'wo_operational_part_execution', req.file.originalname, req.file.mimetype);
 
   const result = await execute(
     'INSERT INTO tb_wo_operational_part_execution_media (wo_number, custom_detail_id, part_mesin, media_type, media_name, media_path, created_by, created_at) VALUES (?,?,?,?,?,?,?,NOW())',

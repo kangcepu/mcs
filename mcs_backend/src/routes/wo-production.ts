@@ -7,22 +7,13 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const productionRouter = Router();
 
 const DOCS_DIR = path.join(config.uploadDir, 'wo_production');
 fs.mkdirSync(DOCS_DIR, { recursive: true });
-
-function diskStorage(dir: string) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, dir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
-    },
-  });
-}
 
 function extensionFilter(allowed: string[]) {
   return (_req: unknown, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -31,8 +22,8 @@ function extensionFilter(allowed: string[]) {
   };
 }
 
-const attachmentUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
-const servicePhotoUpload = multer({ storage: diskStorage(DOCS_DIR), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
@@ -55,6 +46,18 @@ async function insertApprovalPreventive(woNumber: string, person: ReturnType<typ
   );
 }
 
+async function approveWithoutStatus(woNumber: string, person: ReturnType<typeof personPayload>, comment: string): Promise<void> {
+  await insertApprovalPreventive(woNumber, person, comment);
+  await execute("UPDATE tb_wo_preventive SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+  const firstExecutor = await one<{ id: number; job_executor: string; status: string }>(
+    'SELECT id, job_executor, status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [woNumber],
+  );
+  if (firstExecutor && String(firstExecutor.status) === 'IN_PROGRESS') {
+    await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())',
+      [firstExecutor.job_executor, woNumber, comment, 'ADDITIONAL']);
+  }
+}
+
 let mtcDivisionIdCache: string | null = null;
 async function getMtcDivisionId(): Promise<string> {
   if (mtcDivisionIdCache) return mtcDivisionIdCache;
@@ -71,7 +74,7 @@ function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string):
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
     return { sql: `${prefix}job_executor LIKE ?`, params: [`%${user.division_code ?? ''}%`] };
   }
-  if (position === 'ADMIN_DIVISI' || position === 'DIVHEAD') {
+  if (position === 'ADMIN_DIVISI' || position === 'DIVHEAD' || position === 'DEPTHEAD') {
     if (String(user.id_division ?? '') === mtcDivisionId) return { sql: '', params: [] };
     if (position === 'ADMIN_DIVISI') return { sql: `${prefix}id_division = ?`, params: [user.id_division] };
     return { sql: `(${prefix}job_executor LIKE ? OR ${prefix}id_division = ?)`, params: [`%${user.division_code ?? ''}%`, user.id_division] };
@@ -112,27 +115,28 @@ async function getExecutorByDivision(woNumber: string, divisionCode: string): Pr
   return one<Record<string, unknown>>('SELECT * FROM tb_job_executor WHERE wo_number=? AND job_executor=? ORDER BY id ASC LIMIT 1', [woNumber, divisionCode]);
 }
 
-function decodeBase64Attachments(input: unknown, prefix: string): string[] {
+async function decodeBase64Attachments(input: unknown, prefix: string): Promise<string[]> {
   if (!Array.isArray(input)) return [];
   const saved: string[] = [];
-  input.forEach((item, index) => {
-    if (!item || typeof item !== 'object') return;
+  for (const [index, item] of input.entries()) {
+    if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
     const base64 = String(record.base64 ?? '');
     const filename = String(record.filename ?? `file-${index}`);
     const match = base64.match(/^data:([^;]+);base64,(.+)$/);
     const raw = match ? match[2] : base64;
-    if (!raw) return;
+    if (!raw) continue;
     const ext = path.extname(filename) || '.bin';
     const safeName = `${prefix}-${index}${ext}`;
-    fs.writeFileSync(path.join(DOCS_DIR, safeName), Buffer.from(raw, 'base64'));
-    saved.push(`wo_production/${safeName}`);
-  });
+    const contentType = match ? match[1] : undefined;
+    saved.push(await saveUploadedFile(Buffer.from(raw, 'base64'), 'wo_production', safeName, contentType));
+  }
   return saved;
 }
 
-async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unit: string, jobExecutor: string, user: User): Promise<void> {
+async function syncMaterialRequestFromMobile(woNumber: string, material: string, qty: number, unitInput: string | null, jobExecutor: string, user: User): Promise<void> {
   if (!woNumber || !material || qty <= 0) return;
+  const unit = unitInput?.trim() || 'PCS';
   const executor = jobExecutor || '-';
   const existingUsage = await one<{ id: number; request_code: string }>(
     "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
@@ -172,8 +176,7 @@ async function syncMaterialRequestFromMobile(woNumber: string, material: string,
   );
 }
 
-productionRouter.use(authenticate);
-productionRouter.use((req, res, next) => {
+productionRouter.use('/production', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
@@ -316,8 +319,9 @@ productionRouter.post('/production/create', attachmentUpload.array('attachment',
 
   const idEquipment = String(b.id_equipment).split('|')[0].trim() || null;
   const woNumber = b.wo_number ? String(b.wo_number) : await generateWoNumber(String(division.division_code ?? creatorDivisionCode));
-  const uploaded = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => `wo_production/${f.filename}`);
-  const base64Attachments = decodeBase64Attachments(b.attachments, `${Date.now()}`);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_production', f.originalname, f.mimetype)));
+  const base64Attachments = await decodeBase64Attachments(b.attachments, `${Date.now()}`);
   const attachment = [...uploaded, ...base64Attachments].join(',');
 
   await transaction(async (connection) => {
@@ -341,8 +345,9 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
   if (!header) throw new HttpError(404, 'Work Order not found');
 
   const existingAttachments = String(header.attachment ?? '').split(',').filter(Boolean);
-  const newAttachments = decodeBase64Attachments(req.body.attachments, `${woNumber.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`);
-  const uploaded = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => `wo_production/${f.filename}`);
+  const newAttachments = await decodeBase64Attachments(req.body.attachments, `${woNumber.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_production', f.originalname, f.mimetype)));
 
   const fields: Record<string, unknown> = {};
   for (const key of ['date', 'company', 'shift', 'type_wo', 'priority', 'job_title', 'running_hours', 'job_requirement']) {
@@ -352,10 +357,10 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
   if (req.body.job_executor !== undefined && req.body.job_executor !== '') fields.job_executor = req.body.job_executor;
   if (newAttachments.length || uploaded.length) fields.attachment = [...existingAttachments, ...uploaded, ...newAttachments].join(',');
 
+  if (!Object.keys(fields).length) throw new HttpError(400, 'No data to update');
+
   const protectedStatuses = new Set(['CLOSED', 'VOID', 'WAITING_PARTS', 'PARTS_RECEIVED']);
   if (!protectedStatuses.has(String(header.status).toUpperCase())) fields.status = 'IN_PROGRESS_EXECUTOR';
-
-  if (!Object.keys(fields).length) throw new HttpError(400, 'No data to update');
 
   const keys = Object.keys(fields);
   await transaction(async (connection) => {
@@ -371,7 +376,7 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
 productionRouter.put('/production/update', asyncHandler((req, res) => updateHandler(req as AuthRequest, res)));
 productionRouter.post('/production/update', attachmentUpload.array('attachment', 10), asyncHandler((req, res) => updateHandler(req as AuthRequest, res)));
 
-async function approveTransition(woNumber: string, person: ReturnType<typeof personPayload>, position: string): Promise<string> {
+async function approveTransition(woNumber: string, person: ReturnType<typeof personPayload>, position: string, comment: string): Promise<string> {
   const header = await getHeader(woNumber);
   if (!header) throw new HttpError(404, 'Work Order not found');
 
@@ -387,12 +392,8 @@ async function approveTransition(woNumber: string, person: ReturnType<typeof per
 
   await transaction(async (connection) => {
     await connection.execute('INSERT INTO tb_approval_preventive (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
-      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, '']);
-    if (targetStatus === 'CLOSED') {
-      await connection.execute("UPDATE tb_wo_preventive SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
-    } else {
-      await connection.execute('UPDATE tb_wo_preventive SET status=?, updated_at=NOW() WHERE wo_number=?', [targetStatus, woNumber]);
-    }
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute('UPDATE tb_wo_preventive SET status=?, updated_at=NOW() WHERE wo_number=?', [targetStatus, woNumber]);
   });
 
   return targetStatus;
@@ -404,8 +405,9 @@ productionRouter.post('/production/approve', asyncHandler(async (req, res) => {
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
   const person = personPayload(user);
   const position = String(user.id_position ?? '').toUpperCase();
+  const comment = String(req.body.comment ?? '');
 
-  await approveTransition(woNumber, person, position);
+  await approveTransition(woNumber, person, position, comment);
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
 }));
 
@@ -428,6 +430,10 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, 'At least one service photo is required');
 
+  const uploaded = await Promise.all(files.map(async (file) => ({
+    file, relativePath: await saveUploadedFile(file.buffer, 'wo_production', file.originalname, file.mimetype),
+  })));
+
   const now = new Date();
   const nowDate = now.toISOString().slice(0, 10);
   const nowTime = now.toTimeString().slice(0, 8);
@@ -442,8 +448,7 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
       'UPDATE tb_wo_preventive SET started_planner=?, finished_planner=?, estimate_planner=?, started_actual=?, finished_actual=?, job_explanation=?, updated_at=NOW() WHERE wo_number=?',
       [startedPlanner, finishedPlanner, estimatePlanner, startedActual, finishedActual, jobExplanation, woNumber],
     );
-    for (const file of files) {
-      const relativePath = path.relative(config.uploadDir, file.path).replaceAll('\\', '/');
+    for (const { file, relativePath } of uploaded) {
       await connection.execute(
         'INSERT INTO tb_wo_service_evidence (wo_number, executor_id, module_code, file_name, file_path, file_ext, file_size_kb, mime_type, source, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,NOW(),?)',
         [woNumber, executor!.id, 'PRODUCTION', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
@@ -454,8 +459,9 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
   const person = personPayload(user);
   const position = String(user.id_position ?? '').toUpperCase();
 
+  await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
+
   if (status === 'COMPLETE') {
-    await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
     await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [String(user.division_code ?? ''), woNumber, jobExplanation, 'ADDITIONAL']);
 
     if (position === 'DIVHEAD') {
@@ -466,18 +472,11 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
       await execute("UPDATE tb_wo_preventive SET status='WAIT_KA_DIV', updated_at=NOW() WHERE wo_number=?", [woNumber]);
     }
   } else if (status === 'IN_PROGRESS') {
-    await execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor.id] as never);
-    const firstExecutor = await one<{ id: number; job_executor: string; status: string }>('SELECT id, job_executor, status FROM tb_job_executor WHERE wo_number=? ORDER BY id ASC LIMIT 1', [woNumber]);
-    if (firstExecutor && String(firstExecutor.status) === 'IN_PROGRESS') {
-      await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [firstExecutor.job_executor, woNumber, jobExplanation, 'ADDITIONAL']);
-    }
-    await insertApprovalPreventive(woNumber, person, jobExplanation);
-    await execute("UPDATE tb_wo_preventive SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+    await approveWithoutStatus(woNumber, person, jobExplanation);
   } else {
     const stillWaiting = await one<{ total: number }>("SELECT COUNT(*) total FROM tb_job_executor WHERE wo_number=? AND (status='WAITING' OR status='IN_PROGRESS')", [woNumber]);
     if (Number(stillWaiting?.total ?? 0) > 0) {
-      await insertApprovalPreventive(woNumber, person, jobExplanation);
-      await execute("UPDATE tb_wo_preventive SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+      await approveWithoutStatus(woNumber, person, jobExplanation);
     }
   }
 
@@ -500,8 +499,8 @@ productionRouter.post('/production/add_labor', asyncHandler(async (req, res) => 
   const trades = [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
   if (!trades.length) throw new HttpError(400, 'PIC wajib dipilih');
   if (trades.length > 10) throw new HttpError(400, 'Maksimal 10 PIC');
-  const men = String(b.men ?? '1');
-  const hours = String(b.hours ?? '1');
+  const men = b.men != null ? String(b.men) : null;
+  const hours = b.hours != null ? String(b.hours) : null;
 
   await transaction(async (connection) => {
     for (const trade of trades) {
@@ -511,6 +510,49 @@ productionRouter.post('/production/add_labor', asyncHandler(async (req, res) => 
   });
 
   legacyOk(res, { inserted: trades.length }, 'Labor added', 201);
+}));
+
+const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+
+productionRouter.post('/production/update_executor', asyncHandler(async (req, res) => {
+  const b = req.body;
+  const id = b.id;
+  const woNumber = String(b.wo_number ?? '');
+  if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  if (FINAL_STATUSES.has(String(header.status ?? '').toUpperCase().trim())) throw new HttpError(409, 'WO sudah selesai dan tidak dapat diperbarui.');
+  const fields: Record<string, unknown> = {};
+  if (b.job_executor !== undefined) fields.job_executor = b.job_executor;
+  if (b.status !== undefined) fields.status = b.status;
+  const keys = Object.keys(fields);
+  if (!keys.length) throw new HttpError(400, 'No changes provided');
+  await execute(`UPDATE tb_job_executor SET ${keys.map((k) => `\`${k}\`=?`).join(',')} WHERE id=? AND wo_number=?`, [...keys.map((k) => fields[k]), id, woNumber] as never);
+  legacyOk(res, { id }, 'Executor updated successfully');
+}));
+
+productionRouter.delete('/production/delete_executor', asyncHandler(async (req, res) => {
+  const id = req.query.id ?? req.body.id;
+  if (!id) throw new HttpError(400, 'id is required');
+  await execute('DELETE FROM tb_job_executor WHERE id=?', [id]);
+  legacyOk(res, null, 'Executor removed successfully');
+}));
+
+productionRouter.post('/production/reject', asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? '');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const person = personPayload(user);
+
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval_preventive (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_preventive SET status='REJECT' WHERE wo_number=?", [woNumber]);
+    await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [woNumber]);
+  });
+
+  legacyOk(res, { wo_number: woNumber, status: 'REJECT' }, 'WO rejected successfully');
 }));
 
 productionRouter.post('/production/add_material', asyncHandler(async (req, res) => {
@@ -526,8 +568,8 @@ productionRouter.post('/production/add_material', asyncHandler(async (req, res) 
   const woNumber = String(executor.wo_number);
   const jobExecutor = String(executor.job_executor ?? user.division_code ?? '');
   const qty = Number(b.qty ?? b.quantity ?? 0);
-  const unit = String(b.unit ?? 'PCS');
-  const pr = String(b.pr ?? '');
+  const unit = b.unit != null ? String(b.unit) : 'PCS';
+  const pr = b.pr != null ? String(b.pr) : null;
 
   const existing = await one<{ id_detail_material: number; qty: number }>(
     "SELECT id_detail_material, qty FROM tb_detail_material WHERE wo_number=? AND material=? AND job_executor=? AND `for`='MTC' ORDER BY id_detail_material DESC LIMIT 1",
