@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckSquare, Loader2, PackagePlus } from "lucide-react";
+import { CheckSquare, Loader2, PackagePlus, PlayCircle } from "lucide-react";
 import { Button, Input } from "@/components/ui/primitives";
 import { LoadingSkeleton, ErrorState } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
@@ -18,6 +18,11 @@ type Draft = {
   need_request_part: boolean;
   keterangan: string;
 };
+
+const VIDEO_EXT_RE = /\.(mp4|mov|avi|mkv|webm)(\?|$)/i;
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXT_RE.test(url);
+}
 
 function photoUrls(p: PreventivePartRow): string[] {
   const groups = [
@@ -192,16 +197,28 @@ export function PreventiveChecklist({
                   <td className="px-3 py-3">
                     {photos.length ? (
                       <div className="flex flex-wrap gap-1">
-                        {photos.map((u, k) => (
-                          <a key={k} href={u} target="_blank" rel="noreferrer">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={u}
-                              alt=""
-                              className="h-9 w-9 rounded object-cover ring-1 ring-slate-200"
-                            />
-                          </a>
-                        ))}
+                        {photos.map((u, k) =>
+                          isVideoUrl(u) ? (
+                            <a
+                              key={k}
+                              href={u}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="grid h-9 w-9 place-items-center rounded bg-slate-800 ring-1 ring-slate-200"
+                            >
+                              <PlayCircle className="h-4 w-4 text-white" />
+                            </a>
+                          ) : (
+                            <a key={k} href={u} target="_blank" rel="noreferrer">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={u}
+                                alt=""
+                                className="h-9 w-9 rounded object-cover ring-1 ring-slate-200"
+                              />
+                            </a>
+                          ),
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-slate-300">—</span>

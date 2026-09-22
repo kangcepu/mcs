@@ -220,7 +220,7 @@ export function BarList({
   }
   return (
     <ul className="space-y-2">
-      {items.map((it) => {
+      {items.map((it, i) => {
         const inner = (
           <>
             <div className="mb-0.5 flex items-baseline justify-between gap-2">
@@ -241,7 +241,7 @@ export function BarList({
           </>
         );
         return (
-          <li key={it.label}>
+          <li key={`${it.label}-${i}`}>
             {it.href ? (
               <a href={it.href} className="block rounded p-1 -m-1 hover:bg-slate-50">
                 {inner}

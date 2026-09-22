@@ -615,23 +615,23 @@ function JobModal({
       return;
     }
     if (files.length === 0) {
-      toast.error("Minimal 1 foto bukti wajib diunggah");
+      toast.error("Minimal 1 foto/video bukti wajib diunggah");
       return;
     }
     if (files.length > 10) {
-      toast.error("Maksimal 10 foto");
+      toast.error("Maksimal 10 file");
       return;
     }
     const fd = new FormData();
     fd.append("wo_number", woNumber);
     fd.append("job_explanation", explanation.trim());
     fd.append("status", status);
-    pics.forEach((pic) => fd.append("labor[]", pic));
+    pics.forEach((pic) => fd.append("labor", pic));
     if (pics.length > 0) {
       fd.append("labor_men", men);
       fd.append("labor_hours", hours);
     }
-    files.forEach((f) => fd.append("service_photos[]", f));
+    files.forEach((f) => fd.append("service_photos", f));
     onSubmit(fd);
   };
 
@@ -700,19 +700,19 @@ function JobModal({
           </div>
         ) : null}
         <Field
-          label="Foto Bukti"
+          label="Foto/Video Bukti"
           required
-          hint="JPG / PNG / WEBP, 1–10 foto, maks 10 MB per foto."
+          hint="JPG / PNG / WEBP atau MP4 / MOV / AVI / MKV / WEBM, 1–10 file, maks 50 MB per file."
         >
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/bmp"
+            accept="image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm"
             multiple
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
           />
           {files.length > 0 ? (
-            <p className="mt-1 text-xs text-slate-500">{files.length} foto dipilih</p>
+            <p className="mt-1 text-xs text-slate-500">{files.length} file dipilih</p>
           ) : null}
         </Field>
       </div>

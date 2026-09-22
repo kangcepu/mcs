@@ -131,6 +131,38 @@ export function testStorageConnection(
   );
 }
 
+/* ---------------- Firebase Cloud Messaging (push notification) ---------------- */
+
+export interface FirebaseCredentials {
+  configured: boolean;
+  project_id: string;
+  client_email: string;
+  updated_at: string;
+}
+
+/** GET /v2/settings/firebase-credentials — butuh permission user_management. */
+export function getFirebaseCredentials(
+  signal?: AbortSignal,
+): Promise<ApiResponse<FirebaseCredentials>> {
+  return apiV2.get<FirebaseCredentials>("/settings/firebase-credentials", { signal });
+}
+
+/** POST /v2/settings/firebase-credentials (multipart) — unggah file JSON service account. */
+export function saveFirebaseCredentials(
+  file: File,
+): Promise<ApiResponse<FirebaseCredentials>> {
+  const fd = new FormData();
+  fd.append("file", file);
+  return apiV2.post<FirebaseCredentials>("/settings/firebase-credentials", undefined, {
+    formData: fd,
+  });
+}
+
+/** DELETE /v2/settings/firebase-credentials — hapus kredensial tersimpan. */
+export function removeFirebaseCredentials(): Promise<ApiResponse<FirebaseCredentials>> {
+  return apiV2.delete<FirebaseCredentials>("/settings/firebase-credentials");
+}
+
 /* ---------------- Bulk sync (copy lokal → MinIO) ---------------- */
 
 export type StorageSyncStatus =

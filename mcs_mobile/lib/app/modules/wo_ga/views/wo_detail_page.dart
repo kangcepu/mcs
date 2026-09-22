@@ -12,6 +12,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/custom_card.dart';
 import '../../../core/widgets/wo_material_dialog.dart';
 import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/widgets/video_player_page.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 
 class WoGaDetailPage extends StatelessWidget {
@@ -292,6 +293,52 @@ class WoGaDetailPage extends StatelessWidget {
             }
           }
 
+          void addServiceVideo(File video) {
+            if (selectedServicePhotos.length >= maxServicePhotos) {
+              Get.snackbar('Limit', 'Maksimal $maxServicePhotos file');
+              return;
+            }
+            setState(() => selectedServicePhotos.add(video));
+          }
+
+          Future<void> pickServiceVideoFromCamera() async {
+            final video = await MediaPickerHelper.pickVideoFromCamera();
+            if (video != null) addServiceVideo(video);
+          }
+
+          Future<void> pickServiceVideoFromGallery() async {
+            final video = await MediaPickerHelper.pickVideoFromGallery();
+            if (video != null) addServiceVideo(video);
+          }
+
+          void showServiceVideoOptions() {
+            Get.bottomSheet(
+              SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.videocam),
+                      title: const Text('Rekam Video'),
+                      onTap: () {
+                        Get.back();
+                        pickServiceVideoFromCamera();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.video_library),
+                      title: const Text('Pilih Video Galeri'),
+                      onTap: () {
+                        Get.back();
+                        pickServiceVideoFromGallery();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           return AlertDialog(
             title: const Text('Update Progress'),
             content: SingleChildScrollView(
@@ -330,7 +377,7 @@ class WoGaDetailPage extends StatelessWidget {
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Bukti Foto Service (Wajib)',
+                      'Bukti Foto/Video Service (Wajib)',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -355,10 +402,19 @@ class WoGaDetailPage extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: showServiceVideoOptions,
+                      icon: const Icon(Icons.videocam),
+                      label: const Text('Video'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '${selectedServicePhotos.length} foto dipilih',
+                      '${selectedServicePhotos.length} file dipilih',
                       style: TextStyle(
                         color: selectedServicePhotos.isEmpty
                             ? Colors.red
@@ -404,7 +460,7 @@ class WoGaDetailPage extends StatelessWidget {
                     return;
                   }
                   if (selectedServicePhotos.isEmpty) {
-                    Get.snackbar('Error', 'Bukti foto service wajib diupload');
+                    Get.snackbar('Error', 'Bukti foto/video service wajib diupload');
                     return;
                   }
                   Get.back();
@@ -828,7 +884,7 @@ class WoGaDetailPage extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Bukti Foto Service',
+                    'Bukti Foto/Video Service',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -844,7 +900,7 @@ class WoGaDetailPage extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${items.length} foto',
+                    '${items.length}',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,
@@ -864,32 +920,50 @@ class WoGaDetailPage extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final url =
                       ApiConstants.mediaUrl(items[index]['url']?.toString());
+                  final isVideo = MediaPickerHelper.isVideo(url);
                   return InkWell(
-                    onTap: () => _showImagePreview(url),
+                    onTap: () => isVideo
+                        ? Get.to(() => VideoPlayerPage(
+                              title: items[index]['name']?.toString() ??
+                                  'Video',
+                              networkUrl: url,
+                            ))
+                        : _showImagePreview(url),
                     borderRadius: BorderRadius.circular(12),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: AspectRatio(
                         aspectRatio: 1.3,
-                        child: Image.network(
-                          url,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: AppColors.greyLight,
-                            child: const Center(
-                              child: Icon(Icons.broken_image),
-                            ),
-                          ),
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              color: AppColors.greyLight,
-                              child: const Center(
-                                child: CircularProgressIndicator(),
+                        child: isVideo
+                            ? Container(
+                                color: Colors.black87,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.play_circle_fill,
+                                    color: Colors.white,
+                                    size: 36,
+                                  ),
+                                ),
+                              )
+                            : Image.network(
+                                url,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: AppColors.greyLight,
+                                  child: const Center(
+                                    child: Icon(Icons.broken_image),
+                                  ),
+                                ),
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return Container(
+                                    color: AppColors.greyLight,
+                                    child: const Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
                       ),
                     ),
                   );

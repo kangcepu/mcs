@@ -37,6 +37,7 @@ const BASE_DEFAULTS = {
   location: "",
   category: "",
   status: "",
+  type: "",
   module: "",
   type_wo: "",
   priority: "",
@@ -266,6 +267,7 @@ export function ReportView({
     >
       <FilterBar
         search={values.q}
+        searchPlaceholder={reportKey === "stock-opname" ? "Cari No. SO…" : undefined}
         onSearchChange={(q) => setValues({ q }, { resetPage: true })}
         onRefresh={() => refetch()}
         isFetching={isFetching}

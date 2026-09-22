@@ -12,6 +12,15 @@ export default function ReportStockOpnamePage() {
       filters={[
         { key: "date_from", type: "date", label: "Dari" },
         { key: "date_to", type: "date", label: "Sampai" },
+        {
+          key: "type",
+          type: "select",
+          label: "Semua tipe",
+          options: [
+            { value: "ASSET", label: "Asset" },
+            { value: "BOM", label: "BOM" },
+          ],
+        },
         { key: "company", type: "text", label: "Company" },
       ]}
       summarize={(rows) => {

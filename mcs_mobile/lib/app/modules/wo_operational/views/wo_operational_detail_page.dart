@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../data/models/work_order_model.dart' as wo_model;
 import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/widgets/video_player_page.dart';
 import '../../../core/widgets/request_part_dialog.dart';
 import '../../../core/widgets/work_order_detail_tabs.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
@@ -1140,7 +1141,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                   children: [
                     const Expanded(
                       child: Text(
-                        'Bukti Foto Service',
+                        'Bukti Foto/Video Service',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -1158,7 +1159,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '${previewImages.length} foto',
+                        '${previewImages.length}',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -1177,14 +1178,31 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (context, index) {
                       final img = previewImages[index];
+                      final isVideo = MediaPickerHelper.isVideo(img.url);
                       return InkWell(
-                        onTap: () => _showImagePreview(img),
+                        onTap: () => isVideo
+                            ? Get.to(() => VideoPlayerPage(
+                                  title: img.name.isEmpty ? 'Video' : img.name,
+                                  networkUrl: img.url,
+                                ))
+                            : _showImagePreview(img),
                         borderRadius: BorderRadius.circular(12),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: AspectRatio(
                             aspectRatio: 1.3,
-                            child: Image.network(
+                            child: isVideo
+                                ? Container(
+                                    color: Colors.black87,
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.play_circle_fill,
+                                        color: Colors.white,
+                                        size: 36,
+                                      ),
+                                    ),
+                                  )
+                                : Image.network(
                               img.url,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => Container(
@@ -1691,11 +1709,31 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                                       const SizedBox(width: 6),
                                   itemBuilder: (context, imageIndex) {
                                     final img = previewImages[imageIndex];
+                                    final isVideo =
+                                        MediaPickerHelper.isVideo(img.url);
                                     return GestureDetector(
-                                      onTap: () => _showImagePreview(img),
+                                      onTap: () => isVideo
+                                          ? Get.to(() => VideoPlayerPage(
+                                                title: img.name.isEmpty
+                                                    ? 'Video'
+                                                    : img.name,
+                                                networkUrl: img.url,
+                                              ))
+                                          : _showImagePreview(img),
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(6),
-                                        child: Image.network(
+                                        child: isVideo
+                                            ? Container(
+                                                width: 34,
+                                                height: 34,
+                                                color: Colors.black87,
+                                                child: const Icon(
+                                                  Icons.play_circle_fill,
+                                                  color: Colors.white,
+                                                  size: 16,
+                                                ),
+                                              )
+                                            : Image.network(
                                           img.url,
                                           width: 34,
                                           height: 34,
@@ -1720,10 +1758,30 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                               ),
                               if (previewImages.isEmpty && preview != null)
                                 GestureDetector(
-                                  onTap: () => _showImagePreview(preview),
+                                  onTap: () =>
+                                      MediaPickerHelper.isVideo(preview.url)
+                                          ? Get.to(() => VideoPlayerPage(
+                                                title: preview.name.isEmpty
+                                                    ? 'Video'
+                                                    : preview.name,
+                                                networkUrl: preview.url,
+                                              ))
+                                          : _showImagePreview(preview),
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(6),
-                                    child: Image.network(
+                                    child: MediaPickerHelper.isVideo(
+                                            preview.url)
+                                        ? Container(
+                                            width: 34,
+                                            height: 34,
+                                            color: Colors.black87,
+                                            child: const Icon(
+                                              Icons.play_circle_fill,
+                                              color: Colors.white,
+                                              size: 16,
+                                            ),
+                                          )
+                                        : Image.network(
                                       preview.url,
                                       width: 34,
                                       height: 34,
@@ -3045,6 +3103,52 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
             }
           }
 
+          void addServiceVideo(File video) {
+            if (selectedServicePhotos.length >= maxServicePhotos) {
+              Get.snackbar('Limit', 'Maksimal $maxServicePhotos file');
+              return;
+            }
+            setState(() => selectedServicePhotos.add(video));
+          }
+
+          Future<void> pickServiceVideoFromCamera() async {
+            final video = await MediaPickerHelper.pickVideoFromCamera();
+            if (video != null) addServiceVideo(video);
+          }
+
+          Future<void> pickServiceVideoFromGallery() async {
+            final video = await MediaPickerHelper.pickVideoFromGallery();
+            if (video != null) addServiceVideo(video);
+          }
+
+          void showServiceVideoOptions() {
+            Get.bottomSheet(
+              SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.videocam),
+                      title: const Text('Rekam Video'),
+                      onTap: () {
+                        Get.back();
+                        pickServiceVideoFromCamera();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.video_library),
+                      title: const Text('Pilih Video Galeri'),
+                      onTap: () {
+                        Get.back();
+                        pickServiceVideoFromGallery();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           Future<void> pickDate(TextEditingController target) async {
             final picked = await showDatePicker(
               context: context,
@@ -3168,7 +3272,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Bukti Foto Service (Wajib)',
+                      'Bukti Foto/Video Service (Wajib)',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -3192,11 +3296,20 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: showServiceVideoOptions,
+                      icon: const Icon(Icons.videocam),
+                      label: const Text('Video'),
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '${selectedServicePhotos.length} foto dipilih',
+                      '${selectedServicePhotos.length} file dipilih',
                       style: TextStyle(
                         color: selectedServicePhotos.isEmpty
                             ? Colors.red
@@ -3241,7 +3354,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                   if (selectedServicePhotos.isEmpty) {
                     Get.snackbar(
                       'Error',
-                      'Bukti foto service wajib diupload',
+                      'Bukti foto/video service wajib diupload',
                       snackPosition: SnackPosition.BOTTOM,
                       backgroundColor: Colors.red,
                       colorText: Colors.white,

@@ -59,6 +59,11 @@ function evidenceUrl(evidence: Record<string, unknown>): string {
   return `${origin}/${raw.replace(/^[/\\]+/, "").replace(/\\/g, "/")}`;
 }
 
+const VIDEO_EXT_RE = /\.(mp4|mov|avi|mkv|webm)(\?|$)/i;
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXT_RE.test(url);
+}
+
 /** Fallback untuk approval cache lama sebelum respons V2 dinormalisasi. */
 function approvalStatus(row: Record<string, unknown>): string {
   const status = pick(row, ["status", "approval_status"]);
@@ -689,6 +694,25 @@ export default function WorkOrderDetailPage({
                   {(wo.evidences ?? []).map((ev, i) => {
                     const url = evidenceUrl(ev as Record<string, unknown>);
                     if (!url) return null;
+                    const caption = ev.caption ?? ev.stage ?? `Evidence ${i + 1}`;
+                    if (isVideoUrl(url)) {
+                      return (
+                        <div
+                          key={String(ev.id ?? i)}
+                          className="overflow-hidden rounded-lg border border-slate-200"
+                        >
+                          <video
+                            src={url}
+                            controls
+                            preload="metadata"
+                            className="aspect-square w-full bg-black object-contain"
+                          />
+                          <p className="truncate px-2 py-1.5 text-xs text-slate-500">
+                            {caption}
+                          </p>
+                        </div>
+                      );
+                    }
                     return (
                       <a
                         key={String(ev.id ?? i)}
@@ -700,13 +724,13 @@ export default function WorkOrderDetailPage({
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
-                          alt={ev.caption ?? `Evidence ${i + 1}`}
+                          alt={caption}
                           loading="lazy"
                           decoding="async"
                           className="aspect-square w-full bg-slate-100 object-cover transition group-hover:opacity-90"
                         />
                         <p className="truncate px-2 py-1.5 text-xs text-slate-500">
-                          {ev.caption ?? ev.stage ?? `Evidence ${i + 1}`}
+                          {caption}
                         </p>
                       </a>
                     );

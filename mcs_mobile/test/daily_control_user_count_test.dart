@@ -84,5 +84,6 @@ DailyControlActivity _preventiveActivity({
     participantNames: participantNames,
     laborNames: const [],
     readerNames: const [],
+    displayFullname: '',
   );
 }

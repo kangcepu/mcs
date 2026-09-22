@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { useBranding, useUpdateBranding } from "@/hooks/use-settings";
 import { StorageSettingsCard } from "@/components/settings/storage-settings-card";
 import { CompanyLogosCard } from "@/components/settings/company-logos-card";
+import { FirebaseCredentialsCard } from "@/components/settings/firebase-credentials-card";
 import { PERMISSIONS } from "@/lib/permissions";
 import { ApiError } from "@/types/api";
 import { formatDateTime } from "@/lib/format";
@@ -269,6 +270,8 @@ function Inner() {
         <CompanyLogosCard />
 
         <StorageSettingsCard />
+
+        <FirebaseCredentialsCard />
       </div>
     </PageContainer>
   );

@@ -4,9 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getBranding,
   getCompanyLogos,
+  getFirebaseCredentials,
   getStorageSettings,
   removeCompanyLogo,
+  removeFirebaseCredentials,
   saveCompanyLogo,
+  saveFirebaseCredentials,
   saveStorageSettings,
   testStorageConnection,
   updateBranding,
@@ -76,5 +79,29 @@ export function useTestStorageConnection() {
   return useMutation({
     mutationFn: (body: Partial<StorageSettingsInput>) =>
       testStorageConnection(body),
+  });
+}
+
+export function useFirebaseCredentials() {
+  return useQuery({
+    queryKey: ["firebase-credentials"],
+    queryFn: ({ signal }) => getFirebaseCredentials(signal),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSaveFirebaseCredentials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => saveFirebaseCredentials(file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["firebase-credentials"] }),
+  });
+}
+
+export function useRemoveFirebaseCredentials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => removeFirebaseCredentials(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["firebase-credentials"] }),
   });
 }

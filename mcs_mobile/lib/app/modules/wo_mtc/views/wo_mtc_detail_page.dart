@@ -10,6 +10,7 @@ import '../../../core/constants/api_constants.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
 import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/widgets/video_player_page.dart';
 import '../../../core/widgets/wo_material_dialog.dart';
 import '../../../data/models/work_order_model.dart' as wo_model;
 
@@ -1361,18 +1362,27 @@ class WoMtcDetailPage extends StatelessWidget {
       return _buildEmptyMiniState('Belum ada foto');
     }
 
+    final previewUrl = ApiConstants.mediaUrl(items.first['url']?.toString());
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: AspectRatio(
         aspectRatio: 1.25,
-        child: Image.network(
-          ApiConstants.mediaUrl(items.first['url']?.toString()),
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            color: const Color(0xFFF3F6FA),
-            child: const Center(child: Icon(Icons.broken_image)),
-          ),
-        ),
+        child: MediaPickerHelper.isVideo(previewUrl)
+            ? Container(
+                color: Colors.black87,
+                child: const Center(
+                  child: Icon(Icons.play_circle_fill,
+                      color: Colors.white, size: 32),
+                ),
+              )
+            : Image.network(
+                previewUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: const Color(0xFFF3F6FA),
+                  child: const Center(child: Icon(Icons.broken_image)),
+                ),
+              ),
       ),
     );
   }
@@ -1464,7 +1474,7 @@ class WoMtcDetailPage extends StatelessWidget {
         if (items.isEmpty) return const SizedBox();
 
         return _buildInfoCard(
-          'Bukti Foto Service (${items.length} foto)',
+          'Bukti Foto/Video Service (${items.length})',
           children: [
             SizedBox(
               height: 110,
@@ -1475,32 +1485,50 @@ class WoMtcDetailPage extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final url =
                       ApiConstants.mediaUrl(items[index]['url']?.toString());
+                  final isVideo = MediaPickerHelper.isVideo(url);
                   return InkWell(
-                    onTap: () => _showImagePreview(url),
+                    onTap: () => isVideo
+                        ? Get.to(() => VideoPlayerPage(
+                              title: items[index]['name']?.toString() ??
+                                  'Video',
+                              networkUrl: url,
+                            ))
+                        : _showImagePreview(url),
                     borderRadius: BorderRadius.circular(12),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: AspectRatio(
                         aspectRatio: 1.3,
-                        child: Image.network(
-                          url,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: AppColors.greyLight,
-                            child: const Center(
-                              child: Icon(Icons.broken_image),
-                            ),
-                          ),
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              color: AppColors.greyLight,
-                              child: const Center(
-                                child: CircularProgressIndicator(),
+                        child: isVideo
+                            ? Container(
+                                color: Colors.black87,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.play_circle_fill,
+                                    color: Colors.white,
+                                    size: 36,
+                                  ),
+                                ),
+                              )
+                            : Image.network(
+                                url,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: AppColors.greyLight,
+                                  child: const Center(
+                                    child: Icon(Icons.broken_image),
+                                  ),
+                                ),
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return Container(
+                                    color: AppColors.greyLight,
+                                    child: const Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
                       ),
                     ),
                   );
@@ -3268,6 +3296,52 @@ class WoMtcDetailPage extends StatelessWidget {
               }
             }
 
+            void addVideo(File video) {
+              if (selectedServicePhotos.length >= maxServicePhotos) {
+                Get.snackbar('Limit', 'Maksimal $maxServicePhotos file');
+                return;
+              }
+              setState(() => selectedServicePhotos.add(video));
+            }
+
+            Future<void> pickVideoFromCamera() async {
+              final picked = await MediaPickerHelper.pickVideoFromCamera();
+              if (picked != null) addVideo(picked);
+            }
+
+            Future<void> pickVideoFromGallery() async {
+              final picked = await MediaPickerHelper.pickVideoFromGallery();
+              if (picked != null) addVideo(picked);
+            }
+
+            void showVideoOptions() {
+              Get.bottomSheet(
+                SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.videocam),
+                        title: const Text('Rekam Video'),
+                        onTap: () {
+                          Get.back();
+                          pickVideoFromCamera();
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.video_library),
+                        title: const Text('Pilih Video Galeri'),
+                        onTap: () {
+                          Get.back();
+                          pickVideoFromGallery();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
             return SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -3305,7 +3379,7 @@ class WoMtcDetailPage extends StatelessWidget {
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Bukti Foto Service (Wajib)',
+                      'Bukti Foto/Video Service (Wajib)',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -3329,11 +3403,20 @@ class WoMtcDetailPage extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: showVideoOptions,
+                      icon: const Icon(Icons.videocam),
+                      label: const Text('Video'),
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '${selectedServicePhotos.length} foto dipilih',
+                      '${selectedServicePhotos.length} file dipilih',
                       style: TextStyle(
                         color: selectedServicePhotos.isEmpty
                             ? Colors.red
@@ -3378,7 +3461,7 @@ class WoMtcDetailPage extends StatelessWidget {
           ElevatedButton(
             onPressed: () {
               if (selectedServicePhotos.isEmpty) {
-                Get.snackbar('Error', 'Bukti foto service wajib diupload');
+                Get.snackbar('Error', 'Bukti foto/video service wajib diupload');
                 return;
               }
               Get.back();

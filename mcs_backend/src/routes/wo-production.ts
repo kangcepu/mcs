@@ -23,7 +23,7 @@ function extensionFilter(allowed: string[]) {
 }
 
 const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
-const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp']) });
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);

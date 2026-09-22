@@ -1,4 +1,4 @@
-import { AlertTriangle, PauseCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, PauseCircle } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatRelative } from "@/lib/format";
 
@@ -13,12 +13,34 @@ export function ErpStatusBadge({
   const s = (status ?? "").toString().toLowerCase();
   const failed = ["failed", "error", "gagal"].some((k) => s.includes(k));
   const paused = ["pause", "hold", "stopped"].some((k) => s.includes(k));
+  // PENDING pada tb_material_part_request berarti belum pernah dikirim ke
+  // ERP, bukan sedang menunggu respons ERP. Jangan gunakan StatusBadge umum
+  // karena label generiknya adalah "Menunggu" dan membuat alur rancu.
+  const notSynced = !s || ["pending", "not_synced", "pending_dry_run", "not_ready"].includes(s);
+  const synced = ["synced", "synced_test", "success", "sent_erp", "sent"].includes(s);
 
   if (failed || paused) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
         {paused ? <PauseCircle className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
         {paused ? "ERP dijeda" : "ERP gagal"}
+      </span>
+    );
+  }
+
+  if (notSynced) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/20">
+        Belum disinkronkan
+      </span>
+    );
+  }
+
+  if (synced) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Tersinkron ke ERP
       </span>
     );
   }
