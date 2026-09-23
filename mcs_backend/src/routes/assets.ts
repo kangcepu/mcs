@@ -126,14 +126,30 @@ assetRouter.get('/assets/options', authenticate, asyncHandler(async (_req, res) 
 
 assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page ?? 1));
-  const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 25)));
-  const q = String(req.query.q ?? '');
-  const where = 'WHERE AssetCode LIKE ? OR AssetName LIKE ? OR AliasName LIKE ?';
-  const params = [`%${q}%`, `%${q}%`, `%${q}%`];
+  // Halaman Assets Manage kirim `per_page` (bukan `limit`) dan meta
+  // `total_pages` dibutuhkan Pagination untuk tombol "berikutnya" — tanpa
+  // dua ini, list selalu ke-pin 25 baris dan tombol next selalu nonaktif.
+  const perPage = Math.min(200, Math.max(1, Number(req.query.per_page ?? 25)));
+  const q = String(req.query.q ?? '').trim();
 
-  const total = await one<{ total: number }>(`SELECT COUNT(*) AS total FROM asset ${where}`, params);
-  const data = await rows(`SELECT * FROM asset ${where} ORDER BY AssetID DESC LIMIT ? OFFSET ?`, [...params, limit, (page - 1) * limit]);
-  ok(res, data, 'OK', { page, limit, total: Number(total?.total ?? 0) });
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (q) { where.push('(AssetCode LIKE ? OR AssetName LIKE ? OR AliasName LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  const company = String(req.query.company ?? '').trim();
+  if (company) { where.push('CompanyName = ?'); params.push(company); }
+  const location = String(req.query.location ?? '').trim();
+  if (location) { where.push('LocationAsset = ?'); params.push(location); }
+  const category = String(req.query.category ?? '').trim();
+  if (category) { where.push('CategoryAsset = ?'); params.push(category); }
+  const isActive = String(req.query.is_active ?? '').trim();
+  if (isActive === '1') { where.push("active = 'active'"); }
+  else if (isActive === '0') { where.push("active = 'inactive'"); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const total = await one<{ total: number }>(`SELECT COUNT(*) AS total FROM asset ${whereSql}`, params);
+  const totalCount = Number(total?.total ?? 0);
+  const data = await rows(`SELECT * FROM asset ${whereSql} ORDER BY AssetID DESC LIMIT ? OFFSET ?`, [...params, perPage, (page - 1) * perPage]);
+  ok(res, data, 'OK', { page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)) });
 }));
 
 assetRouter.post('/assets', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
