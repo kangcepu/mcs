@@ -22,3 +22,15 @@ export const AUTH_LOGIN_URL = `${API_BASE_URL}/auth/login`;
 
 /** Nama cookie penyimpanan JWT. */
 export const TOKEN_COOKIE = "mcs_token";
+
+/**
+ * Backend mengembalikan path relatif buat file terunggah (mis. `/uploads/...`).
+ * Web app jalan di origin/port terpisah dari backend, jadi path relatif itu
+ * harus dijadikan absolut ke origin API, bukan origin halaman saat ini.
+ */
+export function toAbsoluteUploadUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const origin = API_BASE_URL.replace(/\/api\/?$/, "");
+  return `${origin}/${url.replace(/^\/+/, "")}`;
+}

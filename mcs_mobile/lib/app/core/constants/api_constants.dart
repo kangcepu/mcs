@@ -3,30 +3,23 @@ class ApiConstants {
   static String _webBaseUrl = 'https://mcs.padmoasm.com';
   static String _soBaseUrl = 'https://so.padmoasm.com';
   static String _soWsUrl = 'wss://so.padmoasm.com';
-  static String _materialBaseUrl =
-      'https://mcs.padmoasm.com/_svc8989/microserviceLive/material';
 
   static void setUrls({
     required String mcsBaseUrl,
     required String mcsWebBaseUrl,
     required String soBaseUrl,
     required String soWsUrl,
-    String? materialBaseUrl,
   }) {
     _baseUrl = mcsBaseUrl;
     _webBaseUrl = mcsWebBaseUrl;
     _soBaseUrl = soBaseUrl;
     _soWsUrl = soWsUrl;
-    if (materialBaseUrl != null && materialBaseUrl.trim().isNotEmpty) {
-      _materialBaseUrl = materialBaseUrl;
-    }
   }
 
   static String get baseUrl => _baseUrl;
   static String get webBaseUrl => _webBaseUrl;
   static String get soBaseUrl => _soBaseUrl;
   static String get soWsUrl => _soWsUrl;
-  static String get materialBaseUrl => _materialBaseUrl;
 
   static const String avatarPath = '/assets/img/profile/';
 

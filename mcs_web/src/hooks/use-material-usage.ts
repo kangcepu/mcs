@@ -17,6 +17,7 @@ import {
   selectMaterialParts,
   setMaterialUsage,
   triggerErpSync,
+  voidSelectedMaterialRequest,
   type ConfirmPurchaseRow,
   type SelectPartItem,
   type UsageRow,
@@ -74,6 +75,10 @@ export function useMaterialUsageMutations(id?: string | number) {
     cancel: useMutation({
       mutationFn: (requestId: string | number) => cancelMaterialRequest(requestId),
       onSuccess: invalidateMaterial,
+    }),
+    voidSelection: useMutation({
+      mutationFn: (requestId: string | number) => voidSelectedMaterialRequest(requestId),
+      onSuccess: () => { invalidateMaterial(); invalidateWorkOrders(); },
     }),
     select: useMutation({
       mutationFn: (vars: { id: string | number; items: SelectPartItem[] }) =>

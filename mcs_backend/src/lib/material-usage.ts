@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { execute, one, rows, transaction } from '../db.js';
-import { searchMaterialSimple, searchUsageItemGsu } from './erp.js';
+import { searchMaterialItemsUcRu, searchUsageItemGsu } from './erp.js';
 import { HttpError } from '../http.js';
 import type { PoolConnection } from 'mysql2/promise';
 
@@ -374,19 +374,75 @@ export async function selectPartRequestItems(
   });
 }
 
+/**
+ * Void request yang statusnya sudah SELECTED (part sudah dipilih tim
+ * Sparepart) tapi ternyata gak jadi diambil. Beda dari `/material-usage/cancel`
+ * yang cuma buat status PENDING oleh pemohon sendiri — ini buat tim
+ * Sparepart/management setelah part terlanjur dipilih.
+ *
+ * Aman dijalankan cuma kalau: (1) belum ada qty yang diambil/dipakai sama
+ * sekali, dan (2) request ini satu-satunya kontributor baris
+ * tb_material_request untuk request_code-nya — kalau ada sesi pilih-part lain
+ * yang ikut nyumbang ke baris yang sama, qty gabungannya gak bisa dipisah
+ * lagi secara akurat, jadi ditolak & diarahkan buat ditangani manual.
+ */
+export async function voidSelectedPartRequest(partRequestId: number): Promise<{ success: boolean; message?: string }> {
+  const request = await one<Record<string, unknown>>("SELECT * FROM tb_material_part_request WHERE id = ? AND status = 'SELECTED'", [partRequestId]);
+  if (!request) return { success: false, message: 'Request tidak ditemukan atau bukan status SELECTED.' };
+
+  const woNumber = String(request.wo_number ?? '');
+  const jobExecutor = String(request.job_executor ?? '').trim();
+  const usage = await ensurePartRequestHeader(woNumber, jobExecutor);
+  const requestCode = usage?.request_code;
+  if (!requestCode) return { success: false, message: 'Header Material Usage untuk WO tidak ditemukan.' };
+
+  const otherContributors = await one<{ total: number }>(
+    "SELECT COUNT(*) AS total FROM tb_material_part_request WHERE wo_number=? AND job_executor=? AND status IN ('SELECTED','SENT_ERP') AND id != ?",
+    [woNumber, jobExecutor || null, partRequestId],
+  );
+  if (Number(otherContributors?.total ?? 0) > 0) {
+    return { success: false, message: 'Ada request part lain yang sudah dipilih untuk WO/executor ini — qty gabungan tidak bisa dipisah otomatis. Hubungi admin.' };
+  }
+
+  const movedRow = await one<{ moved: number }>(
+    "SELECT COUNT(*) AS moved FROM tb_material_request WHERE request_code=? AND (COALESCE(material_receive,'')<>'' OR COALESCE(material_usage,'')<>'')",
+    [requestCode],
+  );
+  if (Number(movedRow?.moved ?? 0) > 0) {
+    return { success: false, message: 'Sudah ada part yang diambil/dipakai untuk request ini, tidak bisa di-void.' };
+  }
+
+  return transaction(async (connection) => {
+    await connection.execute("UPDATE tb_material_part_request SET status='CANCELLED' WHERE id=?", [partRequestId]);
+    await connection.execute('DELETE FROM tb_material_request WHERE request_code=?', [requestCode]);
+    return { success: true };
+  });
+}
+
+/**
+ * `job_executor` disimpan NULL di database saat WO tidak punya executor
+ * (bukan string kosong) — jangan match pakai `= ?` dengan nilai kosong/'-'
+ * (dipakai buat tampilan doang), match persis cuma kalau memang ada isinya.
+ */
 export async function detailRequest(woNumber: string, jobExecutor: string, requestCode: string): Promise<Record<string, unknown>[]> {
-  return rows('SELECT * FROM tb_material_request WHERE wo_number=? AND request_code=? AND job_executor=?', [woNumber, requestCode, jobExecutor]);
+  let sql = 'SELECT * FROM tb_material_request WHERE wo_number=? AND request_code=?';
+  const params: unknown[] = [woNumber, requestCode];
+  if (jobExecutor.trim() && jobExecutor.trim() !== '-') { sql += ' AND job_executor=?'; params.push(jobExecutor); }
+  return rows(sql, params);
 }
 
 export async function detailPurchase(woNumber: string, jobExecutor: string, requestCode: string): Promise<Record<string, unknown>[]> {
-  return rows('SELECT * FROM tb_material_purchase WHERE wo_number=? AND request_code=? AND job_executor=?', [woNumber, requestCode, jobExecutor]);
+  let sql = 'SELECT * FROM tb_material_purchase WHERE wo_number=? AND request_code=?';
+  const params: unknown[] = [woNumber, requestCode];
+  if (jobExecutor.trim() && jobExecutor.trim() !== '-') { sql += ' AND job_executor=?'; params.push(jobExecutor); }
+  return rows(sql, params);
 }
 
 export async function detailHold(woNumber: string, requestCode: string, jobExecutor: string): Promise<Record<string, unknown>[]> {
   let sql = 'SELECT * FROM tb_material_hold WHERE wo_number = ?';
   const params: unknown[] = [woNumber];
   if (requestCode.trim()) { sql += ' AND request_code = ?'; params.push(requestCode); }
-  if (jobExecutor.trim()) { sql += ' AND job_executor = ?'; params.push(jobExecutor); }
+  if (jobExecutor.trim() && jobExecutor.trim() !== '-') { sql += ' AND job_executor = ?'; params.push(jobExecutor); }
   return rows(sql, params);
 }
 
@@ -580,19 +636,40 @@ export interface ErpPartResult {
 
 export async function searchErpParts(company: string, term: string): Promise<ErpPartResult[]> {
   const normalizedCompany = company.toUpperCase().trim();
+  const [gsu, ucRu] = await Promise.all([
+    searchUsageItemGsu(term).catch(() => []),
+    searchMaterialItemsUcRu(term).catch(() => []),
+  ]);
 
-  if (normalizedCompany === 'GSU') {
-    const items = await searchUsageItemGsu(term).catch(() => []);
-    return items.map((it) => ({
-      part_name: `${it.item_name} (${it.item_code})`,
-      item_id: it.item_id,
-      item_code: it.item_code,
-      company: normalizedCompany,
-      uom: it.uom,
-      uom_level: it.uom_level,
-    }));
+  const results: ErpPartResult[] = [
+    ...gsu.map((item) => ({
+      part_name: `${item.item_name} (${item.item_code})`,
+      item_id: item.item_id,
+      item_code: item.item_code,
+      company: 'GSU',
+      uom: item.uom,
+      uom_level: item.uom_level,
+    })),
+    ...ucRu.map((item) => ({
+      part_name: `${item.item_name} (${item.item_code})`,
+      item_id: item.item_id,
+      item_code: item.item_code,
+      company: item.company,
+      uom: item.uom,
+      uom_level: item.uom_level,
+    })),
+  ];
+
+  // Prioritaskan company WO agar pilihan paling relevan muncul di atas,
+  // lalu hapus duplikasi yang berasal dari query berulang di satu ERP.
+  const unique = new Map<string, ErpPartResult>();
+  for (const item of results) {
+    const key = `${item.company}:${item.item_id}:${item.item_code}`;
+    if (!unique.has(key)) unique.set(key, item);
   }
-
-  const names = await searchMaterialSimple(term).catch(() => []);
-  return names.map((name) => ({ part_name: name, item_id: null, item_code: '', company: normalizedCompany, uom: 'PCS', uom_level: null }));
+  return [...unique.values()].sort((a, b) => {
+    const aPreferred = a.company === normalizedCompany ? 0 : 1;
+    const bPreferred = b.company === normalizedCompany ? 0 : 1;
+    return aPreferred - bPreferred || a.part_name.localeCompare(b.part_name);
+  });
 }

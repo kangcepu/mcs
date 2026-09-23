@@ -3123,6 +3123,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
 
           void showServiceVideoOptions() {
             Get.bottomSheet(
+              backgroundColor: Colors.white,
               SafeArea(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

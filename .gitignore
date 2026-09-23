@@ -7,6 +7,16 @@
 **/*service-account*.json
 **/*credential*.json
 
+# Archives and private keys
+*.zip
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+
 # JavaScript / TypeScript
 **/node_modules/
 **/.next/

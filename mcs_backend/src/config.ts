@@ -22,6 +22,7 @@ export const config = {
   },
   scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '0 * * * *',
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
+  employeeSyncCronExpr: process.env.EMPLOYEE_SYNC_CRON_EXPR ?? '*/15 * * * *',
   legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '',
   erpMssql: {

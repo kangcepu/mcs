@@ -34,14 +34,12 @@ Future<void> main() async {
   final mcsWebBaseUrl = await NetworkChecker.getWebBaseUrl();
   final soBaseUrl = await NetworkChecker.getSoBaseUrl();
   final soWsUrl = await NetworkChecker.getSoWsUrl();
-  final materialBaseUrl = await NetworkChecker.getMaterialBaseUrl();
 
   ApiConstants.setUrls(
     mcsBaseUrl: mcsBaseUrl,
     mcsWebBaseUrl: mcsWebBaseUrl,
     soBaseUrl: soBaseUrl,
     soWsUrl: soWsUrl,
-    materialBaseUrl: materialBaseUrl,
   );
 
   await PushNotificationService.instance.initialize();

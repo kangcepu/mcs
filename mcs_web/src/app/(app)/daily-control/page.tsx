@@ -23,6 +23,7 @@ import {
 import { PERMISSIONS } from "@/lib/permissions";
 import { toDateInput, formatDateTime, formatNumber } from "@/lib/format";
 import { dash, pick } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 import { ApiError } from "@/types/api";
 
 function getMentionTrigger(value: string) {
@@ -478,7 +479,8 @@ function DailyControlInner() {
                   "fullname",
                   "executor_label",
                 ]);
-                const previewUrl = String(pick(a, ["preview_media_url"]) || "");
+                const previewUrlRaw = String(pick(a, ["preview_media_url"]) || "");
+                const previewUrl = previewUrlRaw ? toAbsoluteUploadUrl(previewUrlRaw) : "";
                 return (
                   <li
                     key={(a.id as string) ?? woNumber ?? i}
@@ -638,7 +640,7 @@ function DailyControlInner() {
                     </p>
                     <div className="grid grid-cols-3 gap-2">
                       {photos.map((photo, index) => {
-                        const url = String(photo.media_url ?? photo.url ?? "");
+                        const url = toAbsoluteUploadUrl(String(photo.media_url ?? photo.url ?? ""));
                         return (
                           <a key={String(photo.id ?? index)} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200 bg-white">
                             <Image

@@ -63,7 +63,12 @@ export function normalizeMe(data: unknown): MeUser {
       if (typeof v === "number") return String(v);
       if (typeof v === "object") {
         const o = v as Record<string, unknown>;
-        const label = o.name ?? o.label ?? o.title ?? o.code ?? o.fullname ?? o.full_name;
+        // Backend juga dipakai mobile app yang butuh bentuk objek
+        // { division_name, division_code } / { company_name } apa adanya,
+        // jadi field-field itu dicoba di sini alih-alih diratakan di backend.
+        const label =
+          o.name ?? o.label ?? o.title ?? o.code ?? o.fullname ?? o.full_name ??
+          o.division_name ?? o.division_code ?? o.company_name;
         if (typeof label === "string" && label) return label;
       }
     }

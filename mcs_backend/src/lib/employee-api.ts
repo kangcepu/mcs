@@ -39,6 +39,11 @@ export interface EmployeeSearchResult {
 const KNOWN_COMPANY_CODES = ['UC', 'RU', 'GSU'] as const;
 const employeeCache = new Map<string, Employee[] | null>();
 
+/** Buang cache in-memory agar pemanggilan berikutnya ambil data terbaru dari emp.padmoasm.com. */
+export function clearEmployeeCache(): void {
+  employeeCache.clear();
+}
+
 export function resolveCompanyCode(value: string): string {
   const upper = value.trim().toUpperCase();
   if (upper === '') return '';

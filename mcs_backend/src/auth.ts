@@ -2,9 +2,9 @@ import crypto from 'node:crypto';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import type { NextFunction, Response } from 'express';
 import { config } from './config.js';
-import { execute, one } from './db.js';
+import { execute, one, rows } from './db.js';
 import { HttpError } from './http.js';
-import { findEmployeeForUserResult, resolveCompanyCode } from './lib/employee-api.js';
+import { clearEmployeeCache, findEmployeeForUserResult, resolveCompanyCode } from './lib/employee-api.js';
 import type { AuthRequest, User } from './types.js';
 
 export const permissionFields = [
@@ -87,6 +87,37 @@ export async function syncEmployeeStatusFromApi(user: User): Promise<User> {
   return user;
 }
 
+export async function syncAllUsersEmployeeStatus(): Promise<{ checked: number; disabled: number }> {
+  clearEmployeeCache();
+  const users = await rows<User>(`SELECT u.*, d.division_code, d.division_name, c.company_name
+    FROM tb_user u
+    LEFT JOIN tb_division d ON d.id_division = u.id_division
+    LEFT JOIN tb_company c ON c.id_company = u.id_company
+    WHERE u.active = 1`);
+
+  let disabled = 0;
+  for (const user of users) {
+    const username = String(user.username ?? '').trim();
+    const email = String(user.email ?? '').trim();
+    const companyCode = resolveCompanyCode(String(user.company_name ?? ''));
+    if (username === '' || companyCode === '') continue;
+
+    const result = await findEmployeeForUserResult(companyCode, username, email);
+    if (result.status === 'found' && result.employee) {
+      const newFullname = String(result.employee.FullName ?? '');
+      if (newFullname !== '' && newFullname !== String(user.fullname ?? '')) {
+        await execute('UPDATE tb_user SET fullname = ? WHERE id_user = ?', [newFullname, user.id_user]);
+      }
+      continue;
+    }
+    if (result.status !== 'not_found') continue;
+
+    await execute('UPDATE tb_user SET active = 0 WHERE id_user = ?', [user.id_user]);
+    disabled++;
+  }
+  return { checked: users.length, disabled };
+}
+
 export function applyAutomaticAccess(user: User): User {
   const position = String(user.id_position ?? '').toUpperCase();
   const division = `${user.division_code ?? ''} ${user.division_name ?? ''}`.toUpperCase();
@@ -96,13 +127,55 @@ export function applyAutomaticAccess(user: User): User {
   return user;
 }
 
+/**
+ * `tb_user.avatar` punya 2 format kayak `tb_attachment_asset.filename`: foto
+ * lama hasil migrasi cuma nama file polos (butuh prefix folder lama
+ * `assets/img/profile`), upload baru lewat `/profile/avatar` nyimpen
+ * relative key sendiri (sudah ada `/`, dipakai apa adanya).
+ */
+export function resolveAvatarUrl(avatar: string | null | undefined): string | null {
+  const trimmed = String(avatar ?? '').trim();
+  if (!trimmed || trimmed === 'avatar.png') return null;
+  if (trimmed.includes('/')) return `/uploads/${trimmed}`;
+  return `/uploads/assets/img/profile/${trimmed}`;
+}
+
 export function publicUser(user: User): Record<string, unknown> {
   const permissions = Object.fromEntries(permissionFields.map((field) => [field, Number(user[field] ?? 0)]));
   return {
     id_user: user.id_user, username: user.username, fullname: user.fullname, email: user.email ?? '', avatar: user.avatar ?? 'avatar.png',
+    avatar_url: resolveAvatarUrl(user.avatar),
     id_position: user.id_position ?? '',
     division: { id_division: user.id_division, division_name: user.division_name ?? '', division_code: user.division_code ?? '' },
     company: { id_company: user.id_company ?? null, company_name: user.company_name ?? null }, permissions,
+  };
+}
+
+/**
+ * `tb_user` tidak nyimpen nomor HP sama sekali, dan `company_name` lokal
+ * cuma kode singkat ('UC'/'GSU'/'RU'). Halaman profil butuh data lebih
+ * lengkap dari Employee API (dicocokkan by NIK/`username`) — sama kayak
+ * `syncEmployeeStatusFromApi`, bukan panggilan baru yang mahal (cache
+ * per-company di `employee-api.ts` sudah anget dari situ).
+ */
+export async function publicUserWithEmployee(user: User): Promise<Record<string, unknown>> {
+  const base = publicUser(user);
+  const companyCode = resolveCompanyCode(String(user.company_name ?? ''));
+  const username = String(user.username ?? '').trim();
+  const email = String(user.email ?? '').trim();
+  if (companyCode === '' || username === '') return { ...base, phone: '' };
+
+  const result = await findEmployeeForUserResult(companyCode, username, email);
+  const emp = result.employee;
+  if (!emp) return { ...base, phone: '' };
+
+  const phone = String(emp.MobilePhone ?? emp.MOBILEPHONE ?? emp.Mobilephone ?? emp.Mobile_Phone ?? emp.Phone ?? emp.NoHP ?? '');
+  const employeeCompany = String(emp.Company ?? '').trim();
+  const company = base.company as { id_company: unknown; company_name: string | null };
+  return {
+    ...base,
+    phone,
+    company: { ...company, company_name: employeeCompany || company.company_name },
   };
 }
 

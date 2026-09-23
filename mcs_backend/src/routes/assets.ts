@@ -117,7 +117,10 @@ assetRouter.post('/assets', authenticate, requirePermission('privilage_asset'), 
 }));
 
 assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) => {
-  const id = req.query.id ?? req.query.AssetID ?? req.query.asset_id;
+  // Web mengirim query param `asset` (lihat lib/api/assets.ts getAssetDetail) —
+  // sebelumnya gak pernah dicek di sini, jadi endpoint ini SELALU gagal
+  // "Asset ID is required" buat siapapun yang buka halaman detail aset.
+  const id = req.query.id ?? req.query.AssetID ?? req.query.asset_id ?? req.query.asset;
   if (!id) throw new HttpError(400, 'Asset ID is required');
 
   const asset = await one('SELECT * FROM asset WHERE AssetID = ? OR AssetCode = ? LIMIT 1', [id, id]);
@@ -133,25 +136,37 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const id = req.body.AssetID ?? req.query.id;
+  // Web mengirim `asset`/`asset_code` di body + query (lihat lib/api/assets.ts
+  // updateAsset) — sebelumnya gak pernah dicek, jadi endpoint ini SELALU
+  // gagal "Asset ID is required" buat siapapun yang nyimpen edit aset.
+  const id = req.body.AssetID ?? req.query.id ?? req.body.asset ?? req.body.asset_code ?? req.query.asset;
   if (!id) throw new HttpError(400, 'Asset ID is required');
 
   const fields = bodyFields(req.body, assetFields);
   const keys = Object.keys(fields);
   if (!keys.length) throw new HttpError(400, 'No changes provided');
 
+  // `id` bisa berupa AssetID numerik ATAU AssetCode (string) — sama seperti
+  // GET /assets/detail, terima keduanya.
   await execute(
-    `UPDATE asset SET ${keys.map((k) => `\`${k}\` = ?`).join(', ')}, updated_at = NOW(), updated_by = ? WHERE AssetID = ?`,
-    [...Object.values(fields), (req as AuthRequest).user!.fullname, id],
+    `UPDATE asset SET ${keys.map((k) => `\`${k}\` = ?`).join(', ')}, updated_at = NOW(), updated_by = ? WHERE AssetID = ? OR AssetCode = ?`,
+    [...Object.values(fields), (req as AuthRequest).user!.fullname, id, id],
   );
   ok(res, null, 'Asset updated');
 }));
 
 assetRouter.post('/assets/status', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const { AssetID, active } = req.body;
-  if (!AssetID || !['active', 'inactive'].includes(active)) throw new HttpError(400, 'AssetID and active status are required');
+  // Web mengirim `{ asset, is_active: boolean }` (lihat lib/api/assets.ts
+  // setAssetStatus) — sebelumnya cuma cek `{ AssetID, active: 'active'|
+  // 'inactive' }`, jadi endpoint ini SELALU gagal buat tombol
+  // Aktifkan/Nonaktifkan di halaman manapun.
+  const id = req.body.AssetID ?? req.body.asset ?? req.body.asset_code;
+  const active = typeof req.body.active === 'string'
+    ? req.body.active
+    : (req.body.is_active !== undefined ? (req.body.is_active ? 'active' : 'inactive') : undefined);
+  if (!id || !active || !['active', 'inactive'].includes(active)) throw new HttpError(400, 'AssetID and active status are required');
 
-  await execute('UPDATE asset SET active = ?, updated_at = NOW(), updated_by = ? WHERE AssetID = ?', [active, (req as AuthRequest).user!.fullname, AssetID]);
+  await execute('UPDATE asset SET active = ?, updated_at = NOW(), updated_by = ? WHERE AssetID = ? OR AssetCode = ?', [active, (req as AuthRequest).user!.fullname, id, id]);
   ok(res, null, 'Asset status updated');
 }));
 

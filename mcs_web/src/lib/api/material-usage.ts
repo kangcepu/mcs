@@ -143,3 +143,8 @@ export function holdMaterialPart(body: {
 export function cancelMaterialRequest(id: string | number) {
   return apiV2.delete<null>("/material-usage/cancel", { params: { id } });
 }
+
+/** Void part yang sudah SELECTED tapi ternyata gak jadi diambil. */
+export function voidSelectedMaterialRequest(id: string | number) {
+  return apiV2.delete<null>("/material-usage/void-selection", { params: { id } });
+}

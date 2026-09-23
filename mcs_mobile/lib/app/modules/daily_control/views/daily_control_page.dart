@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
@@ -1954,7 +1956,7 @@ class DailyControlPage extends StatelessWidget {
 
   Widget _buildActivityCard(DailyControlActivity activity) {
     final controller = Get.find<DailyControlController>();
-    final images = activity.imageMedia;
+    final images = activity.media;
     final primaryTitle = _dailyControlPrimaryDetailText(activity);
     final titleSource = activity.title.trim().isNotEmpty
         ? activity.title.trim()
@@ -2223,11 +2225,21 @@ class DailyControlPage extends StatelessWidget {
                             color: Colors.black,
                           ),
                           onPageChanged: (value) => currentIndex.value = value,
-                          builder: (_, index) => PhotoViewGalleryPageOptions(
-                            imageProvider: NetworkImage(images[index].mediaUrl),
-                            minScale: PhotoViewComputedScale.contained,
-                            maxScale: PhotoViewComputedScale.covered * 4,
-                          ),
+                          builder: (_, index) {
+                            final media = images[index];
+                            if (media.isVideo) {
+                              return PhotoViewGalleryPageOptions.customChild(
+                                child: _InlineVideoPlayer(url: media.mediaUrl),
+                                minScale: PhotoViewComputedScale.contained,
+                                maxScale: PhotoViewComputedScale.contained,
+                              );
+                            }
+                            return PhotoViewGalleryPageOptions(
+                              imageProvider: NetworkImage(media.mediaUrl),
+                              minScale: PhotoViewComputedScale.contained,
+                              maxScale: PhotoViewComputedScale.covered * 4,
+                            );
+                          },
                           loadingBuilder: (_, __) => const Center(
                             child: CircularProgressIndicator(
                               color: Colors.white,
@@ -2536,6 +2548,65 @@ class DailyControlPage extends StatelessWidget {
   }
 }
 
+class _InlineVideoPlayer extends StatefulWidget {
+  const _InlineVideoPlayer({required this.url});
+  final String url;
+
+  @override
+  State<_InlineVideoPlayer> createState() => _InlineVideoPlayerState();
+}
+
+class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
+  late final VideoPlayerController _videoController;
+  ChewieController? _chewieController;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await _videoController.initialize();
+      if (!mounted) return;
+      setState(() {
+        _chewieController = ChewieController(
+          videoPlayerController: _videoController,
+          autoPlay: false,
+          looping: false,
+        );
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Gagal memutar video: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _chewieController?.dispose();
+    _videoController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Center(
+        child: Text(_error!, style: const TextStyle(color: Colors.white)),
+      );
+    }
+    if (_chewieController == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+    return Chewie(controller: _chewieController!);
+  }
+}
+
 class _ActivityImagePreview extends StatefulWidget {
   const _ActivityImagePreview({
     required this.images,
@@ -2606,22 +2677,36 @@ class _ActivityImagePreviewState extends State<_ActivityImagePreview> {
                   }
                 },
                 itemBuilder: (context, index) {
+                  final media = images[index];
                   return InkWell(
                     onTap: () => widget.onImageTap(index),
-                    child: Image.network(
-                      images[index].mediaUrl,
-                      width: double.infinity,
-                      height: 165,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            _handleImageError(images[index]);
-                          }
-                        });
-                        return const SizedBox.shrink();
-                      },
-                    ),
+                    child: media.isVideo
+                        ? Container(
+                            width: double.infinity,
+                            height: 165,
+                            color: Colors.black87,
+                            child: const Center(
+                              child: Icon(
+                                Icons.play_circle_fill,
+                                color: Colors.white,
+                                size: 48,
+                              ),
+                            ),
+                          )
+                        : Image.network(
+                            media.mediaUrl,
+                            width: double.infinity,
+                            height: 165,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) {
+                                  _handleImageError(media);
+                                }
+                              });
+                              return const SizedBox.shrink();
+                            },
+                          ),
                   );
                 },
               ),
@@ -2860,11 +2945,21 @@ class _DailyControlPreviewSheetState extends State<_DailyControlPreviewSheet> {
                             color: Colors.black,
                           ),
                           onPageChanged: (value) => currentIndex.value = value,
-                          builder: (_, index) => PhotoViewGalleryPageOptions(
-                            imageProvider: NetworkImage(images[index].mediaUrl),
-                            minScale: PhotoViewComputedScale.contained,
-                            maxScale: PhotoViewComputedScale.covered * 4,
-                          ),
+                          builder: (_, index) {
+                            final media = images[index];
+                            if (media.isVideo) {
+                              return PhotoViewGalleryPageOptions.customChild(
+                                child: _InlineVideoPlayer(url: media.mediaUrl),
+                                minScale: PhotoViewComputedScale.contained,
+                                maxScale: PhotoViewComputedScale.contained,
+                              );
+                            }
+                            return PhotoViewGalleryPageOptions(
+                              imageProvider: NetworkImage(media.mediaUrl),
+                              minScale: PhotoViewComputedScale.contained,
+                              maxScale: PhotoViewComputedScale.covered * 4,
+                            );
+                          },
                           loadingBuilder: (_, __) => const Center(
                             child: CircularProgressIndicator(
                               color: Colors.white,
@@ -2929,7 +3024,7 @@ class _DailyControlPreviewSheetState extends State<_DailyControlPreviewSheet> {
   @override
   Widget build(BuildContext context) {
     final activity = widget.activity;
-    final images = activity.imageMedia;
+    final images = activity.media;
     final primaryTitle = _dailyControlPrimaryDetailText(activity);
     final titleSource = activity.title.trim().isNotEmpty
         ? activity.title.trim()
@@ -2990,19 +3085,31 @@ class _DailyControlPreviewSheetState extends State<_DailyControlPreviewSheet> {
                               onPageChanged: (value) {
                                 setState(() => _mediaIndex = value);
                               },
-                              builder: (_, index) =>
-                                  PhotoViewGalleryPageOptions(
-                                imageProvider:
-                                    NetworkImage(images[index].mediaUrl),
-                                minScale: PhotoViewComputedScale.contained,
-                                maxScale: PhotoViewComputedScale.covered * 4,
-                                basePosition: Alignment.topCenter,
-                                tightMode: true,
-                                heroAttributes: PhotoViewHeroAttributes(
-                                  tag:
-                                      'daily_control_preview_${widget.activity.id}_$index',
-                                ),
-                              ),
+                              builder: (_, index) {
+                                final media = images[index];
+                                final heroTag =
+                                    'daily_control_preview_${widget.activity.id}_$index';
+                                if (media.isVideo) {
+                                  return PhotoViewGalleryPageOptions.customChild(
+                                    child: _InlineVideoPlayer(
+                                      url: media.mediaUrl,
+                                    ),
+                                    minScale: PhotoViewComputedScale.contained,
+                                    maxScale: PhotoViewComputedScale.contained,
+                                    heroAttributes:
+                                        PhotoViewHeroAttributes(tag: heroTag),
+                                  );
+                                }
+                                return PhotoViewGalleryPageOptions(
+                                  imageProvider: NetworkImage(media.mediaUrl),
+                                  minScale: PhotoViewComputedScale.contained,
+                                  maxScale: PhotoViewComputedScale.covered * 4,
+                                  basePosition: Alignment.topCenter,
+                                  tightMode: true,
+                                  heroAttributes:
+                                      PhotoViewHeroAttributes(tag: heroTag),
+                                );
+                              },
                               loadingBuilder: (_, __) => const Center(
                                 child: CircularProgressIndicator(
                                   color: Colors.white,
@@ -4025,7 +4132,7 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
 
   Widget _buildDetailHeader() {
     final activity = widget.activity;
-    final images = activity.imageMedia;
+    final images = activity.media;
     final primaryTitle = _dailyControlPrimaryDetailText(activity);
     final displayName = widget.controller.resolveActivityDisplayName(activity);
     final compactSubtitle =
@@ -4051,23 +4158,37 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
           if (images.isNotEmpty)
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                images[_mediaIndex.clamp(0, images.length - 1)].mediaUrl,
-                width: 44,
-                height: 44,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 44,
-                  height: 44,
-                  color: const Color(0xFFE5E7EB),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.image_not_supported_outlined,
-                    size: 18,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ),
+              child:
+                  images[_mediaIndex.clamp(0, images.length - 1)].isVideo
+                      ? Container(
+                          width: 44,
+                          height: 44,
+                          color: Colors.black87,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.play_circle_fill,
+                            size: 20,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Image.network(
+                          images[_mediaIndex.clamp(0, images.length - 1)]
+                              .mediaUrl,
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 44,
+                            height: 44,
+                            color: const Color(0xFFE5E7EB),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.image_not_supported_outlined,
+                              size: 18,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
             )
           else
             Container(
@@ -4221,11 +4342,21 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
                             color: Colors.black,
                           ),
                           onPageChanged: (value) => currentIndex.value = value,
-                          builder: (_, index) => PhotoViewGalleryPageOptions(
-                            imageProvider: NetworkImage(images[index].mediaUrl),
-                            minScale: PhotoViewComputedScale.contained,
-                            maxScale: PhotoViewComputedScale.covered * 4,
-                          ),
+                          builder: (_, index) {
+                            final media = images[index];
+                            if (media.isVideo) {
+                              return PhotoViewGalleryPageOptions.customChild(
+                                child: _InlineVideoPlayer(url: media.mediaUrl),
+                                minScale: PhotoViewComputedScale.contained,
+                                maxScale: PhotoViewComputedScale.contained,
+                              );
+                            }
+                            return PhotoViewGalleryPageOptions(
+                              imageProvider: NetworkImage(media.mediaUrl),
+                              minScale: PhotoViewComputedScale.contained,
+                              maxScale: PhotoViewComputedScale.covered * 4,
+                            );
+                          },
                           loadingBuilder: (_, __) => const Center(
                             child: CircularProgressIndicator(
                               color: Colors.white,

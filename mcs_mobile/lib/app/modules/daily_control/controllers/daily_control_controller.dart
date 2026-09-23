@@ -171,6 +171,8 @@ class DailyControlMedia {
     required this.mediaUrl,
   });
 
+  bool get isVideo => mediaType == 'video';
+
   factory DailyControlMedia.fromJson(Map<String, dynamic> json) {
     final path = '${json['media_path'] ?? ''}'.trim();
     final name = '${json['media_name'] ?? ''}'.trim();

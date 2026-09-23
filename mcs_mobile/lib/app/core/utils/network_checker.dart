@@ -16,11 +16,6 @@ class NetworkChecker {
   static const _defaultSoWsPublic = 'wss://so.padmoasm.com';
   static const _defaultSoWsLocal = 'ws://192.168.10.100:6000';
 
-  static const _defaultMaterialBasePublic =
-      'https://mcs.padmoasm.com/_svc8989/microserviceLive/material';
-  static const _defaultMaterialBaseLocal =
-      'http://192.168.10.100:8989/microserviceLive/material';
-
   static const _probeTimeout = Duration(milliseconds: 1200);
   static const _allowedPublicHosts = {
     'vpn.utamacorp.com',
@@ -106,19 +101,6 @@ class NetworkChecker {
 
     debugPrint('SO WS selected (auto): ${candidates.first}');
     return candidates.first;
-  }
-
-  static Future<String> getMaterialBaseUrl() async {
-    final materialBaseUrl = await _resolveHttpEndpoint(
-      label: 'MATERIAL',
-      primaryKey: 'MATERIAL_BASE_URL',
-      localKey: 'MATERIAL_BASE_URL_LOCAL',
-      publicKey: 'MATERIAL_BASE_URL_PUBLIC',
-      defaultLocal: _defaultMaterialBaseLocal,
-      defaultPublic: _defaultMaterialBasePublic,
-    );
-    debugPrint('Material API selected: $materialBaseUrl');
-    return materialBaseUrl;
   }
 
   static Future<String> _resolveHttpEndpoint({

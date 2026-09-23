@@ -10,6 +10,7 @@ import { approvalCenterRouter } from './routes/approval-center.js';
 import { closeErpPools } from './lib/erp.js';
 import { runScheduledGeneration } from './lib/preventive-schedule.js';
 import { runPreventiveAlarmCron } from './lib/preventive-alarm.js';
+import { syncAllUsersEmployeeStatus } from './auth.js';
 import { asyncHandler, errorHandler, HttpError } from './http.js';
 import { getObjectStream } from './lib/storage.js';
 import { authRouter } from './routes/auth.js';
@@ -54,11 +55,19 @@ app.get('/uploads/*splat', asyncHandler(async (req, res) => {
     return res.sendFile(localPath);
   }
 
-  const object = await getObjectStream(normalized);
+  const rangeHeader = req.headers.range;
+  const object = await getObjectStream(normalized, rangeHeader);
   if (!object) throw new HttpError(404, 'File not found');
   res.setHeader('Content-Type', object.contentType);
   res.setHeader('Cache-Control', 'public, max-age=604800');
-  if (object.contentLength !== undefined) res.setHeader('Content-Length', String(object.contentLength));
+  res.setHeader('Accept-Ranges', 'bytes');
+  if (object.isPartial && object.rangeStart !== undefined && object.rangeEnd !== undefined && object.totalSize !== undefined) {
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${object.rangeStart}-${object.rangeEnd}/${object.totalSize}`);
+    res.setHeader('Content-Length', String(object.rangeEnd - object.rangeStart + 1));
+  } else if (object.contentLength !== undefined) {
+    res.setHeader('Content-Length', String(object.contentLength));
+  }
   object.stream.pipe(res);
 }));
 app.use(express.static(path.resolve('public')));
@@ -85,5 +94,12 @@ const preventiveAlarmTask = cron.schedule(config.preventiveAlarmCronExpr, () => 
     .then((result) => console.log('Preventive alarm cron:', result))
     .catch((error) => console.error('Preventive alarm cron failed:', error));
 }, { timezone: 'Asia/Jakarta' });
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+
+const employeeSyncTask = cron.schedule(config.employeeSyncCronExpr, () => {
+  syncAllUsersEmployeeStatus()
+    .then((result) => { if (result.disabled) console.log(`Employee sync: disabled ${result.disabled} user(s) not found in emp.padmoasm.com (checked ${result.checked})`); })
+    .catch((error) => console.error('Employee sync cron failed:', error));
+});
+
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());

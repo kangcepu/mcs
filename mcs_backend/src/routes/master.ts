@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate, md5, permissionFields } from '../auth.js';
 import { execute, one, rows, tableColumns, tableExists } from '../db.js';
 import { asyncHandler, created, HttpError, legacyOk, ok } from '../http.js';
-import { searchEmployees } from '../lib/employee-api.js';
+import { findEmployeeForUserResult, resolveCompanyCode, searchEmployees } from '../lib/employee-api.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const masterRouter = Router();
@@ -227,6 +227,30 @@ async function saveUser(id: number, input: Record<string, unknown>): Promise<num
   const existing = await one('SELECT id_user FROM tb_user WHERE username = ?', [data.username]);
   if (existing) return false;
   if (!('active' in data) && cols.has('active')) data.active = 1;
+
+  const idCompany = Number(data.id_company ?? 0);
+  const company = idCompany > 0
+    ? await one<{ company_name: string }>('SELECT company_name FROM tb_company WHERE id_company=?', [idCompany])
+    : null;
+  const companyCode = resolveCompanyCode(String(company?.company_name ?? ''));
+  if (companyCode !== '') {
+    const employeeResult = await findEmployeeForUserResult(companyCode, String(data.username), String(data.email ?? ''));
+    const emp = employeeResult.employee;
+    if (employeeResult.status === 'found' && emp) {
+      const empFullname = String(emp.FullName ?? '').trim();
+      if (empFullname !== '') data.fullname = empFullname;
+      if (cols.has('email') && !data.email) {
+        const empEmail = String(emp.Email ?? '').trim();
+        if (empEmail !== '') data.email = empEmail;
+      }
+      if (cols.has('phone') && !data.phone) {
+        const empPhone = String(emp.MobilePhone ?? emp.MOBILEPHONE ?? emp.Mobilephone ?? emp.Mobile_Phone ?? emp.Phone ?? emp.NoHP ?? '').trim();
+        if (empPhone !== '') data.phone = empPhone;
+      }
+    } else if (employeeResult.status === 'not_found' && cols.has('active')) {
+      data.active = 0;
+    }
+  }
   const newId = Math.floor(Date.now() / 1000);
   if (cols.has('id_user')) data.id_user = newId;
   if (!('password' in data) && cols.has('password')) data.password = '';

@@ -80,17 +80,42 @@ function combine(baseWhere: string, baseParams: unknown[], scope: { sql: string;
   return { where: `${baseWhere} AND ${scope.sql}`, params: [...baseParams, ...scope.params] };
 }
 
+/**
+ * Server bisa jalan di timezone apa aja (mis. UTC di staging), tapi semua
+ * jam operasional perusahaan itu WIB. `new Date().toTimeString()` ngikut
+ * timezone OS server, jadi nggak bisa dipakai langsung — harus dikonversi
+ * eksplisit ke Asia/Jakarta.
+ */
+export function nowInJakarta(): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    time: `${get('hour')}:${get('minute')}:${get('second')}`,
+  };
+}
+
 const MTC_AREA_KEYS = new Set(['GSU_WNB', 'GSU_INJECT', 'RU_SAWMILL', 'RU_PRODUCTION']);
 export function normalizeAreaKey(value: unknown): string | null {
   const norm = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
   return MTC_AREA_KEYS.has(norm) ? norm : null;
 }
 
-interface UserRow { id_user: number; fullname: string; alias?: string | null; username?: string }
+interface UserRow {
+  id_user: number; fullname: string; alias?: string | null; username?: string;
+  wo_category_general?: number; wo_category_electrical?: number; wo_category_mould?: number;
+  mtc_area_gsu_wnb?: number; mtc_area_gsu_inject?: number; mtc_area_ru_sawmill?: number; mtc_area_ru_production?: number;
+}
+const USER_ROW_FIELDS = 'id_user, fullname, alias, username, wo_category_general, wo_category_electrical, wo_category_mould, mtc_area_gsu_wnb, mtc_area_gsu_inject, mtc_area_ru_sawmill, mtc_area_ru_production';
 const userCache = new Map<number, UserRow | null>();
 async function findUserById(idUser: number): Promise<UserRow | null> {
   if (userCache.has(idUser)) return userCache.get(idUser)!;
-  const row = await one<UserRow>('SELECT id_user, fullname, alias, username FROM tb_user WHERE id_user=?', [idUser]);
+  const row = await one<UserRow>(`SELECT ${USER_ROW_FIELDS} FROM tb_user WHERE id_user=?`, [idUser]);
   userCache.set(idUser, row);
   return row;
 }
@@ -99,7 +124,7 @@ async function findUserByName(fullname: string): Promise<UserRow | null> {
   const key = fullname.trim().toUpperCase();
   if (!key) return null;
   if (userByNameCache.has(key)) return userByNameCache.get(key)!;
-  const row = await one<UserRow>('SELECT id_user, fullname, alias, username FROM tb_user WHERE UPPER(TRIM(fullname))=?', [key]);
+  const row = await one<UserRow>(`SELECT ${USER_ROW_FIELDS} FROM tb_user WHERE UPPER(TRIM(fullname))=?`, [key]);
   userByNameCache.set(key, row);
   return row;
 }
@@ -120,6 +145,17 @@ function splitLaborNames(trade: unknown): string[] {
     .split(/[|;/]/)
     .map((s) => s.trim())
     .filter((s) => s && !INVALID_LABOR_TOKENS.has(s.toUpperCase()) && !/^WO\b/i.test(s));
+}
+
+const INVALID_UPDATER_TOKENS = new Set(['ADMIN MAINTENANCE']);
+/** "WO MTC"/"WO GA"/dll adalah label modul yang dicatat sistem saat tidak ada
+ * user spesifik yang melakukan update — bukan nama orang, jangan ditampilkan
+ * sebagai updater di "PIC By Updater". */
+function isRealUpdaterName(name: string): boolean {
+  const upper = name.trim().toUpperCase();
+  if (!upper) return false;
+  if (INVALID_UPDATER_TOKENS.has(upper)) return false;
+  return !/^WO\b/i.test(name.trim());
 }
 
 const WO_SOURCE_TABLES: { table: string; sourceLabel: string }[] = [
@@ -147,24 +183,33 @@ function classifyMaintenanceKind(typeWo: unknown): 'Preventive' | 'Project' | 'C
 }
 
 interface ExecutorMeta { executor_code_raw: string; meso_subtype: string | null; maintenance_kind: string; source_table: string | null; job_title: string | null }
-async function findExecutorMetaByWoNumber(woNumber: string): Promise<ExecutorMeta | null> {
+
+/** Batch version: satu query per tabel sumber WO (maks 5), bukan per baris aktivitas. */
+async function findExecutorMetaByWoNumbers(woNumbers: string[]): Promise<Map<string, ExecutorMeta>> {
+  const result = new Map<string, ExecutorMeta>();
+  const remaining = new Set([...woNumbers].filter(Boolean));
+  if (!remaining.size) return result;
+
   for (const src of WO_SOURCE_TABLES) {
-    const row = await one<{ job_executor: string | null; pic: string | null; type_wo: string | null; job_title: string | null }>(
-      `SELECT job_executor, pic, type_wo, job_title FROM \`${src.table}\` WHERE wo_number=? LIMIT 1`,
-      [woNumber],
+    if (!remaining.size) break;
+    const list = [...remaining];
+    const found = await rows<{ wo_number: string; job_executor: string | null; pic: string | null; type_wo: string | null; job_title: string | null }>(
+      `SELECT wo_number, job_executor, pic, type_wo, job_title FROM \`${src.table}\` WHERE wo_number IN (${list.map(() => '?').join(',')})`,
+      list,
     );
-    if (row) {
+    for (const row of found) {
       const raw = String(row.job_executor || row.pic || '');
-      return {
+      result.set(row.wo_number, {
         executor_code_raw: raw,
         meso_subtype: src.table === 'tb_wo_mtc' ? classifyMesoSubtype(raw) : null,
         maintenance_kind: classifyMaintenanceKind(row.type_wo),
         source_table: src.table,
         job_title: row.job_title,
-      };
+      });
+      remaining.delete(row.wo_number);
     }
   }
-  return null;
+  return result;
 }
 
 const APPROVAL_TABLE_BY_SOURCE: Record<string, string> = {
@@ -206,27 +251,69 @@ async function findMaintenanceActionLabel(woNumber: string, sourceTable: string 
   return String(candidates[0].comment ?? '') || null;
 }
 
-async function findRequestPartLabel(woNumber: string): Promise<string> {
-  const parts: string[] = [];
-  const materialParts = await rows<{ part: string }>("SELECT DISTINCT part FROM tb_material_request WHERE wo_number=? AND part IS NOT NULL AND TRIM(part)<>'' LIMIT 5", [woNumber]);
-  for (const r of materialParts) if (r.part) parts.push(String(r.part));
-  const execParts = await rows<{ part_mesin: string; request_part: string | null }>(
-    "SELECT part_mesin, request_part FROM tb_wo_operational_part_execution WHERE wo_number=? AND (request_qty>0 OR keterangan<>'') LIMIT 5",
-    [woNumber],
-  ).catch(() => []);
-  for (const r of execParts) { const name = r.request_part || r.part_mesin; if (name) parts.push(String(name)); }
+function buildRequestPartLabel(parts: string[]): string {
   const unique = [...new Set(parts)];
   if (!unique.length) return '';
   if (unique.length <= 3) return unique.join(', ');
   return `${unique.slice(0, 3).join(', ')} +${unique.length - 3}`;
 }
 
-async function findParticipants(woNumber: string, actorIdUser: number | null): Promise<{ participantUserIds: number[]; participantNames: string[]; laborNames: string[] }> {
-  const laborRows = await rows<{ trade: string }>('SELECT trade FROM tb_detail_labor WHERE wo_number=?', [woNumber]);
-  const laborNames: string[] = [];
-  for (const r of laborRows) laborNames.push(...splitLaborNames(r.trade));
-  const uniqueLabor = [...new Set(laborNames)];
+/** Batch version: 2 query total (material_request + part_execution), bukan 2 per baris aktivitas. */
+async function findRequestPartLabelsByWoNumbers(woNumbers: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const unique = [...new Set(woNumbers.filter(Boolean))];
+  if (!unique.length) return result;
+  const placeholders = unique.map(() => '?').join(',');
+  const partsByWo = new Map<string, string[]>();
 
+  const materialParts = await rows<{ wo_number: string; part: string }>(
+    `SELECT wo_number, part FROM tb_material_request WHERE wo_number IN (${placeholders}) AND part IS NOT NULL AND TRIM(part)<>''`,
+    unique,
+  );
+  for (const r of materialParts) {
+    if (!r.part) continue;
+    const list = partsByWo.get(r.wo_number) ?? [];
+    if (list.length < 5) list.push(String(r.part));
+    partsByWo.set(r.wo_number, list);
+  }
+
+  const execParts = await rows<{ wo_number: string; part_mesin: string; request_part: string | null }>(
+    `SELECT wo_number, part_mesin, request_part FROM tb_wo_operational_part_execution WHERE wo_number IN (${placeholders}) AND (request_qty>0 OR keterangan<>'')`,
+    unique,
+  ).catch(() => []);
+  for (const r of execParts) {
+    const name = r.request_part || r.part_mesin;
+    if (!name) continue;
+    const list = partsByWo.get(r.wo_number) ?? [];
+    if (list.length < 10) list.push(String(name));
+    partsByWo.set(r.wo_number, list);
+  }
+
+  for (const [wo, parts] of partsByWo) result.set(wo, buildRequestPartLabel(parts));
+  return result;
+}
+
+/** Batch version: 1 query total (tb_detail_labor), bukan 1 per baris aktivitas. */
+async function findLaborTradesByWoNumbers(woNumbers: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  const unique = [...new Set(woNumbers.filter(Boolean))];
+  if (!unique.length) return result;
+  const laborRows = await rows<{ wo_number: string; trade: string }>(
+    `SELECT wo_number, trade FROM tb_detail_labor WHERE wo_number IN (${unique.map(() => '?').join(',')})`,
+    unique,
+  );
+  for (const r of laborRows) {
+    const names = splitLaborNames(r.trade);
+    if (!names.length) continue;
+    const list = result.get(r.wo_number) ?? [];
+    list.push(...names);
+    result.set(r.wo_number, list);
+  }
+  return result;
+}
+
+async function resolveParticipants(laborNamesRaw: string[], actorIdUser: number | null): Promise<{ participantUserIds: number[]; participantNames: string[]; laborNames: string[] }> {
+  const uniqueLabor = [...new Set(laborNamesRaw)];
   const participantUserIds = new Set<number>();
   const participantNames = new Set<string>();
   if (actorIdUser) participantUserIds.add(actorIdUser);
@@ -252,14 +339,118 @@ async function resolveDisplayAlias(name: string): Promise<string> {
 
 export interface ActivityRow { id: number; wo_number: string | null; AssetCode: string | null; id_user: number; fullname: string; created_by: string | null; updated_by: string | null; type_wo?: string | null; [key: string]: unknown }
 
-async function enrichActivityRow(rawRow: Record<string, unknown>, selectedDate: string, requestUserId: number, full: boolean): Promise<Record<string, unknown>> {
+interface BatchContext {
+  executorMetaByWo: Map<string, ExecutorMeta>;
+  laborTradesByWo: Map<string, string[]>;
+  requestPartLabelByWo: Map<string, string>;
+  commentCountById: Map<number, number>;
+  unreadCountById: Map<number, number>;
+  tagsById: Map<number, Record<string, unknown>[]>;
+  mediaById: Map<number, Record<string, unknown>[]>;
+  followupsById: Map<number, Record<string, unknown>[]>;
+  readerNamesById: Map<number, string[]>;
+}
+
+function groupById<T extends Record<string, unknown>>(list: T[], key: string): Map<number, T[]> {
+  const map = new Map<number, T[]>();
+  for (const item of list) {
+    const id = Number(item[key]);
+    const bucket = map.get(id) ?? [];
+    bucket.push(item);
+    map.set(id, bucket);
+  }
+  return map;
+}
+
+async function countGroupedByIds(table: string, ids: number[]): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (!ids.length) return result;
+  const found = await rows<{ daily_control_id: number; total: number }>(
+    `SELECT daily_control_id, COUNT(*) total FROM \`${table}\` WHERE daily_control_id IN (${ids.map(() => '?').join(',')}) GROUP BY daily_control_id`,
+    ids,
+  );
+  for (const r of found) result.set(Number(r.daily_control_id), Number(r.total));
+  return result;
+}
+
+async function buildBatchContext(activityRows: Record<string, unknown>[], requestUserId: number, full: boolean): Promise<BatchContext> {
+  const ids = activityRows.map((r) => Number(r.id));
+  const woNumbers = [...new Set(activityRows.map((r) => String(r.wo_number ?? '')).filter(Boolean))];
+
+  const [executorMetaByWo, laborTradesByWo, commentCountById] = await Promise.all([
+    findExecutorMetaByWoNumbers(woNumbers),
+    findLaborTradesByWoNumbers(woNumbers),
+    countGroupedByIds('tb_daily_control_comment', ids),
+  ]);
+
+  let unreadCountById = new Map<number, number>();
+  if (requestUserId && ids.length) {
+    const unreadRows = await rows<{ daily_control_id: number; total: number }>(
+      `SELECT c.daily_control_id, COUNT(*) total FROM tb_daily_control_comment c
+       LEFT JOIN tb_daily_control_read r ON r.daily_control_id=c.daily_control_id AND r.id_user=?
+       WHERE c.daily_control_id IN (${ids.map(() => '?').join(',')}) AND c.id_user<>? AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
+       GROUP BY c.daily_control_id`,
+      [requestUserId, ...ids, requestUserId],
+    );
+    unreadCountById = new Map(unreadRows.map((r) => [Number(r.daily_control_id), Number(r.total)]));
+  }
+
+  let mediaById = new Map<number, Record<string, unknown>[]>();
+  if (ids.length) {
+    const mediaRows = await rows<Record<string, unknown>>(
+      `SELECT * FROM tb_daily_control_media WHERE daily_control_id IN (${ids.map(() => '?').join(',')}) ORDER BY id ASC`,
+      ids,
+    );
+    mediaById = groupById(mediaRows, 'daily_control_id');
+  }
+
+  let requestPartLabelByWo = new Map<string, string>();
+  let tagsById = new Map<number, Record<string, unknown>[]>();
+  let followupsById = new Map<number, Record<string, unknown>[]>();
+  let readerNamesById = new Map<number, string[]>();
+
+  if (full && ids.length) {
+    const idPlaceholders = ids.map(() => '?').join(',');
+    const [partLabels, tagRows, followupRows, readerRows] = await Promise.all([
+      findRequestPartLabelsByWoNumbers(woNumbers),
+      rows<Record<string, unknown>>(`SELECT * FROM tb_daily_control_tag WHERE daily_control_id IN (${idPlaceholders}) ORDER BY id ASC`, ids),
+      rows<Record<string, unknown>>(`SELECT * FROM tb_daily_control_followup WHERE daily_control_id IN (${idPlaceholders}) ORDER BY id ASC`, ids),
+      rows<{ daily_control_id: number; fullname: string; alias: string | null; last_read_at: string }>(
+        `SELECT r.daily_control_id, u.fullname, u.alias, r.last_read_at FROM tb_daily_control_read r JOIN tb_user u ON u.id_user=r.id_user
+         WHERE r.daily_control_id IN (${idPlaceholders}) ORDER BY r.last_read_at DESC`,
+        ids,
+      ),
+    ]);
+    requestPartLabelByWo = partLabels;
+    tagsById = groupById(tagRows, 'daily_control_id');
+    followupsById = groupById(followupRows, 'daily_control_id');
+
+    const readersByDc = groupById(readerRows, 'daily_control_id');
+    for (const [dcId, readerRowsForDc] of readersByDc) {
+      const names: string[] = [];
+      const seen = new Set<string>();
+      for (const r of readerRowsForDc) {
+        const name = (r.alias && String(r.alias).trim()) || String(r.fullname);
+        if (!seen.has(name)) { seen.add(name); names.push(name); }
+      }
+      readerNamesById.set(dcId, names);
+    }
+  }
+
+  return { executorMetaByWo, laborTradesByWo, requestPartLabelByWo, commentCountById, unreadCountById, tagsById, mediaById, followupsById, readerNamesById };
+}
+
+async function enrichActivityRow(rawRow: Record<string, unknown>, selectedDate: string, requestUserId: number, full: boolean, batch: BatchContext): Promise<Record<string, unknown>> {
   const { __hasMedia: _hasMedia, ...row } = rawRow;
+  const id = Number(row.id);
   const woNumber = String(row.wo_number ?? '');
   const actor = await resolveActor(row.id_user, row.fullname ?? row.created_by ?? row.updated_by);
-  const executorMeta = woNumber ? await findExecutorMetaByWoNumber(woNumber) : null;
+  const executorMeta = woNumber ? batch.executorMetaByWo.get(woNumber) ?? null : null;
 
-  const participants = woNumber ? await findParticipants(woNumber, Number(row.id_user) || null) : { participantUserIds: [] as number[], participantNames: [] as string[], laborNames: [] as string[] };
-  const rawUpdaterName = String(row.updated_by ?? row.fullname ?? '').trim();
+  const laborTradesRaw = woNumber ? batch.laborTradesByWo.get(woNumber) ?? [] : [];
+  const participants = await resolveParticipants(laborTradesRaw, Number(row.id_user) || null);
+  const rawUpdaterNameCandidate = String(row.updated_by ?? row.fullname ?? '').trim();
+  const rawUpdaterName = isRealUpdaterName(rawUpdaterNameCandidate) ? rawUpdaterNameCandidate : '';
   const updaterIsLabor = rawUpdaterName !== '' &&
     participants.laborNames.some((l) => l.trim().toUpperCase() === rawUpdaterName.toUpperCase());
   const updaterDisplayName = rawUpdaterName !== '' && !updaterIsLabor
@@ -268,8 +459,8 @@ async function enrichActivityRow(rawRow: Record<string, unknown>, selectedDate: 
   const laborLabel = (await Promise.all(participants.laborNames.map(resolveDisplayAlias))).join(', ');
   const displayFullname = buildDisplayFullname(laborLabel, updaterDisplayName, actor.displayName);
 
-  const commentCount = Number((await one<{ total: number }>('SELECT COUNT(*) total FROM tb_daily_control_comment WHERE daily_control_id=?', [row.id]))?.total ?? 0);
-  const unreadCount = requestUserId ? await countUnreadForActivity(Number(row.id), requestUserId) : 0;
+  const commentCount = batch.commentCountById.get(id) ?? 0;
+  const unreadCount = requestUserId ? batch.unreadCountById.get(id) ?? 0 : 0;
 
   const enriched: Record<string, unknown> = {
     ...row,
@@ -288,24 +479,20 @@ async function enrichActivityRow(rawRow: Record<string, unknown>, selectedDate: 
   };
 
   if (full) {
-    enriched.tags = (await rows<{ tag_fullname: string; tag_user_id: number | null; tag_role: string | null }>('SELECT * FROM tb_daily_control_tag WHERE daily_control_id=? ORDER BY id ASC', [row.id]))
-      .map((t) => ({ ...t, tag_fullname: t.tag_fullname }));
-    const mediaRows = await rows<Record<string, unknown>>('SELECT * FROM tb_daily_control_media WHERE daily_control_id=? ORDER BY id ASC', [row.id]);
+    enriched.tags = (batch.tagsById.get(id) ?? []).map((t) => ({ ...t, tag_fullname: t.tag_fullname }));
+    const mediaRows = batch.mediaById.get(id) ?? [];
     enriched.media = mediaRows.map((m) => ({ ...m, media_url: `/uploads/${String(m.media_path)}` }));
-    enriched.followups = await rows('SELECT * FROM tb_daily_control_followup WHERE daily_control_id=? ORDER BY id ASC', [row.id]);
-    enriched.reader_names = await getReaderNames(Number(row.id));
-    enriched.request_part_label = woNumber ? await findRequestPartLabel(woNumber) : '';
+    enriched.followups = batch.followupsById.get(id) ?? [];
+    enriched.reader_names = batch.readerNamesById.get(id) ?? [];
+    enriched.request_part_label = woNumber ? batch.requestPartLabelByWo.get(woNumber) ?? '' : '';
     enriched.maintenance_action_label = woNumber ? await findMaintenanceActionLabel(woNumber, executorMeta?.source_table ?? null, selectedDate) : null;
     if (actor.user) {
-      const flagRow = await one<Record<string, unknown>>(
-        'SELECT wo_category_general, wo_category_electrical, wo_category_mould, mtc_area_gsu_wnb, mtc_area_gsu_inject, mtc_area_ru_sawmill, mtc_area_ru_production FROM tb_user WHERE id_user=?',
-        [actor.user.id_user],
-      );
-      Object.assign(enriched, flagRow ?? {});
+      const { wo_category_general, wo_category_electrical, wo_category_mould, mtc_area_gsu_wnb, mtc_area_gsu_inject, mtc_area_ru_sawmill, mtc_area_ru_production } = actor.user;
+      Object.assign(enriched, { wo_category_general, wo_category_electrical, wo_category_mould, mtc_area_gsu_wnb, mtc_area_gsu_inject, mtc_area_ru_sawmill, mtc_area_ru_production });
     }
   } else {
-    const mediaRows = await rows<Record<string, unknown>>('SELECT id, media_type, media_path FROM tb_daily_control_media WHERE daily_control_id=? ORDER BY id ASC LIMIT 1', [row.id]);
-    const preview = mediaRows.find((m) => m.media_type === 'image') ?? mediaRows[0];
+    const previewCandidates = batch.mediaById.get(id) ?? [];
+    const preview = previewCandidates.find((m) => m.media_type === 'image') ?? previewCandidates[0];
     enriched.preview_media_url = preview ? `/uploads/${String(preview.media_path)}` : null;
     enriched.executor_label = executorMeta?.executor_code_raw ?? null;
     if (!row.job_title && executorMeta?.job_title) enriched.job_title = executorMeta.job_title;
@@ -328,6 +515,17 @@ function collapseLatestByWo(items: Record<string, unknown>[]): Record<string, un
   return order.map((k) => seen.get(k)!);
 }
 
+async function batchHasMedia(ids: number[]): Promise<Set<number>> {
+  const found = new Set<number>();
+  if (!ids.length) return found;
+  const result = await rows<{ daily_control_id: number }>(
+    `SELECT DISTINCT daily_control_id FROM tb_daily_control_media WHERE daily_control_id IN (${ids.map(() => '?').join(',')})`,
+    ids,
+  );
+  for (const r of result) found.add(Number(r.daily_control_id));
+  return found;
+}
+
 export async function getActivitiesByDate(selectedDate: string, scope: DivisionScope, sourceType: string | null, areaKey: string | null, requestUserId: number): Promise<Record<string, unknown>[]> {
   let where = 'WHERE dc.activity_date = ?';
   const params: unknown[] = [selectedDate];
@@ -342,13 +540,12 @@ export async function getActivitiesByDate(selectedDate: string, scope: DivisionS
     scoped.params,
   );
 
-  const withMediaFlag = await Promise.all(baseRows.map(async (row) => {
-    const mediaCount = Number((await one<{ total: number }>('SELECT COUNT(*) total FROM tb_daily_control_media WHERE daily_control_id=?', [row.id]))?.total ?? 0);
-    return { ...row, __hasMedia: mediaCount > 0 };
-  }));
+  const hasMediaIds = await batchHasMedia(baseRows.map((r) => Number(r.id)));
+  const withMediaFlag = baseRows.map((row) => ({ ...row, __hasMedia: hasMediaIds.has(Number(row.id)) }));
   const collapsed = collapseLatestByWo(withMediaFlag);
 
-  return Promise.all(collapsed.map((row) => enrichActivityRow(row, selectedDate, requestUserId, true)));
+  const batch = await buildBatchContext(collapsed, requestUserId, true);
+  return Promise.all(collapsed.map((row) => enrichActivityRow(row, selectedDate, requestUserId, true, batch)));
 }
 
 export async function getV2ActivityFeed(
@@ -368,15 +565,14 @@ export async function getV2ActivityFeed(
     scoped.params,
   );
 
-  const withMediaFlag = await Promise.all(baseRows.map(async (row) => {
-    const mediaCount = Number((await one<{ total: number }>('SELECT COUNT(*) total FROM tb_daily_control_media WHERE daily_control_id=?', [row.id]))?.total ?? 0);
-    return { ...row, __hasMedia: mediaCount > 0 };
-  }));
+  const hasMediaIds = await batchHasMedia(baseRows.map((r) => Number(r.id)));
+  const withMediaFlag = baseRows.map((row) => ({ ...row, __hasMedia: hasMediaIds.has(Number(row.id)) }));
   const collapsed = collapseLatestByWo(withMediaFlag);
   const total = collapsed.length;
   const pageItems = collapsed.slice((page - 1) * perPage, (page - 1) * perPage + perPage);
 
-  const items = await Promise.all(pageItems.map((row) => enrichActivityRow(row, selectedDate, requestUserId, false)));
+  const batch = await buildBatchContext(pageItems, requestUserId, false);
+  const items = await Promise.all(pageItems.map((row) => enrichActivityRow(row, selectedDate, requestUserId, false, batch)));
   return { items, total };
 }
 
@@ -388,7 +584,8 @@ export async function getActivityById(id: number, requestUserId: number): Promis
     [id],
   );
   if (!row) return null;
-  const enriched = await enrichActivityRow(row, String(row.activity_date), requestUserId, true);
+  const batch = await buildBatchContext([row], requestUserId, true);
+  const enriched = await enrichActivityRow(row, String(row.activity_date), requestUserId, true, batch);
   enriched.comments = await getCommentsByDailyControl(id);
   return enriched;
 }
@@ -778,4 +975,113 @@ export async function searchWorkOrders(term: string, limit: number, assetCode: s
   }
   results.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   return results.slice(0, limit);
+}
+
+async function resolveDivisionIdByCode(code: string): Promise<number | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  const row = await one<{ id_division: number }>('SELECT id_division FROM tb_division WHERE division_code=? LIMIT 1', [trimmed]);
+  return row ? Number(row.id_division) : null;
+}
+
+async function resolveCompanyIdByName(companyName: string): Promise<string | null> {
+  const trimmed = companyName.trim();
+  if (!trimmed) return null;
+  const row = await one<{ id_company: string }>('SELECT id_company FROM tb_company WHERE company_name=? LIMIT 1', [trimmed]);
+  return row ? String(row.id_company) : null;
+}
+
+async function resolveAssetCodeByEquipmentId(idEquipment: unknown): Promise<string> {
+  const id = Number(idEquipment ?? 0);
+  if (!(id > 0)) return '';
+  const row = await one<{ AssetCode: string }>('SELECT AssetCode FROM asset WHERE AssetID=?', [id]);
+  return String(row?.AssetCode ?? '').trim();
+}
+
+export interface SyncDailyControlParams {
+  woNumber: string;
+  company: string;
+  idEquipment: unknown;
+  jobTitle: string;
+  notes: string;
+  actorUserId: number;
+  actorFullname: string;
+  actorDivisionId: number | null;
+  jobExecutorCode: string;
+}
+
+/**
+ * Dipanggil setelah bukti foto/video service WO (modul apa pun) berhasil
+ * disimpan ke tb_wo_service_evidence — bikin/update entri Daily Control buat
+ * WO ini, lalu sambungkan file yang baru diupload ke galeri media-nya.
+ * Berbeda dari sync_corrective_feed_by_wo legacy (yang cuma jalan untuk WO
+ * bertipe Corrective/Preventive/Project via batch job): versi ini sengaja
+ * dipanggil langsung saat submit dan berlaku untuk SEMUA modul WO.
+ */
+export async function syncDailyControlForWoUpdate(params: SyncDailyControlParams): Promise<void> {
+  const woNumber = params.woNumber.trim();
+  if (!woNumber) return;
+
+  const { date: activityDate, time: activityTime } = nowInJakarta();
+
+  let divisionId = params.actorDivisionId;
+  const executorBase = params.jobExecutorCode.trim().split('|')[0]?.trim().toUpperCase() ?? '';
+  if (executorBase) {
+    const resolved = await resolveDivisionIdByCode(executorBase);
+    if (resolved) divisionId = resolved;
+  }
+
+  const [companyId, assetCode] = await Promise.all([
+    resolveCompanyIdByName(params.company),
+    resolveAssetCodeByEquipmentId(params.idEquipment),
+  ]);
+
+  const title = params.jobTitle.trim() || woNumber;
+  const notes = params.notes.trim() || 'Update WO';
+  const fullname = params.actorFullname.trim();
+
+  const existing = await one<{ id: number }>(
+    "SELECT id FROM tb_daily_control WHERE wo_number=? AND source_type='WO_MAINTENANCE' LIMIT 1",
+    [woNumber],
+  );
+
+  let dailyControlId: number;
+  if (existing) {
+    dailyControlId = existing.id;
+    await execute(
+      'UPDATE tb_daily_control SET activity_date=?, activity_time=?, id_company=?, id_division=?, id_user=?, fullname=?, AssetCode=?, title=?, notes=?, status=?, updated_by=? WHERE id=?',
+      [activityDate, activityTime, companyId, divisionId, params.actorUserId, fullname, assetCode || null, title, notes, 'POSTED', fullname, dailyControlId],
+    );
+  } else {
+    const result = await execute(
+      'INSERT INTO tb_daily_control (activity_date, activity_time, id_company, id_division, id_user, fullname, AssetCode, wo_number, title, notes, status, source_type, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [activityDate, activityTime, companyId, divisionId, params.actorUserId, fullname, assetCode || null, woNumber, title, notes, 'POSTED', 'WO_MAINTENANCE', fullname, fullname],
+    );
+    dailyControlId = result.insertId;
+  }
+
+  const evidences = await rows<{ file_name: string; file_path: string; mime_type: string | null; created_at: string }>(
+    'SELECT file_name, file_path, mime_type, created_at FROM tb_wo_service_evidence WHERE wo_number=? AND DATE(created_at)=? ORDER BY id DESC LIMIT 8',
+    [woNumber, activityDate],
+  );
+  if (!evidences.length) return;
+
+  const existingMedia = await rows<{ media_path: string }>(
+    'SELECT media_path FROM tb_daily_control_media WHERE daily_control_id=?',
+    [dailyControlId],
+  );
+  const existingPaths = new Set(existingMedia.map((m) => m.media_path));
+
+  for (const ev of evidences) {
+    const path = String(ev.file_path ?? '').trim();
+    if (!path || existingPaths.has(path)) continue;
+    const mime = String(ev.mime_type ?? '').trim();
+    const mediaType = mime.startsWith('video/') ? 'video' : 'image';
+    const mediaName = String(ev.file_name ?? '').trim() || path.split('/').pop() || path;
+    await execute(
+      'INSERT INTO tb_daily_control_media (daily_control_id, media_type, media_name, media_path, mime_type, created_at, created_by) VALUES (?,?,?,?,?,?,?)',
+      [dailyControlId, mediaType, mediaName, path, mime || null, ev.created_at, fullname],
+    );
+    existingPaths.add(path);
+  }
 }

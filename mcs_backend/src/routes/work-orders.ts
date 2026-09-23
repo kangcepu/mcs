@@ -3,6 +3,7 @@ import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
+import { resolveCompanyCode } from '../lib/employee-api.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -38,17 +39,121 @@ async function resolveAssetId(body: Record<string, unknown>): Promise<number | n
 }
 async function approval(connection: PoolConnection, table: string, wo: string, user: User, comment: string) { await connection.execute(`INSERT INTO \`${table}\` (wo_number,fullname,avatar,id_division,id_position,comment,created_at) VALUES (?,?,?,?,?,?,NOW())`, [wo, user.fullname, user.avatar ?? 'avatar.png', user.id_division, user.id_position, comment]); }
 
+const WO_TYPE_OPTIONS = [
+  { code: 'CORRECTIVE MAINTENANCE', label: 'Corrective Maintenance' },
+  { code: 'PREVENTIVE MAINTENANCE', label: 'Preventive Maintenance' },
+  { code: 'PROJECT', label: 'Project' },
+];
+const titleCase = (v: string): string => v.trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * `type_wo` kesimpen dengan banyak varian penulisan buat konsep yang sama
+ * ('preventive'/'PREVENTIVE'/'PREV MAINTENANCE', 'CORRECTIVE'/'CORRECTIVE
+ * MAINTENANCE', dst — beda-beda tergantung jalur pembuatan WO-nya, sebagian
+ * migrasi dari legacy). Filter dropdown cuma punya 3 nilai kanonik, jadi
+ * exact-match gak akan ketemu apa-apa buat sebagian besar data.
+ */
+function normalizeTypeWo(raw: string): string {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (!v) return '';
+  if (v.includes('PREVENTIVE') || v.startsWith('PREV')) return 'PREVENTIVE MAINTENANCE';
+  if (v.includes('CORRECTIVE') || v === 'CM') return 'CORRECTIVE MAINTENANCE';
+  if (v.includes('PROJECT')) return 'PROJECT';
+  return v;
+}
+const TYPE_WO_VARIANTS: Record<string, string[]> = {
+  'CORRECTIVE MAINTENANCE': ['CORRECTIVE MAINTENANCE', 'CORRECTIVE', 'CM'],
+  'PREVENTIVE MAINTENANCE': ['PREVENTIVE MAINTENANCE', 'PREVENTIVE', 'preventive', 'PREV MAINTENANCE'],
+  PROJECT: ['PROJECT', 'project'],
+};
 workOrderRouter.get('/work-orders/options', authenticate, asyncHandler(async (_req, res) => {
-  const [types, priorities, shifts, assets] = await Promise.all([rows('SELECT DISTINCT type_wo AS value FROM tb_wo_mtc_operational WHERE type_wo IS NOT NULL'), rows('SELECT DISTINCT priority AS value FROM tb_wo_mtc_operational WHERE priority IS NOT NULL'), rows('SELECT DISTINCT shift AS value FROM tb_wo_mtc_operational WHERE shift IS NOT NULL'), rows('SELECT AssetID,AssetCode,AssetName FROM asset WHERE active="active" ORDER BY AssetName LIMIT 500')]); ok(res, { types, priorities, shifts, assets });
+  const [priorityRows, shiftRows, assets] = await Promise.all([
+    rows<{ value: string }>('SELECT DISTINCT priority AS value FROM tb_wo_mtc_operational WHERE priority IS NOT NULL'),
+    rows<{ value: string }>('SELECT DISTINCT shift AS value FROM tb_wo_mtc_operational WHERE shift IS NOT NULL'),
+    rows('SELECT AssetID,AssetCode,AssetName FROM asset WHERE active="active" ORDER BY AssetName LIMIT 500'),
+  ]);
+  ok(res, {
+    types: WO_TYPE_OPTIONS,
+    priorities: priorityRows.map((r) => ({ code: r.value, label: titleCase(r.value) })),
+    shifts: shiftRows.map((r) => ({ code: r.value, label: titleCase(r.value) })),
+    assets,
+  });
 }));
 workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) => {
-  const domain = String(req.query.module ?? 'maintenance'); const selected = domain === 'all' ? Object.keys(domains) as Domain[] : [domainOf(domain)]; const user = (req as AuthRequest).user!; const q = String(req.query.q ?? ''); const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50)));
-  const result = await Promise.all(selected.filter((key) => permissive(user, domains[key].permission)).map((key) => rows(`SELECT '${key}' AS module, wo_number,date,type_wo,priority,id_division,id_equipment,job_title,status,pic,job_executor,creator,created_at,updated_at FROM \`${domains[key].table}\` WHERE wo_number LIKE ? OR job_title LIKE ? ORDER BY created_at DESC LIMIT ?`, [`%${q}%`, `%${q}%`, limit])));
-  ok(res, result.flat().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, limit));
+  const domain = String(req.query.module ?? ''); const selected = (domain === 'all' || domain === '') ? Object.keys(domains) as Domain[] : [domainOf(domain)]; const user = (req as AuthRequest).user!;
+  const q = String(req.query.q ?? '').trim();
+  const status = String(req.query.status ?? '').trim();
+  const typeWo = String(req.query.type_wo ?? '').trim();
+  const company = String(req.query.company ?? '').trim();
+  const assetId = String(req.query.asset_id ?? '').trim();
+  const dateFrom = String(req.query.date_from ?? '').trim();
+  const dateTo = String(req.query.date_to ?? '').trim();
+  const page = Math.max(1, Number(req.query.page ?? 1));
+  const perPage = Math.min(200, Math.max(1, Number(req.query.per_page ?? req.query.limit ?? 50)));
+
+  const buildWhere = (key: Domain): { where: string; params: unknown[] } => {
+    let where = 'WHERE 1=1'; const params: unknown[] = [];
+    if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
+    if (status) { where += ' AND w.status = ?'; params.push(status); }
+    if (typeWo) { const variants = TYPE_WO_VARIANTS[typeWo] ?? [typeWo]; where += ` AND w.type_wo IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
+    if (company) { where += ' AND w.company LIKE ?'; params.push(`%${company}%`); }
+    if (assetId) { where += ' AND w.id_equipment = ?'; params.push(assetId); }
+    if (dateFrom) { where += ' AND w.date >= ?'; params.push(dateFrom); }
+    if (dateTo) { where += ' AND w.date <= ?'; params.push(dateTo); }
+    // Legacy PHP (`M_Schedule::sync_preventive_header_to_wo_mtc`) nge-mirror
+    // OTOMATIS setiap WO preventive (prefix "PREV-", domain Production) ke
+    // tb_wo_mtc (MESO) — statusnya gak pernah disinkron lagi setelahnya jadi
+    // nyangkut. Salinan ini bukan WO MESO beneran, jangan tampil di sini;
+    // WO aslinya tetap kelihatan di tab Production.
+    if (key === 'meso') where += " AND w.wo_number NOT LIKE 'PREV-%'";
+    return { where, params };
+  };
+
+  const allowedDomains = selected.filter((key) => permissive(user, domains[key].permission));
+  // Setiap modul punya tabelnya sendiri (bukan satu tabel WO gabungan), jadi
+  // gabungan lintas-modul dikerjakan di JS: ambil sejumlah baris terurut per
+  // tabel yang cukup buat nutup halaman yang diminta, gabung, urutkan ulang,
+  // baru dipotong sesuai halaman.
+  const perDomainLimit = page * perPage;
+  const [rowSets, countSets] = await Promise.all([
+    Promise.all(allowedDomains.map((key) => {
+      const { where, params } = buildWhere(key);
+      // Sebagian WO hasil auto-generate jadwal preventive lama gak pernah
+      // keisi created_at (bug terpisah, sudah diperbaiki di
+      // preventive-schedule.ts untuk WO baru) — fallback ke `date` biar WO
+      // lama itu tetap kesortir & tampil, bukan ketendang ke akhir daftar.
+      return rows(`SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where} ORDER BY COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`, [...params, perDomainLimit]);
+    })),
+    Promise.all(allowedDomains.map((key) => {
+      const { where, params } = buildWhere(key);
+      return one<{ total: number }>(`SELECT COUNT(*) total FROM \`${domains[key].table}\` w ${where}`, params);
+    })),
+  ]);
+
+  const totalCount = countSets.reduce((sum, c) => sum + Number(c?.total ?? 0), 0);
+  const merged = rowSets.flat().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const start = (page - 1) * perPage;
+  // Sebagian WO lama nyimpen nama company panjang ("Ganda Saribu Utama")
+  // alih-alih kode singkat ("GSU") — normalisasi di sini biar konsisten
+  // tanpa perlu migrasi data.
+  const page_ = merged.slice(start, start + perPage).map((r) => ({
+    ...r,
+    company: resolveCompanyCode(String(r.company ?? '')) || r.company,
+    type_wo: normalizeTypeWo(String(r.type_wo ?? '')) || r.type_wo,
+  }));
+  ok(res, page_, 'OK', { page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)) });
 }));
 workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req, res) => {
   const domain = domainOf(String(req.query.module ?? 'maintenance')); const wo = String(req.query.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const d = domains[domain]; const item = await header(domain, wo); if (!item) throw new HttpError(404, 'Work order not found');
-  const [executors, labor, materials, approvals, evidence] = await Promise.all([rows('SELECT * FROM tb_job_executor WHERE wo_number=? ORDER BY id', [wo]), rows('SELECT * FROM tb_detail_labor WHERE wo_number=? ORDER BY id_detail_labor', [wo]), rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo]), rows(`SELECT * FROM \`${d.approval}\` WHERE wo_number=? ORDER BY created_at`, [wo]), rows('SELECT * FROM tb_wo_service_evidence WHERE wo_number=? ORDER BY created_at', [wo])]); ok(res, { ...item as object, module: domain, executors, labor, materials, approvals, evidence });
+  const [executors, labors, materials, approvals, evidences] = await Promise.all([rows('SELECT * FROM tb_job_executor WHERE wo_number=? ORDER BY id', [wo]), rows('SELECT * FROM tb_detail_labor WHERE wo_number=? ORDER BY id_detail_labor', [wo]), rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo]), rows(`SELECT * FROM \`${d.approval}\` WHERE wo_number=? ORDER BY created_at`, [wo]), rows('SELECT * FROM tb_wo_service_evidence WHERE wo_number=? ORDER BY created_at', [wo])]);
+  // Nama field harus persis `labors`/`evidences` (jamak) — itu yang dibaca
+  // halaman detail WO web, bukan `labor`/`evidence`.
+  // "Riwayat" di legacy PHP bukan tabel terpisah — dia baca tabel approval
+  // yang sama ini secara kronologis (fullname+comment+created_at, gak ada
+  // kolom action/status terstruktur di sana juga), jadi disini di-mapping
+  // ulang ke bentuk yang dibaca komponen Timeline, bukan query baru.
+  const histories = approvals.map((a) => ({ actor: a.fullname, note: a.comment, at: a.created_at }));
+  ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences, histories });
 }));
 
 workOrderRouter.post('/work-orders/create', authenticate, asyncHandler(async (req, res) => {
@@ -70,8 +175,79 @@ async function transition(req: AuthRequest, res: import('express').Response, act
 workOrderRouter.post('/work-orders/planner', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const rawExecutors = Array.isArray(req.body.job_executor) ? req.body.job_executor : (Array.isArray(req.body.executors) ? req.body.executors : []); const executors = rawExecutors.map((e: unknown) => typeof e === 'object' && e !== null ? String((e as Record<string, unknown>).job_executor ?? '') : String(e)).filter(Boolean); const startedPlanner = req.body.started_planner ?? null; const finishedPlanner = req.body.finished_planner ?? null; const estimatePlanner = req.body.estimate_planner ?? null; await transaction(async (connection) => { if (executors.length) { await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [wo]); for (const executor of executors) await connection.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,?,?,NOW())', [wo, executor, 'IN_PROGRESS']); } await connection.execute(`UPDATE \`${domains[domain].table}\` SET status='IN_PROGRESS_EXECUTOR', started_planner=?, finished_planner=?, estimate_planner=?, updated_at=NOW() WHERE wo_number=?`, [startedPlanner, finishedPlanner, estimatePlanner, wo]); }); ok(res, { wo_number: wo, job_executor: executors.join(',') }, 'Planner assignment saved'); }));
 workOrderRouter.post('/work-orders/sub', authenticate, asyncHandler(async (req, res) => { const source = domainOf(String(req.body.module ?? 'maintenance')); const target = resolveTargetDomain(String(req.body.target_domain ?? req.body.sub_to ?? req.body.subto ?? '')); const sourceWoNumber = String(req.body.wo_number ?? ''); const original = await header(source, sourceWoNumber) as Record<string, unknown> | null; if (!original) throw new HttpError(404, 'Source work order not found'); const user = (req as AuthRequest).user!; const d = domains[target]; const executor = executorFor(target, user); const number = await transaction(async (connection) => { const n = await nextNumber(connection, target, String(user.division_code ?? user.id_division)); await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, [n, new Date().toISOString().slice(0,10), original.company ?? '', original.shift ?? '', original.type_wo ?? 'CORRECTIVE', original.priority ?? 'NORMAL', original.id_division, original.id_equipment, original.job_title, original.running_hours ?? null, original.job_requirement ?? '', executor, 'WAIT_KA_DIV', executor, user.fullname] as never); return n; }); created(res, { wo_number: sourceWoNumber, sub_wo_number: number, sub_to: executor, module: target }, 'Sub work order created'); }));
 
-workOrderRouter.get('/work-orders/assets', authenticate, asyncHandler(async (req, res) => ok(res, await rows('SELECT AssetID,AssetCode,AssetName,CompanyName,LocationAsset,mtc_area_key FROM asset WHERE active="active" AND (AssetCode LIKE ? OR AssetName LIKE ?) ORDER BY AssetName LIMIT 100', [`%${String(req.query.q ?? '')}%`, `%${String(req.query.q ?? '')}%`]))));
-workOrderRouter.get('/work-orders/materials', authenticate, asyncHandler(async (req, res) => { const wo = String(req.query.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); ok(res, await rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo])); }));
+/**
+ * `tb_attachment_asset.filename` punya 2 format: file lama hasil migrasi
+ * cuma nama file polos (butuh prefix folder lama `assets/docs/masterAsset`),
+ * upload baru lewat `/assets/attachments` nyimpen relative key sendiri
+ * (sudah ada `/`, dipakai apa adanya).
+ */
+function resolveAssetAttachmentUrl(filename: string): string {
+  const trimmed = filename.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('/')) return `/uploads/${trimmed}`;
+  return `/uploads/assets/docs/masterAsset/${trimmed}`;
+}
+
+workOrderRouter.get('/work-orders/assets', authenticate, asyncHandler(async (req, res) => {
+  const term = `%${String(req.query.q ?? '')}%`;
+  const assets = await rows<{ AssetCode: string; [key: string]: unknown }>(
+    'SELECT AssetID,AssetCode,AssetName,CompanyName,LocationAsset,mtc_area_key FROM asset WHERE active="active" AND (AssetCode LIKE ? OR AssetName LIKE ?) ORDER BY AssetName LIMIT 100',
+    [term, term],
+  );
+  const codes = assets.map((a) => a.AssetCode);
+  const photosByCode = new Map<string, string[]>();
+  if (codes.length) {
+    const placeholders = codes.map(() => '?').join(',');
+    /**
+     * Kategori attachment "Foto" = id 2 (lihat tb_attachment_asset_category) —
+     * ini filter yang dipakai legacy `M_Equipment::getCompanyAttachment()`,
+     * bukan cocokin ekstensi file (kategori lain kayak "Gambar Teknik" juga
+     * bisa berisi file gambar tapi bukan foto aset).
+     */
+    const photos = await rows<{ AssetCode: string; filename: string }>(
+      `SELECT AssetCode, filename FROM tb_attachment_asset
+       WHERE AssetCode IN (${placeholders}) AND part_id IS NULL AND id_attachment_asset_category = 2
+       ORDER BY sort_order, id`,
+      codes,
+    );
+    for (const p of photos) {
+      const url = resolveAssetAttachmentUrl(p.filename);
+      if (!url) continue;
+      const list = photosByCode.get(p.AssetCode);
+      if (list) list.push(url);
+      else photosByCode.set(p.AssetCode, [url]);
+    }
+  }
+  ok(res, assets.map((a) => {
+    const photoUrls = photosByCode.get(a.AssetCode) ?? [];
+    return { ...a, photo_url: photoUrls[0] ?? null, photo_urls: photoUrls };
+  }));
+}));
+/**
+ * WO detail (web) nampilin 3 jejak material yang beda sumber di 1 tab:
+ * `tb_material_request` (alur Material Usage klasik: request/ambil/pakai per
+ * part), `tb_material_part_request` (alur "Ajukan Part" executor -> tim
+ * Sparepart), dan `tb_detail_material` (material dicatat langsung di WO).
+ * Endpoint ini sebelumnya cuma query tb_detail_material dan balikin array
+ * polos — frontend butuh object {line_items,requests,recorded,...}.
+ */
+workOrderRouter.get('/work-orders/materials', authenticate, asyncHandler(async (req, res) => {
+  const wo = String(req.query.wo_number ?? '');
+  if (!wo) throw new HttpError(400, 'wo_number is required');
+  const [lineItems, materialRequests, recorded] = await Promise.all([
+    rows(`SELECT *, material_request AS qty_request, material_receive AS qty_receive, material_usage AS qty_usage
+          FROM tb_material_request WHERE wo_number=? ORDER BY id`, [wo]),
+    rows('SELECT * FROM tb_material_part_request WHERE wo_number=? ORDER BY id', [wo]),
+    rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo]),
+  ]);
+  ok(res, {
+    line_items: lineItems,
+    requests: materialRequests,
+    recorded,
+    headers: [],
+    summary: { line_items: lineItems.length, requests: materialRequests.length, recorded: recorded.length },
+  });
+}));
 
 const canMesoParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_mtc ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
 const canMaintenanceParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_operational ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;

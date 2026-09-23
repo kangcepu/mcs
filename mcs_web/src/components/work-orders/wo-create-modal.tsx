@@ -23,6 +23,8 @@ const EMPTY_FORM = {
   module: "",
   asset_code: "",
   asset_name: "",
+  asset_photo_url: "",
+  asset_photo_urls: [] as string[],
   company: "",
   type_wo: DEFAULT_TYPE_WO,
   priority: DEFAULT_PRIORITY,
@@ -30,7 +32,6 @@ const EMPTY_FORM = {
   date: today(),
   job_title: "",
   job_requirement: "",
-  running_hours: "",
 };
 
 type FormState = typeof EMPTY_FORM;
@@ -133,8 +134,6 @@ export function WoCreateModal({
         e.job_title = "Judul pekerjaan maksimal 255 karakter.";
       if (f.asset_code && !f.company.trim())
         e.company = "Nama company wajib diisi.";
-      if (f.running_hours && !/^\d+([.,]\d+)?$/.test(f.running_hours.trim()))
-        e.running_hours = "Running hours harus berupa angka.";
       if (f.date && Number.isNaN(Date.parse(f.date)))
         e.date = "Tanggal tidak valid.";
       return e;
@@ -182,7 +181,7 @@ export function WoCreateModal({
         shift: form.shift || undefined,
         date: form.date || undefined,
         company: form.company.trim() || undefined,
-        running_hours: form.running_hours.trim().replace(",", ".") || undefined,
+        running_hours: "0",
         job_requirement: form.job_requirement.trim() || undefined,
       });
       const created = res.data;
@@ -349,20 +348,27 @@ export function WoCreateModal({
               <AssetPicker
                 selectedName={form.asset_name}
                 selectedCode={form.asset_code}
+                selectedPhotoUrl={form.asset_photo_url}
+                selectedPhotoUrls={form.asset_photo_urls}
                 includeInactive
                 forWorkOrder
-                onSelect={(code, name, company) =>
+                onSelect={(code, name, company, photoUrl, photoUrls) =>
                   applyChange(
                     {
                       asset_code: code,
                       asset_name: name,
+                      asset_photo_url: photoUrl ?? "",
+                      asset_photo_urls: photoUrls ?? [],
                       ...(company ? { company } : {}),
                     },
                     ["asset_code", "company"],
                   )
                 }
                 onClear={() =>
-                  applyChange({ asset_code: "", asset_name: "" }, ["asset_code"])
+                  applyChange(
+                    { asset_code: "", asset_name: "", asset_photo_url: "", asset_photo_urls: [] },
+                    ["asset_code"],
+                  )
                 }
               />
             </Field>
@@ -439,25 +445,13 @@ export function WoCreateModal({
             />
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
-            <Field label="Kebutuhan / Uraian Pekerjaan">
-              <Textarea
-                value={form.job_requirement}
-                onChange={(e) => set("job_requirement", e.target.value)}
-                placeholder="Detail kebutuhan, gejala, atau instruksi kerja"
-              />
-            </Field>
-
-            <Field label="Running Hours" error={errors.running_hours}>
-              <Input
-                value={form.running_hours}
-                onChange={(e) => set("running_hours", e.target.value)}
-                inputMode="decimal"
-                placeholder="0"
-                aria-invalid={Boolean(errors.running_hours)}
-              />
-            </Field>
-          </div>
+          <Field label="Kebutuhan / Uraian Pekerjaan">
+            <Textarea
+              value={form.job_requirement}
+              onChange={(e) => set("job_requirement", e.target.value)}
+              placeholder="Detail kebutuhan, gejala, atau instruksi kerja"
+            />
+          </Field>
         </div>
       )}
     </Modal>

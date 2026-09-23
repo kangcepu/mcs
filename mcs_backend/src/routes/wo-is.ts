@@ -7,6 +7,7 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -181,6 +182,10 @@ isRouter.use('/is', authenticate, (req, res, next) => {
   next();
 });
 
+// Samakan sama daftar exclude di maintenance/meso — sebelumnya cuma exclude
+// 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list "aktif".
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
+
 isRouter.get('/is/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   const page = Math.max(1, Number(req.query.page ?? 1));
@@ -191,10 +196,14 @@ isRouter.get('/is/list', asyncHandler(async (req, res) => {
   const typeWo = req.query.type_wo ? String(req.query.type_wo) : undefined;
 
   const scope = visibilityScope(user, 'w');
-  let where = "WHERE w.status != 'CLOSED'";
+  let where = 'WHERE 1=1';
   const params: unknown[] = [];
   if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
+  // Exclusion cuma dipakai kalau user gak minta status spesifik — kalau
+  // enggak, filter status='VOID' misalnya jadi kontradiktif sama exclusion
+  // ini (NOT IN (...VOID...) AND ='VOID') dan selalu balikin 0 baris.
   if (status) { where += ' AND w.status = ?'; params.push(status); }
+  else { where += ` AND w.status NOT IN (${LIST_EXCLUDED_STATUSES.map(() => '?').join(',')})`; params.push(...LIST_EXCLUDED_STATUSES); }
   if (search) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR a.AssetName LIKE ?)'; params.push(...Array(3).fill(`%${search}%`)); }
   if (typeWo) {
     const aliases = getTypeWoAliases(typeWo);
@@ -492,6 +501,19 @@ isRouter.post('/is/add_job_explanation', servicePhotoUpload.array('service_photo
         [finalWoNumber, executor!.id, 'ITIS', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
       );
     }
+  });
+
+  const header = await getHeader(finalWoNumber);
+  await syncDailyControlForWoUpdate({
+    woNumber: finalWoNumber,
+    company: String(header?.company ?? ''),
+    idEquipment: header?.id_equipment,
+    jobTitle: String(header?.job_title ?? ''),
+    notes: jobExplanation,
+    actorUserId: Number(user.id_user),
+    actorFullname: String(user.fullname ?? ''),
+    actorDivisionId: user.id_division ? Number(user.id_division) : null,
+    jobExecutorCode: String(executor.job_executor ?? executor.pic ?? user.division_code ?? ''),
   });
 
   const person = personPayload(user);

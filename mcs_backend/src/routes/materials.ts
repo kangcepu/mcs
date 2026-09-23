@@ -16,6 +16,7 @@ import {
   searchErpParts,
   selectPartRequestItems,
   updateOpen,
+  voidSelectedPartRequest,
   woInfo,
 } from '../lib/material-usage.js';
 import type { AuthRequest } from '../types.js';
@@ -66,11 +67,33 @@ materialRouter.delete('/material-usage/cancel', authenticate, asyncHandler(async
   const request = await one<Record<string, unknown>>('SELECT * FROM tb_material_part_request WHERE id=?', [id]);
   if (!request) throw new HttpError(404, 'Request tidak ditemukan.', 'MU_NOT_FOUND');
   if (String(request.status ?? '') !== 'PENDING') throw new HttpError(409, 'Hanya request PENDING yang dapat dibatalkan.', 'MU_CANCEL_STATUS');
-  if (Number(request.requested_by ?? 0) !== Number(user.id_user ?? 0)) throw new HttpError(403, 'Anda tidak dapat membatalkan request ini.', 'MU_CANCEL_DENIED');
+  const isOwnRequest = Number(request.requested_by ?? 0) === Number(user.id_user ?? 0);
+  const hasManageAccess = String(user.username).toUpperCase() === 'SUPERUSER' || Number(user.material_usage ?? 0) === 1;
+  if (!isOwnRequest && !hasManageAccess) throw new HttpError(403, 'Anda tidak dapat membatalkan request ini.', 'MU_CANCEL_DENIED');
 
   await execute("UPDATE tb_material_part_request SET status='CANCELLED' WHERE id=?", [id]);
   await removeEmptyPartRequestHeader(String(request.wo_number ?? ''), String(request.job_executor ?? ''));
   ok(res, { id, status: 'CANCELLED' }, 'Request berhasil dibatalkan');
+}));
+
+/**
+ * Void part yang statusnya sudah SELECTED tapi ternyata gak jadi diambil.
+ * Beda dari `/material-usage/cancel` (cuma buat status PENDING, oleh
+ * pemohon sendiri) — ini buat tim yang punya akses `material_usage`, dipakai
+ * setelah part terlanjur dipilih.
+ */
+materialRouter.delete('/material-usage/void-selection', authenticate, canManage, asyncHandler(async (req, res) => {
+  const id = Number(req.query.id ?? req.body.id ?? 0);
+  if (id <= 0) throw new HttpError(422, 'id wajib diisi.', 'MU_ID_REQUIRED');
+
+  const request = await one<Record<string, unknown>>('SELECT wo_number, job_executor FROM tb_material_part_request WHERE id=?', [id]);
+  if (!request) throw new HttpError(404, 'Request tidak ditemukan.', 'MU_NOT_FOUND');
+
+  const result = await voidSelectedPartRequest(id);
+  if (!result.success) throw new HttpError(409, result.message ?? 'Request tidak dapat di-void.', 'MU_VOID_FAILED');
+
+  await removeEmptyPartRequestHeader(String(request.wo_number ?? ''), String(request.job_executor ?? ''));
+  ok(res, { id, status: 'CANCELLED' }, 'Pemilihan part berhasil dibatalkan');
 }));
 
 materialRouter.post('/material-usage/trigger_erp', authenticate, canManage, asyncHandler(async (req, res) => {
@@ -100,7 +123,11 @@ materialRouter.get('/material-usage/detail', authenticate, asyncHandler(async (r
   const wo_ = await woInfo(wo);
 
   if (!usage) {
-    usage = await one<Record<string, unknown>>('SELECT * FROM tb_material_usage WHERE wo_number=? AND job_executor=? ORDER BY id DESC LIMIT 1', [wo, exec]);
+    let usageQ = 'SELECT * FROM tb_material_usage WHERE wo_number=?';
+    const usageParams: unknown[] = [wo];
+    if (exec !== '' && exec !== '-') { usageQ += ' AND job_executor=?'; usageParams.push(exec); }
+    usageQ += ' ORDER BY id DESC LIMIT 1';
+    usage = await one<Record<string, unknown>>(usageQ, usageParams);
   }
   if (!req_) {
     let q = 'SELECT * FROM tb_material_part_request WHERE wo_number=?';

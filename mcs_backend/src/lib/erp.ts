@@ -106,6 +106,15 @@ export async function searchUsageItemGsu(term: string): Promise<UsageItemResult[
 
 interface SimpleItem { ItemID: number; ItemCode: string; ItemName: string }
 
+export interface MaterialSearchItem {
+  item_id: number;
+  item_code: string;
+  item_name: string;
+  company: 'UC' | 'RU';
+  uom: string;
+  uom_level: number;
+}
+
 export async function searchMaterialSimple(term: string): Promise<string[]> {
   const trimmed = term.trim();
   if (!trimmed) return [];
@@ -125,4 +134,53 @@ export async function searchMaterialSimple(term: string): Promise<string[]> {
 
   const [uc, ru, gsu] = await Promise.all([queryOne('UC'), queryOne('RU'), queryOne('GSU')]);
   return [...uc, ...ru, ...gsu].map((i) => String(i.ItemName ?? ''));
+}
+
+/**
+ * Cari item master UC dan RU sambil mempertahankan identitas ERP asalnya.
+ * GSU memakai `searchUsageItemGsu` karena membutuhkan pencocokan tambahan
+ * terhadap database GSU_TEST5 untuk metadata UOM.
+ */
+export async function searchMaterialItemsUcRu(term: string): Promise<MaterialSearchItem[]> {
+  const trimmed = term.trim();
+  if (!trimmed) return [];
+
+  const queryOne = async (company: 'UC' | 'RU'): Promise<MaterialSearchItem[]> => {
+    try {
+      const pool = await getPool(company);
+      const result = await pool.request()
+        .input('term', sql.NVarChar, `%${trimmed}%`)
+        .query<{
+          item_id: number;
+          item_code: string;
+          item_name: string;
+          uom: string | null;
+          uom_level: number | null;
+        }>(`
+          SELECT TOP 50
+            I.ItemID AS item_id,
+            I.ItemCode AS item_code,
+            I.ItemName AS item_name,
+            U.UOMCode AS uom,
+            CAST(1 AS tinyint) AS uom_level
+          FROM dbo.IC_Items I
+          LEFT JOIN dbo.IC_UOM U ON U.UOMID = I.UOMID1
+          WHERE I.ItemName LIKE @term OR I.ItemCode LIKE @term
+          ORDER BY I.ItemName ASC
+        `);
+      return result.recordset.map((item) => ({
+        item_id: Number(item.item_id),
+        item_code: String(item.item_code ?? ''),
+        item_name: String(item.item_name ?? ''),
+        company,
+        uom: String(item.uom ?? 'PCS'),
+        uom_level: Number(item.uom_level ?? 1),
+      }));
+    } catch {
+      return [];
+    }
+  };
+
+  const [uc, ru] = await Promise.all([queryOne('UC'), queryOne('RU')]);
+  return [...uc, ...ru];
 }

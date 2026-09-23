@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { applyAutomaticAccess, authenticate, findUserByCredentials, findUserById, findUserByIdentity, isPasswordEmpty, md5, publicUser, requiresPasswordChange, signToken, syncEmployeeStatusFromApi } from '../auth.js';
+import { applyAutomaticAccess, authenticate, findUserByCredentials, findUserById, findUserByIdentity, isPasswordEmpty, md5, publicUser, publicUserWithEmployee, requiresPasswordChange, signToken, syncEmployeeStatusFromApi } from '../auth.js';
 import { execute } from '../db.js';
 import { asyncHandler, HttpError, legacyOk, ok } from '../http.js';
 import type { AuthRequest } from '../types.js';
@@ -58,8 +58,8 @@ authRouter.post('/auth/change_password', asyncHandler(async (req, res) => {
   legacyOk(res, { requires_password_change: false }, 'Password changed successfully');
 }));
 
-authRouter.get('/me', authenticate, asyncHandler(async (req, res) => ok(res, publicUser((req as AuthRequest).user!), 'OK')));
-authRouter.get('/auth/profile', authenticate, asyncHandler(async (req, res) => legacyOk(res, publicUser((req as AuthRequest).user!), 'OK')));
+authRouter.get('/me', authenticate, asyncHandler(async (req, res) => ok(res, await publicUserWithEmployee((req as AuthRequest).user!), 'OK')));
+authRouter.get('/auth/profile', authenticate, asyncHandler(async (req, res) => legacyOk(res, await publicUserWithEmployee((req as AuthRequest).user!), 'OK')));
 authRouter.post('/auth/validate', authenticate, asyncHandler(async (req, res) => legacyOk(res, { valid: true, user: publicUser((req as AuthRequest).user!) }, 'Token valid')));
 authRouter.post('/auth/logout', authenticate, asyncHandler(async (req, res) => legacyOk(res, { user: publicUser((req as AuthRequest).user!) }, 'Logout successful')));
 

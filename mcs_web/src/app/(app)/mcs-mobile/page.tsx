@@ -10,16 +10,8 @@ import { useCan } from "@/components/ui/permission-guard";
 import { useMcsMobileRelease, useUploadMcsMobileRelease } from "@/hooks/use-mcs-mobile";
 import { PERMISSIONS } from "@/lib/permissions";
 import { formatDateTime, formatBytes } from "@/lib/format";
-import { API_BASE_URL } from "@/lib/env";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 import { ApiError } from "@/types/api";
-
-/** Backend mengembalikan path relatif (mis. `/uploads/downloads/xxx.apk`); jadikan absolut ke origin API. */
-function absoluteDownloadUrl(url: string): string {
-  if (!url) return url;
-  if (/^https?:\/\//i.test(url)) return url;
-  const origin = API_BASE_URL.replace(/\/api\/?$/, "");
-  return `${origin}/${url.replace(/^\/+/, "")}`;
-}
 
 const MAX_RELEASE_BYTES = 300 * 1024 * 1024;
 
@@ -115,7 +107,7 @@ export default function McsMobilePage() {
               </div>
             </div>
             <div className="border-t border-slate-100 p-4">
-              <a href={absoluteDownloadUrl(release.download_url)} target="_blank" rel="noreferrer" className="btn-primary inline-flex">
+              <a href={toAbsoluteUploadUrl(release.download_url)} target="_blank" rel="noreferrer" className="btn-primary inline-flex">
                 <Download className="h-4 w-4" /> Download {release.file_name?.toUpperCase().endsWith(".AAB") ? "AAB" : "APK"}
               </a>
             </div>

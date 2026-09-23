@@ -1,4 +1,6 @@
 import { hasColumn, one, pool, rows, transaction } from '../db.js';
+import { resolveCompanyCode } from './employee-api.js';
+import { nowInJakarta } from './daily-control.js';
 import type { PoolConnection } from 'mysql2/promise';
 
 type LogicalType = 'harian' | 'mingguan' | 'bulanan' | '3 bulanan' | '6 bulanan' | 'tahunan' | '';
@@ -95,8 +97,15 @@ function toDateOnly(value: unknown): string | null {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Server aplikasi jalan di jam UTC, DB di WIB (beda 7 jam) — `new
+ * Date().toISOString()` masih mikir "hari ini" itu kemarin selama jam
+ * 00:00-07:00 WIB, bikin WO auto-generate ke-stamp tanggal yang salah
+ * (dan otomatis "belum ada WO hari ini" jadi generate ulang / dobel).
+ * Sama akar penyebabnya kayak bug activity_time di daily-control.ts.
+ */
 function todayDateOnly(): string {
-  return new Date().toISOString().slice(0, 10);
+  return nowInJakarta().date;
 }
 
 function getScheduleTargetMonth(lastUpdate: string, monthsToAdd: number): string {
@@ -322,7 +331,7 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
         const hasCategoryCol = await hasColumn('tb_wo_mtc', 'category_maintenance');
         const hasAutoGenerateCol = await hasColumn('tb_wo_mtc', 'auto_generate');
         const cols = ['wo_number', 'date', 'company', 'shift', 'type_wo', 'id_division', 'id_equipment', 'job_title', 'running_hours', 'job_requirement', 'priority', 'attachment', 'creator', 'created_at', 'status', 'job_executor', 'pic'];
-        const vals: unknown[] = [finalWoNumber, todayDateOnly(), header.CompanyName, first.shift, first.type_wo || 'PREVENTIVE', first.id_division, assetId,
+        const vals: unknown[] = [finalWoNumber, todayDateOnly(), resolveCompanyCode(header.CompanyName ?? ''), first.shift, first.type_wo || 'PREVENTIVE', first.id_division, assetId,
           buildTitle(assetCode, dueItems.length, 'PREVENTIVE', 'PREVENTIVE MESO'), null, `AUTO FROM SCHEDULE: ${dueItems.length} ITEM`, 'NORMAL', '#', user.fullname, null,
           'WAIT_EXECUTOR_ADMIN', executorCodes.join(','), executorCodes.join(',')];
         let sql = `INSERT INTO tb_wo_mtc (${cols.join(',')}) VALUES (${cols.map((c) => c === 'created_at' ? 'NOW()' : '?').join(',')})`;
@@ -394,10 +403,10 @@ async function createWoOperationalGrouped(dataAsset: ScheduleWithDetails, forceD
         const hasCategoryCol = await hasColumn('tb_wo_mtc_operational', 'category_maintenance');
         const hasAutoGenerateCol = await hasColumn('tb_wo_mtc_operational', 'auto_generate');
         const cols = ['wo_number', 'date', 'company', 'shift', 'type_wo', 'id_division', 'id_equipment', 'job_title', 'running_hours', 'job_requirement', 'priority', 'attachment', 'creator', 'status', 'job_executor', 'pic'];
-        const vals: unknown[] = [finalWoNumber, todayDateOnly(), header.CompanyName, first.shift, first.type_wo, first.id_division, assetId,
+        const vals: unknown[] = [finalWoNumber, todayDateOnly(), resolveCompanyCode(header.CompanyName ?? ''), first.shift, first.type_wo, first.id_division, assetId,
           buildTitle(assetCode, items.length, 'MAINTENANCE', 'MAINTENANCE SCHEDULE'), null, `AUTO FROM SCHEDULE: ${items.length} ITEM`, 'NORMAL', '#', user.fullname,
           'IN_PROGRESS_EXECUTOR', executorBase, executorBase];
-        let sql = `INSERT INTO tb_wo_mtc_operational (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
+        let sql = `INSERT INTO tb_wo_mtc_operational (${cols.join(',')},created_at) VALUES (${cols.map(() => '?').join(',')},NOW())`;
         const bound = [...vals];
         if (hasAutoGenerateCol) { sql = sql.replace(') VALUES', ",auto_generate) VALUES").replace(/\)$/, ",'yes')"); }
         if (hasPartMesinCol) { sql = sql.replace(') VALUES', ',part_mesin) VALUES').replace(/\)$/, ',?)'); bound.push(first.part_mesin); }
@@ -462,7 +471,7 @@ async function createWoPreventiveGrouped(dataAsset: ScheduleWithDetails, forceDu
 
   const hasAutoGenerateCol = await hasColumn('tb_wo_preventive', 'auto_generate');
   let headerFields: Record<string, unknown> = {
-    wo_number: finalWoNumber, date: todayDateOnly(), company: header.CompanyName, shift: first.shift, type_wo: first.type_wo,
+    wo_number: finalWoNumber, date: todayDateOnly(), company: resolveCompanyCode(header.CompanyName ?? ''), shift: first.shift, type_wo: first.type_wo,
     id_division: first.id_division, id_equipment: assetId, job_title: buildTitle(assetCode, items.length, 'PREVENTIVE', 'PREVENTIVE MAINTENANCE'),
     running_hours: null, job_requirement: `AUTO FROM SCHEDULE: ${items.length} ITEM`, priority: 'NORMAL', attachment: '#',
     creator: user.fullname, created_at: todayDateOnly(), status: 'WAIT_EXECUTOR_ADMIN', job_executor: user.division_code, pic: user.division_code,
@@ -478,7 +487,9 @@ async function createWoPreventiveGrouped(dataAsset: ScheduleWithDetails, forceDu
     const result = await transaction(async (connection) => {
       if (creatingNew) {
         const keys = Object.keys(headerFields);
-        await connection.execute(`INSERT INTO tb_wo_preventive (${keys.map((k) => `\`${k}\``).join(',')}) VALUES (${keys.map(() => '?').join(',')})`, keys.map((k) => headerFields[k]) as never);
+        const sql = `INSERT INTO tb_wo_preventive (${keys.map((k) => `\`${k}\``).join(',')}) VALUES (${keys.map((k) => k === 'created_at' ? 'NOW()' : '?').join(',')})`;
+        const bound = keys.filter((k) => k !== 'created_at').map((k) => headerFields[k]);
+        await connection.execute(sql, bound as never);
         await connection.execute("INSERT INTO tb_job_executor (job_executor, wo_number, status, created_at) VALUES (?,?,'WAITING',NOW())", [user.division_code, finalWoNumber] as never);
       }
 

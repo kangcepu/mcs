@@ -314,6 +314,7 @@ class WoProductionDetailPage extends StatelessWidget {
 
           void showServiceVideoOptions() {
             Get.bottomSheet(
+              backgroundColor: Colors.white,
               SafeArea(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

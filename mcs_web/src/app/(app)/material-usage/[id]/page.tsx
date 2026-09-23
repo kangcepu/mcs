@@ -86,7 +86,7 @@ export default function MaterialUsageDetailPage({
     pick(wo, ["company"]) || pick(req, ["wo_company", "company"]) || "";
 
   const { data: currentUser } = useMe();
-  const { cancel } = useMaterialUsageMutations(id);
+  const { cancel, voidSelection } = useMaterialUsageMutations(id);
   const [selectOpen, setSelectOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -94,7 +94,14 @@ export default function MaterialUsageDetailPage({
 
   const canHoldRows = canManage && ["OPEN", "SELECTED", "IN_PROGRESS", "SENT_ERP"].includes(status);
   const isRequester = String(pick(req, ["requested_by"])) === String(currentUser?.id ?? "");
-  const canCancel = requestStatus === "PENDING" && isRequester;
+  // Tim Sparepart/management (akses material_usage) juga boleh membatalkan
+  // request PENDING orang lain — bukan cuma pemohon aslinya — biar request
+  // yang gak jadi diteruskan gak nyangkut selamanya.
+  const canCancel = requestStatus === "PENDING" && (isRequester || canManage);
+  // Part sudah dipilih tapi ternyata gak jadi diambil — beda dari `canCancel`
+  // (PENDING, oleh pemohon) ini dilakukan tim Sparepart/management setelah
+  // part terlanjur dipilih, dan cuma aman selama belum ada qty yang diambil.
+  const canVoidSelection = canManage && requestStatus === "SELECTED";
   const canSetUsage =
     canManage &&
     status !== "CLOSED" &&
@@ -110,7 +117,7 @@ export default function MaterialUsageDetailPage({
     confirm.ask({
       title: "Batalkan permintaan material?",
       description:
-        "Permintaan PENDING ini akan dibatalkan. Aksi ini hanya tersedia untuk pemohon dan tidak dapat dikembalikan dari halaman ini.",
+        "Permintaan PENDING ini akan dibatalkan dan tidak dapat dikembalikan dari halaman ini.",
       confirmLabel: "Batalkan Permintaan",
       tone: "danger",
       onConfirm: async () => {
@@ -120,6 +127,24 @@ export default function MaterialUsageDetailPage({
           confirm.close();
         } catch (e) {
           toast.error("Gagal membatalkan", e instanceof ApiError ? e.message : undefined);
+        }
+      },
+    });
+  };
+  const onVoidSelection = () => {
+    confirm.ask({
+      title: "Batalkan pilihan part?",
+      description:
+        "Part yang sudah dipilih untuk request ini akan dibatalkan (tidak jadi diambil). Hanya bisa dilakukan selama belum ada qty yang diambil/dipakai.",
+      confirmLabel: "Batalkan Pilihan Part",
+      tone: "danger",
+      onConfirm: async () => {
+        try {
+          await voidSelection.mutateAsync(partRequestId);
+          toast.success("Pilihan part dibatalkan");
+          confirm.close();
+        } catch (e) {
+          toast.error("Gagal membatalkan pilihan part", e instanceof ApiError ? e.message : undefined);
         }
       },
     });
@@ -167,6 +192,12 @@ export default function MaterialUsageDetailPage({
             <Button variant="danger" onClick={onCancel}>
               <XCircle className="h-4 w-4" />
               Batalkan
+            </Button>
+          ) : null}
+          {detail && canVoidSelection ? (
+            <Button variant="danger" onClick={onVoidSelection} loading={voidSelection.isPending}>
+              <XCircle className="h-4 w-4" />
+              Batalkan Pilihan Part
             </Button>
           ) : null}
         </div>

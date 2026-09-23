@@ -3316,6 +3316,7 @@ class WoMtcDetailPage extends StatelessWidget {
 
             void showVideoOptions() {
               Get.bottomSheet(
+                backgroundColor: Colors.white,
                 SafeArea(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

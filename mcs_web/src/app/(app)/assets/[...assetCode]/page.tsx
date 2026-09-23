@@ -49,16 +49,19 @@ export default function AssetDetailPage({
   const confirm = useConfirm();
 
   const { data, isLoading, error, refetch, isFetching } = useAssetDetail(code);
+  // Backend GET /assets/detail nge-spread field aset langsung di `data`
+  // (bukan dibungkus `data.asset`) — sebelumnya selalu dianggap "aset gak
+  // ketemu" walau request-nya sukses.
   const detail = data?.data as
-    | {
-        asset?: Record<string, unknown>;
-        parts_bom?: Array<Record<string, unknown>>;
+    | (Record<string, unknown> & {
         history?: Array<Record<string, unknown>>;
-      }
+      })
     | undefined;
-  const asset = detail?.asset;
+  const asset = detail;
   const { setStatus } = useAssetMutations(code);
 
+  // Backend belum ngirim riwayat WO per-aset — tab History kosong buat
+  // sementara sampai endpoint-nya ada, bukan kesalahan tampilan.
   const history = detail?.history ?? [];
 
   const inactive = isAssetInactive(asset);

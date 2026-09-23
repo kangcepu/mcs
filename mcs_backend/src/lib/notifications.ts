@@ -65,8 +65,10 @@ function dedupSortSlice(tableRows: WoRow[], limit: number, countOnly: boolean): 
 }
 
 async function getMtcFamilyWo(statuses: string[], idDivision: unknown, divisionCode: string, idPosition: string, limit: number, countOnly: boolean): Promise<WoRow[] | number> {
-  const mtcRows = await fetchMtcFamilyRows('tb_wo_mtc', statuses, idDivision, divisionCode, idPosition);
-  const preventiveRows = await fetchMtcFamilyRows('tb_wo_preventive', statuses, idDivision, divisionCode, idPosition);
+  const [mtcRows, preventiveRows] = await Promise.all([
+    fetchMtcFamilyRows('tb_wo_mtc', statuses, idDivision, divisionCode, idPosition),
+    fetchMtcFamilyRows('tb_wo_preventive', statuses, idDivision, divisionCode, idPosition),
+  ]);
   return dedupSortSlice([...mtcRows, ...preventiveRows], limit, countOnly);
 }
 
@@ -108,15 +110,19 @@ export async function getNotificationSummary(user: User): Promise<Record<string,
   let totalInProgress: number;
 
   if (useMtc) {
-    preventiveWo = await getMtcFamilyWo(PENDING_STATUSES_MTC, idDivision, divisionCode, idPosition, 10, false) as WoRow[];
-    inProgressWo = await getMtcFamilyWo(IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 10, false) as WoRow[];
-    totalPreventive = await getMtcFamilyWo(PENDING_STATUSES_MTC, idDivision, divisionCode, idPosition, 0, true) as number;
-    totalInProgress = await getMtcFamilyWo(IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 0, true) as number;
+    [preventiveWo, inProgressWo, totalPreventive, totalInProgress] = await Promise.all([
+      getMtcFamilyWo(PENDING_STATUSES_MTC, idDivision, divisionCode, idPosition, 10, false) as Promise<WoRow[]>,
+      getMtcFamilyWo(IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 10, false) as Promise<WoRow[]>,
+      getMtcFamilyWo(PENDING_STATUSES_MTC, idDivision, divisionCode, idPosition, 0, true) as Promise<number>,
+      getMtcFamilyWo(IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 0, true) as Promise<number>,
+    ]);
   } else {
-    preventiveWo = await getSingleTableWo('tb_wo_preventive', PENDING_STATUSES_SINGLE, idDivision, divisionCode, idPosition, 10, false) as WoRow[];
-    inProgressWo = await getSingleTableWo('tb_wo_preventive', IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 10, false) as WoRow[];
-    totalPreventive = await getSingleTableWo('tb_wo_preventive', PENDING_STATUSES_SINGLE, idDivision, divisionCode, idPosition, 0, true) as number;
-    totalInProgress = await getSingleTableWo('tb_wo_preventive', IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 0, true) as number;
+    [preventiveWo, inProgressWo, totalPreventive, totalInProgress] = await Promise.all([
+      getSingleTableWo('tb_wo_preventive', PENDING_STATUSES_SINGLE, idDivision, divisionCode, idPosition, 10, false) as Promise<WoRow[]>,
+      getSingleTableWo('tb_wo_preventive', IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 10, false) as Promise<WoRow[]>,
+      getSingleTableWo('tb_wo_preventive', PENDING_STATUSES_SINGLE, idDivision, divisionCode, idPosition, 0, true) as Promise<number>,
+      getSingleTableWo('tb_wo_preventive', IN_PROGRESS_STATUSES, idDivision, divisionCode, idPosition, 0, true) as Promise<number>,
+    ]);
   }
 
   return {

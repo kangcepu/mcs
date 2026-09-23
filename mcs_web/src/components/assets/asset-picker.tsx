@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/primitives";
 import { useAssetSearch } from "@/hooks/use-assets";
 import { useDebouncedValue } from "@/hooks/use-debounce";
 import { pick } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 /**
  * Autocomplete aset — cari berdasarkan nama, kode, atau nama company.
@@ -14,6 +15,8 @@ import { pick } from "@/lib/display";
 export function AssetPicker({
   selectedName,
   selectedCode,
+  selectedPhotoUrl,
+  selectedPhotoUrls,
   onSelect,
   onClear,
   placeholder = "Cari nama / kode / company aset…",
@@ -23,7 +26,11 @@ export function AssetPicker({
 }: {
   selectedName: string;
   selectedCode: string;
-  onSelect: (code: string, name: string, company: string) => void;
+  /** Foto aset yang lagi dipilih, kalau ada. */
+  selectedPhotoUrl?: string | null;
+  /** Semua foto aset yang lagi dipilih (gallery), kalau ada. */
+  selectedPhotoUrls?: string[];
+  onSelect: (code: string, name: string, company: string, photoUrl?: string | null, photoUrls?: string[]) => void;
   onClear: () => void;
   placeholder?: string;
   autoFocus?: boolean;
@@ -39,25 +46,53 @@ export function AssetPicker({
   const rows = (data?.data ?? []) as Array<Record<string, unknown>>;
 
   if (selectedCode) {
+    const gallery = selectedPhotoUrls ?? (selectedPhotoUrl ? [selectedPhotoUrl] : []);
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm text-slate-800">
-            {selectedName || selectedCode}
-          </p>
-          <p className="truncate text-xs text-slate-400">{selectedCode}</p>
+      <div className="rounded-lg border border-slate-300 bg-white px-3 py-1.5">
+        <div className="flex items-center gap-2">
+          {selectedPhotoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={selectedPhotoUrl}
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-slate-200"
+            />
+          ) : (
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-400 ring-1 ring-slate-200">
+              No foto
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-slate-800">
+              {selectedName || selectedCode}
+            </p>
+            <p className="truncate text-xs text-slate-400">{selectedCode}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setTerm("");
+              setOpen(true);
+            }}
+            className="shrink-0 rounded px-2 py-1 text-xs text-brand-600 hover:bg-brand-50"
+          >
+            Ganti
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            onClear();
-            setTerm("");
-            setOpen(true);
-          }}
-          className="shrink-0 rounded px-2 py-1 text-xs text-brand-600 hover:bg-brand-50"
-        >
-          Ganti
-        </button>
+        {gallery.length > 1 ? (
+          <div className="mt-2 grid grid-cols-4 gap-1.5 border-t border-slate-100 pt-2 sm:grid-cols-6">
+            {gallery.map((url, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={url + i}
+                src={url}
+                alt=""
+                className="aspect-square w-full rounded-md object-cover ring-1 ring-slate-200"
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -96,26 +131,46 @@ export function AssetPicker({
               const name = pick(r, ["asset_name", "name", "AssetName"]);
               const company = pick(r, ["company", "company_name", "CompanyName"]);
               const loc = pick(r, ["location", "location_name", "LocationAsset"]);
+              const photoUrl = toAbsoluteUploadUrl(pick(r, ["photo_url"]));
+              const photoUrls = (
+                Array.isArray(r.photo_urls)
+                  ? (r.photo_urls as unknown[]).filter((u): u is string => typeof u === "string")
+                  : []
+              ).map(toAbsoluteUploadUrl);
               return (
                 <button
                   type="button"
                   key={code || i}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    onSelect(code, name, company);
+                    onSelect(code, name, company, photoUrl || null, photoUrls);
                     setOpen(false);
                     setTerm("");
                   }}
-                  className="block w-full border-b border-slate-50 px-3 py-2 text-left last:border-0 hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 border-b border-slate-50 px-3 py-2 text-left last:border-0 hover:bg-slate-50"
                 >
-                  <p className="truncate text-sm font-medium text-slate-800">
-                    {name || code}
-                  </p>
-                  <p className="truncate text-xs text-slate-400">
-                    {code}
-                    {company ? ` · ${company}` : ""}
-                    {loc ? ` · ${loc}` : ""}
-                  </p>
+                  {photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photoUrl}
+                      alt=""
+                      className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-slate-200"
+                    />
+                  ) : (
+                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[8px] text-slate-400 ring-1 ring-slate-200">
+                      —
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-800">
+                      {name || code}
+                    </p>
+                    <p className="truncate text-xs text-slate-400">
+                      {code}
+                      {company ? ` · ${company}` : ""}
+                      {loc ? ` · ${loc}` : ""}
+                    </p>
+                  </div>
                 </button>
               );
             })

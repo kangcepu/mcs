@@ -51,7 +51,7 @@ export function SelectPartsModal({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [erpQuery, setErpQuery] = useState("");
   const debouncedErp = useDebouncedValue(erpQuery, 300);
-  const erp = useErpPartSearch(isGsu ? "GSU" : company, debouncedErp);
+  const erp = useErpPartSearch(company, debouncedErp);
 
   useEffect(() => {
     if (!open) return;
@@ -126,7 +126,7 @@ export function SelectPartsModal({
     >
       <div className="space-y-2">
         <div className="grid grid-cols-[1fr_90px_80px_120px_36px] gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <span>Part{isGsu ? " (dari ERP)" : ""}</span>
+          <span>Part (ERP UC/RU/GSU)</span>
           <span>Qty Request</span>
           <span>UOM</span>
           <span>No. PR</span>
@@ -152,7 +152,7 @@ export function SelectPartsModal({
                     setActiveKey(r.key);
                   }
                 }}
-                placeholder={isGsu ? "Cari nama part di ERP…" : "Nama part"}
+                placeholder="Cari nama part di semua ERP…"
                 autoComplete="off"
               />
               {r.erp?.item_code ? (
@@ -182,6 +182,7 @@ export function SelectPartsModal({
                           {hit.part_name || "-"}
                         </span>
                         <span className="text-xs text-slate-500">
+                          {hit.company ? `${hit.company} · ` : ""}
                           {hit.item_code ? `${hit.item_code} · ` : ""}
                           {hit.uom || "PCS"}
                         </span>

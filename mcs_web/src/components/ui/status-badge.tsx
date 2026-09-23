@@ -53,6 +53,18 @@ const STATUS_MAP: Record<string, { tone: Tone; label?: string }> = {
   pro: { tone: "blue", label: "PRO" },
   cor: { tone: "amber", label: "COR" },
   prev: { tone: "violet", label: "PREV" },
+  // status WO (tb_wo_mtc_operational / tb_wo_mtc / tb_wo_preventive / tb_wo_it / tb_wo_ga)
+  wait_ka_div: { tone: "amber", label: "Menunggu Ka Div" },
+  wait_ka_div_mtc: { tone: "amber", label: "Menunggu Ka Div" },
+  wait_ka_dept_meso: { tone: "amber", label: "Menunggu Ka Dept" },
+  wait_executor_admin: { tone: "amber", label: "Menunggu Admin" },
+  complete_executor: { tone: "cyan", label: "Selesai Dikerjakan" },
+  parts_received: { tone: "cyan", label: "Part Diterima" },
+  waiting_parts: { tone: "amber", label: "Menunggu Part" },
+  forward_to_meso: { tone: "violet", label: "Diteruskan ke MESO" },
+  from_maintenance: { tone: "violet", label: "Dari Maintenance" },
+  need_closed: { tone: "amber", label: "Perlu Ditutup" },
+  void: { tone: "slate", label: "Void" },
 };
 
 export function statusTone(status?: string | null): Tone {

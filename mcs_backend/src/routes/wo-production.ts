@@ -7,6 +7,7 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -185,6 +186,11 @@ productionRouter.use('/production', authenticate, (req, res, next) => {
   next();
 });
 
+// Samakan sama daftar exclude di maintenance/meso/is/ga — sebelumnya cuma
+// exclude 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list
+// "aktif". `DECLINE` gak pernah beneran kesimpen, status tolak asli 'REJECT'.
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
+
 productionRouter.get('/production/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   const mtcDivisionId = await getMtcDivisionId();
@@ -196,10 +202,13 @@ productionRouter.get('/production/list', asyncHandler(async (req, res) => {
   const typeWoFilter = req.query.type_wo ? normalizeTypeWo(String(req.query.type_wo)) : undefined;
 
   const scope = visibilityScope(user, 'w', mtcDivisionId);
-  let where = "WHERE w.status != 'CLOSED'";
+  let where = 'WHERE 1=1';
   const params: unknown[] = [];
   if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
+  // Exclusion cuma dipakai kalau user gak minta status spesifik, biar filter
+  // status='VOID' misalnya gak jadi kontradiktif sama exclusion ini.
   if (status) { where += ' AND w.status = ?'; params.push(status); }
+  else { where += ` AND w.status NOT IN (${LIST_EXCLUDED_STATUSES.map(() => '?').join(',')})`; params.push(...LIST_EXCLUDED_STATUSES); }
   if (search) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR a.AssetCode LIKE ? OR a.AssetName LIKE ?)'; params.push(...Array(4).fill(`%${search}%`)); }
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_wo_preventive w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
@@ -454,6 +463,19 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
         [woNumber, executor!.id, 'PRODUCTION', file.originalname, relativePath, path.extname(file.originalname).slice(1), Math.round(file.size / 1024), file.mimetype, 'MOBILE', user.id_user] as never,
       );
     }
+  });
+
+  const header = await getHeader(woNumber);
+  await syncDailyControlForWoUpdate({
+    woNumber,
+    company: String(header?.company ?? ''),
+    idEquipment: header?.id_equipment,
+    jobTitle: String(header?.job_title ?? ''),
+    notes: jobExplanation,
+    actorUserId: Number(user.id_user),
+    actorFullname: String(user.fullname ?? ''),
+    actorDivisionId: user.id_division ? Number(user.id_division) : null,
+    jobExecutorCode: String(executor.job_executor ?? executor.pic ?? user.division_code ?? ''),
   });
 
   const person = personPayload(user);

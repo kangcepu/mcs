@@ -195,18 +195,43 @@ export async function deleteObjectKey(key: string): Promise<boolean> {
   }
 }
 
-export interface ObjectStreamResult { stream: Readable; contentType: string; contentLength?: number }
+export interface ObjectStreamResult {
+  stream: Readable;
+  contentType: string;
+  contentLength?: number;
+  totalSize?: number;
+  isPartial?: boolean;
+  rangeStart?: number;
+  rangeEnd?: number;
+}
 
-export async function getObjectStream(key: string): Promise<ObjectStreamResult | null> {
+export async function getObjectStream(key: string, range?: string): Promise<ObjectStreamResult | null> {
   const active = await readableClient();
   if (!active) return null;
   try {
-    const result = await active.client.send(new GetObjectCommand({ Bucket: active.bucket, Key: key }));
+    const result = await active.client.send(new GetObjectCommand({ Bucket: active.bucket, Key: key, Range: range }));
     if (!result.Body) return null;
+
+    let rangeStart: number | undefined;
+    let rangeEnd: number | undefined;
+    let totalSize: number | undefined;
+    if (result.ContentRange) {
+      const match = /bytes (\d+)-(\d+)\/(\d+)/.exec(result.ContentRange);
+      if (match) {
+        rangeStart = Number(match[1]);
+        rangeEnd = Number(match[2]);
+        totalSize = Number(match[3]);
+      }
+    }
+
     return {
       stream: result.Body as Readable,
       contentType: result.ContentType ?? guessMime(key),
       contentLength: result.ContentLength,
+      totalSize,
+      isPartial: result.ContentRange !== undefined,
+      rangeStart,
+      rangeEnd,
     };
   } catch {
     return null;

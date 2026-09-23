@@ -7,6 +7,7 @@ import { authenticate } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
+import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { getObjectStream, saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -283,7 +284,10 @@ mesoRouter.use('/meso', authenticate, (req, res, next) => {
   next();
 });
 
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE'];
+// `DECLINE` gak pernah beneran kesimpen di kolom status manapun — status
+// tolak yang asli adalah `REJECT` (dicek langsung ke data). Tetap disertain
+// `DECLINE` buat jaga-jaga tanpa menghapusnya.
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
 
 function normalizeTypeWo(value: unknown): string {
   const upper = String(value ?? '').toUpperCase();
@@ -717,6 +721,18 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
       );
     }
     await connection.execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor!.id] as never);
+  });
+
+  await syncDailyControlForWoUpdate({
+    woNumber,
+    company: String(header.company ?? ''),
+    idEquipment: header.id_equipment,
+    jobTitle: String(header.job_title ?? ''),
+    notes: jobExplanation,
+    actorUserId: Number(user.id_user),
+    actorFullname: String(user.fullname ?? ''),
+    actorDivisionId: user.id_division ? Number(user.id_division) : null,
+    jobExecutorCode: String(executor.job_executor ?? executor.pic ?? divisionCode),
   });
 
   const person = personPayload(user);
