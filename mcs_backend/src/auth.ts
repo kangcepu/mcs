@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { execute, one, rows } from './db.js';
 import { HttpError } from './http.js';
 import { clearEmployeeCache, findEmployeeForUserResult, resolveCompanyCode } from './lib/employee-api.js';
+import { verifyApiKey } from './lib/api-clients.js';
 import type { AuthRequest, User } from './types.js';
 
 export const permissionFields = [
@@ -201,6 +202,19 @@ export async function authenticate(req: AuthRequest, _res: Response, next: NextF
     next(error instanceof HttpError ? error : new HttpError(401, 'Invalid or expired token'));
   }
 }
+
+export const authenticateApiKey = (scope: string) => async (req: AuthRequest, _res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const key = req.header('x-api-key');
+    if (!key) throw new HttpError(401, 'API key not provided');
+    const client = await verifyApiKey(key, scope);
+    if (!client) throw new HttpError(401, 'Invalid or inactive API key');
+    req.apiClient = { id: client.id, name: client.name };
+    next();
+  } catch (error) {
+    next(error instanceof HttpError ? error : new HttpError(401, 'Invalid API key'));
+  }
+};
 
 export const requirePermission = (...permissions: string[]) => (req: AuthRequest, _res: Response, next: NextFunction): void => {
   const user = req.user;

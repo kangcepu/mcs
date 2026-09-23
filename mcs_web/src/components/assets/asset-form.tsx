@@ -23,6 +23,8 @@ const schema = z.object({
   serial_number: z.string().optional(),
   keterangan: z.string().optional(),
   is_active: z.boolean(),
+  /** Kosong = bukan aset IT. Lepas dari Kategori — satu kategori (mis. Inventaris) bisa campur milik IT & bukan. */
+  it_ownership_status: z.enum(["", "inventory", "in_use"]).optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -81,8 +83,13 @@ export function AssetFormModal({
       serial_number: pick(i, ["Remarks", "serial_number"]),
       keterangan: pick(i, ["Keterangan", "description"]),
       is_active: initial ? !isAssetInactive(i) : true,
+      it_ownership_status: pick(i, ["it_ownership_status"]) as "" | "inventory" | "in_use",
     });
-  }, [open, initial, reset]);
+    // `options` (company/lokasi/kategori) di-fetch async dan sering belum
+    // siap saat reset() pertama jalan — <select> native tidak bisa
+    // menandai <option> yang DOM-nya belum ada, jadi harus reset ulang
+    // begitu opsinya datang supaya nilainya kepilih dengan benar.
+  }, [open, initial, reset, options.data]);
 
   const opt = options.data?.data;
 
@@ -213,6 +220,17 @@ export function AssetFormModal({
 
         <Field label="Keterangan">
           <Input {...register("keterangan")} />
+        </Field>
+
+        <Field
+          label="Status Kepemilikan IT"
+          hint="Terpisah dari Kategori — tandai kalau aset ini dikelola IT, apa pun kategorinya (Inventaris, PC, dll)."
+        >
+          <Select {...register("it_ownership_status")}>
+            <option value="">Bukan aset IT</option>
+            <option value="inventory">Milik IT — Inventaris (stok, belum dipakai)</option>
+            <option value="in_use">Milik IT — Sedang dipakai user</option>
+          </Select>
         </Field>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">

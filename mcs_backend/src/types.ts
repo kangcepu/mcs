@@ -20,4 +20,5 @@ export interface User {
 
 export interface AuthRequest extends Request {
   user?: User;
+  apiClient?: { id: number; name: string };
 }

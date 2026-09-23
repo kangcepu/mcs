@@ -17,10 +17,36 @@ export const assetRouter = Router();
 const assetFields = [
   'AssetCode', 'AssetName', 'AliasName', 'brand', 'CompanyName', 'CategoryAsset',
   'LocationAsset', 'Keterangan', 'active', 'status', 'Remarks', 'id_location_asset', 'mtc_area_key',
+  'it_ownership_status',
 ];
 
 function bodyFields(body: Record<string, unknown>, allowed: string[]): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([key, value]) => allowed.includes(key) && value !== undefined));
+}
+
+// Form Create/Edit Aset di web kirim nama field lowercase (asset_name, company,
+// location, category, dst) — bodyFields di atas cuma cocokkan nama PERSIS sama
+// kolom DB (PascalCase), jadi tanpa ini SEMUA field kecuali `brand` gak pernah
+// kesimpen (create selalu gagal, edit "berhasil" tapi diam-diam gak nyimpen apa-apa).
+const ASSET_FIELD_ALIASES: Record<string, string> = {
+  asset_name: 'AssetName',
+  company: 'CompanyName',
+  location: 'LocationAsset',
+  category: 'CategoryAsset',
+  asset_code: 'AssetCode',
+  alias_name: 'AliasName',
+  serial_number: 'Remarks',
+  keterangan: 'Keterangan',
+};
+
+function normalizeAssetBody(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...body };
+  for (const [from, to] of Object.entries(ASSET_FIELD_ALIASES)) {
+    if (out[from] !== undefined && out[to] === undefined) out[to] = out[from];
+  }
+  if (out.is_active !== undefined && out.active === undefined) out.active = out.is_active ? 'active' : 'inactive';
+  if (out.it_ownership_status === '') out.it_ownership_status = null;
+  return out;
 }
 
 const CUSTOM_DETAIL_DIR = path.join(config.uploadDir, 'customDetails');
@@ -83,12 +109,19 @@ async function unlinkCustomDetailImage(imagePath: string): Promise<void> {
 }
 
 assetRouter.get('/assets/options', authenticate, asyncHandler(async (_req, res) => {
+  // asset.CompanyName/CategoryAsset/LocationAsset simpan NAMA (bukan kode) —
+  // value harus sama persis dengan itu supaya dropdown edit bisa cocokkan
+  // aset yang sedang dibuka ke salah satu <option>-nya.
   const [companies, categories, locations] = await Promise.all([
-    rows('SELECT * FROM tb_company'),
-    rows('SELECT * FROM tb_category_asset'),
-    rows('SELECT * FROM tb_location_asset'),
+    rows<{ company_name: string }>('SELECT * FROM tb_company'),
+    rows<{ category_name: string }>('SELECT * FROM tb_category_asset'),
+    rows<{ location_name: string }>('SELECT * FROM tb_location_asset'),
   ]);
-  ok(res, { companies, categories, locations });
+  ok(res, {
+    companies: companies.map((c) => ({ value: c.company_name, label: c.company_name })),
+    categories: categories.map((c) => ({ value: c.category_name, label: c.category_name })),
+    locations: locations.map((c) => ({ value: c.location_name, label: c.location_name })),
+  });
 }));
 
 assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
@@ -104,7 +137,7 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
 }));
 
 assetRouter.post('/assets', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const fields = bodyFields(req.body, assetFields);
+  const fields = bodyFields(normalizeAssetBody(req.body), assetFields);
   if (!fields.AssetCode || !fields.AssetName) throw new HttpError(400, 'AssetCode and AssetName are required');
 
   const keys = Object.keys(fields);
@@ -142,7 +175,7 @@ assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_a
   const id = req.body.AssetID ?? req.query.id ?? req.body.asset ?? req.body.asset_code ?? req.query.asset;
   if (!id) throw new HttpError(400, 'Asset ID is required');
 
-  const fields = bodyFields(req.body, assetFields);
+  const fields = bodyFields(normalizeAssetBody(req.body), assetFields);
   const keys = Object.keys(fields);
   if (!keys.length) throw new HttpError(400, 'No changes provided');
 
