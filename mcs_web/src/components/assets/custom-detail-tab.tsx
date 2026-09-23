@@ -16,6 +16,7 @@ import type {
 } from "@/lib/api/asset-media";
 import { ApiError } from "@/types/api";
 import { dash } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 const FIELDS: Array<{ key: keyof CustomDetailInput; label: string }> = [
   { key: "bagian", label: "Bagian" },
@@ -253,7 +254,7 @@ export function CustomDetailTab({
                     <span key={im.id} className="group/img relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={im.url}
+                        src={toAbsoluteUploadUrl(im.url)}
                         alt={im.image_type}
                         title={im.image_type}
                         className="h-14 w-14 rounded object-cover ring-1 ring-slate-200"
@@ -391,7 +392,7 @@ export function CustomDetailTab({
           open
           onClose={() => setAnnotate(null)}
           assetCode={assetCode}
-          customDetailId={annotate.row.id}
+          customDetailId={annotate.im.id}
           columnType={annotate.im.image_type}
           imagePath={imgRelPath(annotate.im)}
           onSaved={() => setAnnotate(null)}

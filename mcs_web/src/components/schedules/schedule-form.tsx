@@ -121,6 +121,23 @@ function customRowToDetail(row: ScheduleCustomDetailRow) {
   };
 }
 
+/**
+ * Baris form Detail Schedule -> payload backend. Kebalikan dari
+ * `customRowToDetail`/mapping di `reset()` — backend simpan & baca kolom
+ * `part_mesin`/`job_requirement`/`type_schedule`/`category_maintenance`/
+ * `asset_custom_detail_id`, bukan nama field form (`part`/`activity`/
+ * `frequency`/`condition`/`custom_detail_id`).
+ */
+function detailToBackend(detail: FormValues["details"][number]) {
+  return {
+    part_mesin: detail.part,
+    job_requirement: detail.activity,
+    type_schedule: detail.frequency,
+    category_maintenance: detail.condition,
+    asset_custom_detail_id: detail.custom_detail_id,
+  };
+}
+
 type ScheduleDetailPayload = {
   header?: Record<string, unknown>;
   details?: Array<Record<string, unknown>>;
@@ -261,6 +278,7 @@ export function ScheduleFormModal({
       values.towo === "wo_mtc" ? (values.mtc_executors ?? []) : [];
     const body: Record<string, unknown> = {
       ...values,
+      details: values.details.map(detailToBackend),
       ...(execList.length
         ? {
             executor: execList.join(","),

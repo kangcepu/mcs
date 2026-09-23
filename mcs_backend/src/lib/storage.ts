@@ -148,7 +148,7 @@ export async function testStorageConnection(input: { endpoint: string; region: s
   }
 }
 
-function guessMime(key: string): string {
+export function guessMime(key: string): string {
   const ext = path.extname(key).toLowerCase();
   const map: Record<string, string> = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',

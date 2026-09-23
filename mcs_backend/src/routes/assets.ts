@@ -209,7 +209,7 @@ assetRouter.get('/assets/import-template', authenticate, requirePermission('priv
 }));
 
 assetRouter.get('/assets/custom-details', authenticate, requirePermission('list_of_asset', 'privilage_asset'), asyncHandler(async (req, res) => {
-  const code = String(req.query.asset_code ?? req.query.AssetCode ?? '');
+  const code = String(req.query.asset_code ?? req.query.AssetCode ?? req.query.asset ?? '');
   if (!code) throw new HttpError(400, 'asset_code is required');
   ok(res, await customDetailRowsWithImages(code));
 }));
@@ -410,7 +410,7 @@ assetRouter.get('/assets/custom-details/import-template', authenticate, requireP
 }));
 
 assetRouter.get('/assets/attachments', authenticate, requirePermission('list_of_asset', 'privilage_asset'), asyncHandler(async (req, res) => {
-  const code = String(req.query.asset_code ?? req.query.AssetCode ?? '');
+  const code = String(req.query.asset_code ?? req.query.AssetCode ?? req.query.asset ?? '');
   if (!code) throw new HttpError(400, 'asset_code is required');
   ok(res, await rows('SELECT * FROM tb_attachment_asset WHERE AssetCode=? AND part_id IS NULL ORDER BY sort_order,id', [code]));
 }));

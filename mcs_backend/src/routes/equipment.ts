@@ -8,7 +8,7 @@ import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
-import { deleteObjectKey, saveFileWithKey, saveUploadedFile } from '../lib/storage.js';
+import { deleteObjectKey, getObjectStream, guessMime, saveFileWithKey, saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest } from '../types.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -296,9 +296,30 @@ equipmentRouter.post('/equipment/annotated-image', authenticate, canManage, asyn
 }));
 
 equipmentRouter.get('/equipment/custom-detail-image', authenticate, canRead, asyncHandler(async (req, res) => {
-  const id = req.query.custom_detail_id;
-  if (!id) throw new HttpError(400, 'custom_detail_id is required');
-  ok(res, await rows('SELECT * FROM asset_custom_detail_images WHERE custom_detail_id=? ORDER BY image_type, image_order', [id]));
+  const raw = String(req.query.path ?? '');
+  if (!raw) throw new HttpError(400, 'path is required');
+  const key = raw.replace(/^\/?uploads\//, '');
+  const normalized = path.posix.normalize(key);
+  if (normalized !== key || normalized.includes('..')) throw new HttpError(400, 'Invalid path');
+
+  const uploadRoot = path.resolve(config.uploadDir);
+  const localPath = path.join(uploadRoot, normalized);
+  let buffer: Buffer | null = null;
+  if (localPath.startsWith(uploadRoot + path.sep) && fs.existsSync(localPath)) {
+    buffer = await fs.promises.readFile(localPath);
+  } else {
+    const object = await getObjectStream(normalized);
+    if (object) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of object.stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      buffer = Buffer.concat(chunks);
+    }
+  }
+  if (!buffer) throw new HttpError(404, 'Image not found');
+
+  const filename = path.basename(normalized);
+  const mime = guessMime(normalized);
+  ok(res, { filename, mime, data_uri: `data:${mime};base64,${buffer.toString('base64')}` });
 }));
 
 equipmentRouter.get('/equipment/missing-area-alerts', authenticate, canManage, asyncHandler(async (req, res) => {
