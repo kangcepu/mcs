@@ -75,7 +75,7 @@ const registerDeviceInput = z.object({
 authRouter.post('/auth/register_device_token', authenticate, asyncHandler(async (req, res) => {
   const authReq = req as AuthRequest;
   const input = registerDeviceInput.parse(req.body);
-  const ipAddress = String(req.ip ?? '');
+  const ipAddress = String(req.ip ?? '').replace(/^::ffff:/, '');
 
   if (input.previous_token && input.previous_token !== input.token) {
     await execute('UPDATE tb_user_device_token SET is_active = 0, updated_at = NOW() WHERE token = ?', [input.previous_token]);

@@ -72,6 +72,7 @@ class ApiConstants {
   static const String changePassword = '/v2/auth/change_password';
   static const String validate = '/v2/auth/validate';
   static const String profile = '/v2/auth/profile';
+  static const String profileAvatar = '/v2/profile/avatar';
   static const String registerDeviceToken = '/v2/auth/register_device_token';
   static const String unregisterDeviceToken =
       '/v2/auth/unregister_device_token';

@@ -321,6 +321,44 @@ class AuthRepository {
     }
   }
 
+  Future<void> uploadAvatar(String filePath) async {
+    try {
+      final form = FormData.fromMap({
+        'avatar': await MultipartFile.fromFile(filePath),
+      });
+      final response = await _apiService.post(
+        ApiConstants.profileAvatar,
+        data: form,
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Gagal mengunggah foto: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception(
+        ApiErrorHelper.toUserMessage(
+          e,
+          fallback: 'Gagal mengunggah foto profil. Silakan coba lagi.',
+        ),
+      );
+    }
+  }
+
+  Future<void> removeAvatar() async {
+    try {
+      final response = await _apiService.delete(ApiConstants.profileAvatar);
+      if (response.statusCode != 200) {
+        throw Exception('Gagal menghapus foto: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception(
+        ApiErrorHelper.toUserMessage(
+          e,
+          fallback: 'Gagal menghapus foto profil. Silakan coba lagi.',
+        ),
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> changePassword({
     required String username,
     required String currentPassword,

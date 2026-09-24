@@ -4,6 +4,7 @@ class User {
   final String fullname;
   final String email;
   final String avatar;
+  final String phone;
   final Division? division;
   final Company? company;
   final Permissions? permissions;
@@ -14,6 +15,7 @@ class User {
     required this.fullname,
     required this.email,
     required this.avatar,
+    this.phone = '',
     this.division,
     this.company,
     this.permissions,
@@ -26,6 +28,7 @@ class User {
       fullname: json['fullname']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       avatar: json['avatar']?.toString() ?? '',
+      phone: json['phone']?.toString() ?? '',
       division:
           json['division'] != null ? Division.fromJson(json['division']) : null,
       company:
@@ -43,6 +46,7 @@ class User {
       'fullname': fullname,
       'email': email,
       'avatar': avatar,
+      'phone': phone,
       'division': division?.toJson(),
       'company': company?.toJson(),
       'permissions': permissions?.toJson(),

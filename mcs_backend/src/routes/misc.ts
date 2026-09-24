@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticate, requirePermission, md5 } from '../auth.js';
+import { authenticate, requirePermission, md5, resolveAvatarUrl } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, tableExists } from '../db.js';
 import { asyncHandler, HttpError, ok, created, legacyOk } from '../http.js';
@@ -59,9 +59,9 @@ async function companyLogoList(): Promise<CompanyLogoEntry[]> {
   }
   return out;
 }
-miscRouter.post('/profile/password', authenticate, asyncHandler(async(req,res)=>{const {current_password,password,confirm_password}=req.body;if(!password||password!==confirm_password)throw new HttpError(400,'Valid password and confirm_password are required');const user=(req as AuthRequest).user!;if(current_password && md5(current_password)!==String(user.password))throw new HttpError(401,'Invalid current password');await execute('UPDATE tb_user SET password=?,updated_at=NOW() WHERE id_user=?',[md5(password),user.id_user]);ok(res,null,'Password changed successfully');}));
-miscRouter.post('/profile/avatar',authenticate,upload.any(),asyncHandler(async(req,res)=>{const file=(req.files as Express.Multer.File[] | undefined)?.[0];if(!file)throw new HttpError(400,'file is required');const user=(req as AuthRequest).user!;const key=await saveUploadedFile(file.buffer,'avatars',file.originalname,file.mimetype);const avatar=`${config.uploadDir}/${key}`;await execute('UPDATE tb_user SET avatar=?,updated_at=NOW() WHERE id_user=?',[avatar,user.id_user]);ok(res,{avatar},'Avatar updated');}));
-miscRouter.delete('/profile/avatar',authenticate,asyncHandler(async(req,res)=>{await execute('UPDATE tb_user SET avatar="avatar.png",updated_at=NOW() WHERE id_user=?',[(req as AuthRequest).user!.id_user]);ok(res,{avatar:'avatar.png'},'Avatar deleted');}));
+miscRouter.post('/profile/password', authenticate, asyncHandler(async(req,res)=>{const {current_password,confirm_password}=req.body;const password=req.body.password??req.body.new_password;if(!password||password!==confirm_password)throw new HttpError(400,'Valid password and confirm_password are required');const user=(req as AuthRequest).user!;if(current_password && md5(current_password)!==String(user.password))throw new HttpError(401,'Invalid current password');await execute('UPDATE tb_user SET password=?,updated_at=NOW() WHERE id_user=?',[md5(password),user.id_user]);ok(res,null,'Password changed successfully');}));
+miscRouter.post('/profile/avatar',authenticate,upload.any(),asyncHandler(async(req,res)=>{const file=(req.files as Express.Multer.File[] | undefined)?.[0];if(!file)throw new HttpError(400,'file is required');const user=(req as AuthRequest).user!;const key=await saveUploadedFile(file.buffer,'avatars',file.originalname,file.mimetype);const avatar=`${config.uploadDir}/${key}`;await execute('UPDATE tb_user SET avatar=?,updated_at=NOW() WHERE id_user=?',[avatar,user.id_user]);ok(res,{avatar,avatar_url:resolveAvatarUrl(avatar)},'Avatar updated');}));
+miscRouter.delete('/profile/avatar',authenticate,asyncHandler(async(req,res)=>{await execute('UPDATE tb_user SET avatar="avatar.png",updated_at=NOW() WHERE id_user=?',[(req as AuthRequest).user!.id_user]);ok(res,{avatar:'avatar.png',avatar_url:null},'Avatar deleted');}));
 miscRouter.get('/settings/branding', asyncHandler(async (_req, res) => { await ensureAppSettingTable(); ok(res, await brandingPayload()); }));
 
 miscRouter.post('/settings/branding', authenticate, memoryUpload.single('logo'), asyncHandler(async (req, res) => {
@@ -383,7 +383,7 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
   const total = await one<{ total: number }>(`SELECT COUNT(*) total ${baseFrom} ${where}`, params);
   const data = await rows(
     `SELECT t.id, t.id_user, u.fullname, u.username, t.platform, t.device_name, t.app_version, t.build_number,
-            t.ip_address, t.is_active, t.last_seen_at, t.created_at, t.updated_at
+            REPLACE(t.ip_address, '::ffff:', '') AS ip_address, t.is_active, t.last_seen_at, t.created_at, t.updated_at
      ${baseFrom} ${where} ORDER BY t.updated_at DESC LIMIT ? OFFSET ?`,
     [...params, perPage, (page - 1) * perPage],
   );
