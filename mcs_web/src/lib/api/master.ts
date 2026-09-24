@@ -79,6 +79,36 @@ export function listMasterActivity(
   return apiV2.get<MasterActivityItem[]>("/system-activity-log", { params, signal });
 }
 
+export interface DeviceMonitoringItem {
+  id: number | string;
+  id_user: number | string;
+  fullname?: string | null;
+  username?: string | null;
+  platform?: string | null;
+  device_name?: string | null;
+  app_version?: string | null;
+  build_number?: string | null;
+  ip_address?: string | null;
+  is_active: number | boolean;
+  last_seen_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceMonitoringSummary {
+  total_devices: number;
+  active_devices: number;
+  android: number;
+  ios: number;
+}
+
+export function listDeviceMonitoring(
+  params: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<ApiResponse<DeviceMonitoringItem[]>> {
+  return apiV2.get<DeviceMonitoringItem[]>("/master/device-monitoring", { params, signal });
+}
+
 export interface EmployeeHit {
   employee_id?: number | string | null;
   employee_code: string;

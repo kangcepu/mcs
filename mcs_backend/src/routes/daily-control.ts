@@ -21,6 +21,7 @@ import {
   markAsRead,
   normalizeAreaKey,
   notifyCommentRecipients,
+  nowInJakarta,
   searchAssets,
   searchWorkOrders,
 } from '../lib/daily-control.js';
@@ -35,13 +36,27 @@ dailyControlRouter.use('/daily-control', authenticate, (req, res, next) => {
   next();
 });
 
+/**
+ * `new Date("YYYY-MM-DDT00:00:00")` (tanpa suffix zona waktu) di-parse pakai
+ * timezone LOKAL proses Node, bukan UTC — di server yang OS-nya di-set
+ * Asia/Jakarta, "2026-09-23T00:00:00" jadi berarti tengah malam WIB = jam
+ * 17:00 UTC tanggal 22, jadi re-serialize ke ISO balik lagi jadi "2026-09-22"
+ * dan validasi round-trip di bawah SELALU gagal untuk tanggal apa pun selain
+ * kebetulan hari ini — akibatnya filter tanggal di Daily Control diam-diam
+ * selalu balik ke hari ini, walau user eksplisit minta tanggal lain.
+ * Validasi manual pakai Date.UTC (unambiguous) biar tidak kena masalah ini.
+ */
 function normalizeDate(value: unknown): string {
   const raw = String(value ?? '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const d = new Date(`${raw}T00:00:00`);
-    if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === raw) return raw;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth) return raw;
   }
-  return new Date().toISOString().slice(0, 10);
+  return nowInJakarta().date;
 }
 
 dailyControlRouter.get('/daily-control', asyncHandler(async (req, res) => {

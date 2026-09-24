@@ -41,7 +41,7 @@ export function Tabs({
             disabled={item.disabled}
             onClick={() => onChange(item.key)}
             className={cn(
-              "inline-flex items-center gap-1.5 whitespace-nowrap px-3.5 py-2 text-sm font-medium transition disabled:opacity-40",
+              "inline-flex items-center gap-1.5 whitespace-nowrap px-3.5 py-2 text-sm font-medium transition duration-200 disabled:opacity-40",
               variant === "underline"
                 ? active
                   ? "border-b-2 border-brand-600 text-brand-700"

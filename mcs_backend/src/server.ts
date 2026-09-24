@@ -88,7 +88,7 @@ const scheduleGenerationTask = cron.schedule(config.scheduleCronExpr, () => {
   runScheduledGeneration()
     .then((generated) => { if (generated.length) console.log(`Preventive schedule: generated ${generated.length} WO(s)`, generated.map((g) => g.wo_number)); })
     .catch((error) => console.error('Preventive schedule generation failed:', error));
-});
+}, { timezone: 'Asia/Jakarta' });
 
 const preventiveAlarmTask = cron.schedule(config.preventiveAlarmCronExpr, () => {
   runPreventiveAlarmCron()
@@ -100,7 +100,7 @@ const employeeSyncTask = cron.schedule(config.employeeSyncCronExpr, () => {
   syncAllUsersEmployeeStatus()
     .then((result) => { if (result.disabled) console.log(`Employee sync: disabled ${result.disabled} user(s) not found in emp.padmoasm.com (checked ${result.checked})`); })
     .catch((error) => console.error('Employee sync cron failed:', error));
-});
+}, { timezone: 'Asia/Jakarta' });
 
 const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());

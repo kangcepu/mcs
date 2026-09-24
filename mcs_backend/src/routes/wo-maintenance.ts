@@ -189,7 +189,7 @@ async function getExecutorByDivision(woNumber: string, divisionCode: string): Pr
   return one<Record<string, unknown>>('SELECT * FROM tb_job_executor WHERE wo_number=? AND job_executor=? ORDER BY id ASC LIMIT 1', [woNumber, divisionCode]);
 }
 
-async function getPreventiveExecutorForUpdate(woNumber: string): Promise<Record<string, unknown> | null> {
+async function getFallbackExecutorForUpdate(woNumber: string): Promise<Record<string, unknown> | null> {
   return one<Record<string, unknown>>(
     "SELECT * FROM tb_job_executor WHERE wo_number=? AND (status='WAITING' OR status='IN_PROGRESS') ORDER BY id DESC LIMIT 1",
     [woNumber],
@@ -595,7 +595,19 @@ maintenanceRouter.get('/maintenance/detail', asyncHandler(async (req, res) => {
     getExecutors(woNumber),
     rows('SELECT * FROM tb_detail_labor WHERE wo_number=?', [woNumber]),
     rows('SELECT * FROM tb_detail_material WHERE wo_number=?', [woNumber]),
-    rows("SELECT * FROM tb_material_request WHERE wo_number=? AND level != 'others'", [woNumber]),
+    // Mobile (Material.fromJson) baca kolom gaya tb_detail_material
+    // (material/qty/unit/id_detail_material) — tb_material_request punya
+    // nama kolom beda (part/material_request/material_usage/uom_*), jadi
+    // di-alias dulu di sini biar baris part-request ikut kebaca mobile,
+    // bukan cuma web (yang punya query remap sendiri di work-orders.ts).
+    rows(
+      `SELECT id AS id_detail_material, wo_number, job_executor, level, part AS material,
+              COALESCE(NULLIF(material_usage, 0), material_request, 0) AS qty,
+              COALESCE(uom_usage, uom_request) AS unit,
+              purchase_request AS pr
+       FROM tb_material_request WHERE wo_number=? AND level != 'others'`,
+      [woNumber],
+    ),
     rows('SELECT * FROM tb_approval_operational WHERE wo_number=? ORDER BY created_at ASC', [woNumber]),
     getServicePhotos(woNumber),
   ]);
@@ -609,11 +621,23 @@ maintenanceRouter.get('/maintenance/detail', asyncHandler(async (req, res) => {
     await syncStatusFromPartExecution(woNumber, assetCode);
   }
 
+  // 386+ WO di database punya baris di KEDUA tabel (tb_detail_material
+  // sudah kesinkron dari tb_material_request oleh syncMaterialRequestFromMobile,
+  // tapi baris asli di tb_material_request tidak pernah dihapus) — merge
+  // polos bakal nampilin part yang sama dua kali di mobile. Buang baris
+  // materialB yang nama part-nya udah ada di materialA buat WO yang sama.
+  const materialANames = new Set(
+    materialA.map((m) => String((m as Record<string, unknown>).material ?? '').trim().toLowerCase()).filter(Boolean),
+  );
+  const materialBDeduped = materialB.filter(
+    (m) => !materialANames.has(String((m as Record<string, unknown>).material ?? '').trim().toLowerCase()),
+  );
+
   legacyOk(res, {
     ...header,
     type_wo: normalizeTypeWo(header.type_wo),
     executors, labor,
-    material: [...materialA, ...materialB],
+    material: [...materialA, ...materialBDeduped],
     approvals, preventive_parts: preventiveParts, part_execution: partExecution, service_photos: servicePhotos,
   }, 'WO detail retrieved');
 }));
@@ -929,7 +953,7 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
   let executor = b.id || b.executor_id
     ? await one<Record<string, unknown>>('SELECT * FROM tb_job_executor WHERE id=?', [b.id ?? b.executor_id])
     : await getExecutorByDivision(woNumber, divisionCode);
-  if (!executor && isPreventive) executor = await getPreventiveExecutorForUpdate(woNumber);
+  if (!executor) executor = await getFallbackExecutorForUpdate(woNumber);
   if (!executor) throw new HttpError(400, 'Executor row is required');
   if (String(executor.wo_number) !== woNumber) throw new HttpError(404, 'Executor not found');
 

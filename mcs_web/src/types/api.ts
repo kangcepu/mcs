@@ -11,6 +11,7 @@ export interface PageMeta {
   per_page: number;
   total: number;
   total_pages: number;
+  summary?: Record<string, number>;
 }
 
 /** Parameter paginasi yang dipakai hampir semua list endpoint. */

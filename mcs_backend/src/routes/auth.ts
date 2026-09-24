@@ -63,12 +63,38 @@ authRouter.get('/auth/profile', authenticate, asyncHandler(async (req, res) => l
 authRouter.post('/auth/validate', authenticate, asyncHandler(async (req, res) => legacyOk(res, { valid: true, user: publicUser((req as AuthRequest).user!) }, 'Token valid')));
 authRouter.post('/auth/logout', authenticate, asyncHandler(async (req, res) => legacyOk(res, { user: publicUser((req as AuthRequest).user!) }, 'Logout successful')));
 
-async function deviceToken(req: AuthRequest, res: import('express').Response, deleted = false): Promise<void> {
-  const input = z.object({ token: z.string().min(1), platform: z.string().optional().default('unknown') }).parse(req.body);
-  if (deleted) await execute('DELETE FROM tb_user_device_token WHERE id_user = ? AND token = ?', [req.user!.id_user, input.token]);
-  else await execute(`INSERT INTO tb_user_device_token (id_user, token, platform, updated_at, created_at) VALUES (?, ?, ?, NOW(), NOW())
-    ON DUPLICATE KEY UPDATE id_user=VALUES(id_user), platform=VALUES(platform), updated_at=NOW()`, [req.user!.id_user, input.token, input.platform]);
-  legacyOk(res, null, deleted ? 'Device token unregistered' : 'Device token registered');
-}
-authRouter.post('/auth/register_device_token', authenticate, asyncHandler(async (req, res) => deviceToken(req as AuthRequest, res)));
-authRouter.post('/auth/unregister_device_token', authenticate, asyncHandler(async (req, res) => deviceToken(req as AuthRequest, res, true)));
+const registerDeviceInput = z.object({
+  token: z.string().min(1),
+  platform: z.string().optional().default('unknown'),
+  device_name: z.string().optional().default(''),
+  app_version: z.string().optional().default(''),
+  build_number: z.string().optional().default(''),
+  previous_token: z.string().optional().default(''),
+});
+
+authRouter.post('/auth/register_device_token', authenticate, asyncHandler(async (req, res) => {
+  const authReq = req as AuthRequest;
+  const input = registerDeviceInput.parse(req.body);
+  const ipAddress = String(req.ip ?? '');
+
+  if (input.previous_token && input.previous_token !== input.token) {
+    await execute('UPDATE tb_user_device_token SET is_active = 0, updated_at = NOW() WHERE token = ?', [input.previous_token]);
+  }
+
+  await execute(
+    `INSERT INTO tb_user_device_token (id_user, token, platform, device_name, app_version, build_number, ip_address, is_active, last_seen_at, updated_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW(), NOW())
+     ON DUPLICATE KEY UPDATE id_user=VALUES(id_user), platform=VALUES(platform), device_name=VALUES(device_name),
+       app_version=VALUES(app_version), build_number=VALUES(build_number), ip_address=VALUES(ip_address),
+       is_active=1, last_seen_at=NOW(), updated_at=NOW()`,
+    [authReq.user!.id_user, input.token, input.platform, input.device_name, input.app_version, input.build_number, ipAddress],
+  );
+  legacyOk(res, null, 'Device token registered');
+}));
+
+authRouter.post('/auth/unregister_device_token', authenticate, asyncHandler(async (req, res) => {
+  const authReq = req as AuthRequest;
+  const input = z.object({ token: z.string().min(1) }).parse(req.body);
+  await execute('UPDATE tb_user_device_token SET is_active = 0, updated_at = NOW() WHERE id_user = ? AND token = ?', [authReq.user!.id_user, input.token]);
+  legacyOk(res, null, 'Device token unregistered');
+}));

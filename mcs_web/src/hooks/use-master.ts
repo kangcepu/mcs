@@ -11,6 +11,7 @@ import {
   deleteMaster,
   getMasterOptions,
   getPermissionCatalog,
+  listDeviceMonitoring,
   listMasterActivity,
   listMaster,
   searchEmployees,
@@ -34,6 +35,15 @@ export function useMasterActivity(params: Record<string, string | number | undef
     queryKey: ["master-activity", params],
     queryFn: ({ signal }) => listMasterActivity(params, signal),
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useDeviceMonitoring(params: Record<string, string | number | undefined>) {
+  return useQuery({
+    queryKey: ["device-monitoring", params],
+    queryFn: ({ signal }) => listDeviceMonitoring(params, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: 60_000,
   });
 }
 

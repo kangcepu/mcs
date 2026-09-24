@@ -14,13 +14,17 @@ export type ScheduleGroupKey = (typeof SCHEDULE_GROUPS)[number]["key"];
 export function toScheduleGroup(freq?: string | null): ScheduleGroupKey {
   const f = (freq ?? "").toString().toLowerCase().trim();
   if (!f || ["none", "tanpa jadwal", "unscheduled", "-"].includes(f)) return "unscheduled";
-  if (f.startsWith("hari") || f.includes("daily") || f === "1d") return "daily";
-  if (f.startsWith("ming") || f.includes("week") || f === "1w") return "weekly";
+  // Backend simpan type_schedule sbg "1 bulan"/"1 minggu"/dst (lihat
+  // scheduleTypeToStorageValue di preventive-schedule.ts) — diawali angka,
+  // bukan kata "bulan"/"ming", jadi startsWith() di sini selalu gagal cocok
+  // dan semua item (kecuali harian) jatuh ke "Tanpa Jadwal" walau datanya benar.
+  if (f.includes("hari") || f.includes("daily") || f === "1d") return "daily";
   if (f.includes("3 bulan") || f.includes("quarter") || f === "3m") return "quarterly";
   if (f.includes("6 bulan") || f.includes("semi") || f === "6m") return "semiannual";
   if (f.includes("tahun") || f.includes("annual") || f.includes("year") || f === "1y")
     return "annual";
-  if (f.startsWith("bulan") || f.includes("month") || f === "1m") return "monthly";
+  if (f.includes("ming") || f.includes("week") || f === "1w") return "weekly";
+  if (f.includes("bulan") || f.includes("month") || f === "1m") return "monthly";
   return "unscheduled";
 }
 

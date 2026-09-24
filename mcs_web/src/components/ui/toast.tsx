@@ -18,6 +18,7 @@ interface ToastItem {
   title: string;
   description?: string;
   variant: ToastVariant;
+  removing?: boolean;
 }
 
 interface ToastContextValue {
@@ -51,13 +52,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Tandai `removing` dulu (memicu animate-toast-out) baru benar-benar
+  // dihapus dari array ~150ms kemudian — splice instan sebelumnya bikin
+  // toast lenyap tanpa animasi keluar sama sekali.
+  const dismiss = useCallback(
+    (id: number) => {
+      setItems((prev) => prev.map((t) => (t.id === id ? { ...t, removing: true } : t)));
+      setTimeout(() => remove(id), 150);
+    },
+    [remove],
+  );
+
   const push = useCallback(
     (t: Omit<ToastItem, "id">) => {
       const id = Date.now() + Math.random();
       setItems((prev) => [...prev, { ...t, id }]);
-      setTimeout(() => remove(id), t.variant === "error" ? 7000 : 4500);
+      setTimeout(() => dismiss(id), t.variant === "error" ? 7000 : 4500);
     },
-    [remove],
+    [dismiss],
   );
 
   const value = useMemo<ToastContextValue>(
@@ -79,7 +91,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             className={cn(
-              "pointer-events-auto flex animate-fade-in items-start gap-3 rounded-lg border border-l-4 bg-white p-3 shadow-lg",
+              "pointer-events-auto flex items-start gap-3 rounded-lg border border-l-4 bg-white p-3 shadow-lg",
+              t.removing ? "animate-toast-out" : "animate-toast-in",
               ACCENT[t.variant],
             )}
           >
@@ -92,7 +105,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             </div>
             <button
               type="button"
-              onClick={() => remove(t.id)}
+              onClick={() => dismiss(t.id)}
               className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               aria-label="Tutup notifikasi"
             >

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
@@ -13,6 +14,7 @@ import { ErrorState } from "@/components/ui/states";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [checkedToken, setCheckedToken] = useState(false);
@@ -67,7 +69,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <AppHeader onToggleSidebar={toggleSidebar} collapsed={collapsed} />
-          <main className="min-h-0 flex-1">{children}</main>
+          <main className="min-h-0 flex-1">
+            {/* framer-motion animasi lewat JS, bukan CSS animation/transition —
+                aturan @media prefers-reduced-motion global di globals.css tidak
+                otomatis meng-cover ini, jadi reduced-motion di-hormati manual
+                lewat MotionConfig di sini. */}
+            <MotionConfig reducedMotion="user">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={pathname}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  className="min-h-0"
+                >
+                  {children}
+                </motion.div>
+              </AnimatePresence>
+            </MotionConfig>
+          </main>
         </div>
       </div>
     </PageHeaderProvider>

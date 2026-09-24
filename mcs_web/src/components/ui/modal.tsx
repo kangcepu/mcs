@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,29 @@ export function Modal({
   /** Dialog informasi singkat dapat dipusatkan secara vertikal. */
   centered?: boolean;
 }) {
+  // Modal ditutup dengan unmount instan (`if (!open) return null`) sebelum
+  // ini — jadi tidak ada kesempatan buat animasi keluar. `mounted` dibiarkan
+  // true sebentar (durasi animasi keluar) sebelum benar-benar unmount, biar
+  // `closing` sempat memicu kelas animate-*-out.
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      setClosing(false);
+      return;
+    }
+    if (!mounted) return;
+    setClosing(true);
+    const timeout = setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, 150);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -50,7 +73,7 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!mounted || typeof document === "undefined") return null;
 
   return createPortal(
     <div
@@ -60,14 +83,18 @@ export function Modal({
       )}
     >
       <div
-        className="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px]"
+        className={cn(
+          "fixed inset-0 bg-slate-900/40 backdrop-blur-[1px]",
+          closing ? "animate-fade-out" : "animate-fade-in",
+        )}
         onClick={closeOnBackdrop ? onClose : undefined}
       />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          "relative z-10 w-full animate-fade-in rounded-xl bg-white shadow-xl",
+          "relative z-10 w-full rounded-xl bg-white shadow-xl",
+          closing ? "animate-scale-out" : "animate-scale-in",
           centered ? "my-auto" : "my-8",
           SIZE_CLASS[size],
         )}

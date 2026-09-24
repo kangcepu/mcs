@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app/core/routes/app_routes.dart';
 import 'app/core/constants/app_colors.dart';
+import 'app/core/constants/app_motion.dart';
 import 'app/core/utils/network_checker.dart';
 import 'app/core/constants/api_constants.dart';
 import 'app/core/services/push_notification_service.dart';
@@ -123,6 +124,10 @@ class _MyAppState extends State<MyApp> {
       ),
       initialRoute: AppRoutes.login,
       getPages: AppRoutes.routes,
+      // Belum ada satu pun GetPage yang set `transition:` sendiri — default
+      // di sini otomatis berlaku ke semua ~45 route sekaligus.
+      defaultTransition: Transition.cupertino,
+      transitionDuration: AppMotion.base,
     );
   }
 }

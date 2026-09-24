@@ -46,10 +46,45 @@ const config: Config = {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
+        "fade-out": {
+          from: { opacity: "1" },
+          to: { opacity: "0" },
+        },
+        "scale-in": {
+          from: { opacity: "0", transform: "scale(0.96)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        "scale-out": {
+          from: { opacity: "1", transform: "scale(1)" },
+          to: { opacity: "0", transform: "scale(0.96)" },
+        },
+        "slide-in-right": {
+          from: { opacity: "0", transform: "translateX(16px)" },
+          to: { opacity: "1", transform: "translateX(0)" },
+        },
+        "slide-out-right": {
+          from: { opacity: "1", transform: "translateX(0)" },
+          to: { opacity: "0", transform: "translateX(16px)" },
+        },
+        "toast-in": {
+          from: { opacity: "0", transform: "translateY(8px) scale(0.98)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        "toast-out": {
+          from: { opacity: "1", transform: "translateY(0)" },
+          to: { opacity: "0", transform: "translateY(4px)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.2s ease-out both",
         "fade-in-fast": "fade-in-fast 0.15s ease-out both",
+        "fade-out": "fade-out 0.15s ease-in both",
+        "scale-in": "scale-in 0.18s ease-out both",
+        "scale-out": "scale-out 0.12s ease-in both",
+        "slide-in-right": "slide-in-right 0.2s ease-out both",
+        "slide-out-right": "slide-out-right 0.15s ease-in both",
+        "toast-in": "toast-in 0.2s ease-out both",
+        "toast-out": "toast-out 0.15s ease-in both",
       },
     },
   },

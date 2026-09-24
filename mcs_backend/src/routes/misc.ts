@@ -11,6 +11,7 @@ import { encryptSecret } from '../lib/crypto-secrets.js';
 import { FIREBASE_CREDENTIAL_SETTING_KEY } from '../lib/fcm.js';
 import { getAssetReportList, getAssetsHistoryReport, getQrReport, recapWorkOrderOptions } from '../lib/reports.js';
 import { getNotificationDetail, getNotificationSummary } from '../lib/notifications.js';
+import { nowInJakarta } from '../lib/daily-control.js';
 import { runPreventiveAlarmCron } from '../lib/preventive-alarm.js';
 import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl, putStorageConfig, saveFileWithKey, saveUploadedFile, testStorageConnection } from '../lib/storage.js';
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
@@ -352,7 +353,10 @@ miscRouter.post('/mcs-mobile/release', authenticate, mobileReleaseUpload.single(
   const release = {
     version, version_code: versionCode, download_url: `/uploads/${key}`, file_name: filename,
     release_notes: releaseNotes !== '' ? releaseNotes : '-', force_update: forceUpdate,
-    uploaded_by: String(user.fullname ?? user.username ?? '-'), uploaded_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    // toISOString() itu UTC — server jalan di jam UTC tapi jam yang ditampilkan
+    // ke user harus WIB, sama akar masalahnya kayak bug activity_time lain
+    // yang sudah diperbaiki (selisih 7 jam kalau dibiarkan pakai UTC).
+    uploaded_by: String(user.fullname ?? user.username ?? '-'), uploaded_at: `${nowInJakarta().date} ${nowInJakarta().time}`,
   };
   await putSetting('mcs_mobile_release', JSON.stringify(release));
   ok(res, await mobileReleaseConfig(), 'MCS Mobile release uploaded');

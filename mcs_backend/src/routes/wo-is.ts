@@ -249,16 +249,20 @@ isRouter.get('/is/detail', asyncHandler(async (req, res) => {
   );
   if (!header) throw new HttpError(404, 'Work Order not found');
 
-  const [executors, labor, material, materialRequests, servicePhotos] = await Promise.all([
+  const [executors, labor, material, materialRequests, servicePhotos, approvals] = await Promise.all([
     getExecutors(woNumber),
     rows("SELECT * FROM tb_detail_labor WHERE wo_number=? AND `for` IN ('IT','MTC')", [woNumber]),
     rows("SELECT * FROM tb_detail_material WHERE wo_number=? AND `for` IN ('IT','MTC')", [woNumber]),
     rows('SELECT * FROM tb_material_request WHERE wo_number=?', [woNumber]),
     getServicePhotos(woNumber),
+    // Mobile baca `approvals` langsung dari response ini (beda dari MESO
+    // yang punya endpoint /meso/approval terpisah) — sebelumnya field ini
+    // gak pernah dikirim, jadi tab "Approval History" selalu kosong.
+    rows('SELECT * FROM tb_approval_it WHERE wo_number=? ORDER BY created_at ASC', [woNumber]),
   ]);
 
   legacyOk(res, {
-    wo_header: header, executors, labor, material, material_requests: materialRequests, part_requests: [], service_photos: servicePhotos,
+    wo_header: header, executors, labor, material, material_requests: materialRequests, part_requests: [], service_photos: servicePhotos, approvals,
   }, 'Work Order retrieved successfully');
 }));
 

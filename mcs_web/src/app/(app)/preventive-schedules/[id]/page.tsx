@@ -74,7 +74,14 @@ export default function PreventiveScheduleDetailPage({
     detail?.repair_status?.schedule_detail_total ?? details.length;
   const customCount = detail?.repair_status?.custom_detail_total ?? 0;
   const hasUnscheduled = (grouped.get("unscheduled")?.length ?? 0) > 0;
-  const showRepair = canManage && customCount !== detailCount;
+  // Jumlah baris bisa "selaras" (sama persis dgn Custom Detail) padahal
+  // isinya rusak — mis. part_mesin kosong dari bug field-mapping lama.
+  // Cek isi baris juga, jangan cuma jumlahnya, biar tombol Repair tetap
+  // muncul untuk kasus begini.
+  const hasEmptyPart = details.some(
+    (d) => !pick(d, ["part_mesin", "part"]).trim(),
+  );
+  const showRepair = canManage && (customCount !== detailCount || hasEmptyPart);
   const generation = detail?.generation_status;
   const initialWoComplete = generation?.initial_generation_complete === true;
   const showGenerate = canManage && Boolean(detail) && !initialWoComplete;

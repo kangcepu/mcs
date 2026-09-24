@@ -282,20 +282,42 @@ export default function WorkOrderDetailPage({
                   columns={3}
                   items={[
                     { label: "No. WO", value: wo.wo_number },
-                    { label: "Judul", value: pick(wo, ["title", "subject"]) },
+                    {
+                      label: "Judul",
+                      value: pick(wo, ["title", "subject", "job_title"]),
+                    },
                     { label: "Tipe WO", value: dash(wo.type_wo) },
                     { label: "Prioritas", value: dash(wo.priority) },
                     { label: "Company", value: pick(wo, ["company_name", "company"]) },
                     {
                       label: "Aset",
-                      value: pick(wo, ["asset_name", "asset_code"]) || "-",
+                      value:
+                        pick(wo, ["asset_name", "AssetName", "asset_code", "AssetCode"]) ||
+                        "-",
                     },
-                    { label: "Kode Aset", value: dash(wo.asset_code) },
-                    { label: "Diminta oleh", value: dash(wo.requested_by) },
-                    { label: "Executor", value: dash(wo.executor) },
+                    {
+                      label: "Kode Aset",
+                      value: dash(pick(wo, ["asset_code", "AssetCode"])),
+                    },
+                    {
+                      label: "Diminta oleh",
+                      value: dash(pick(wo, ["requested_by", "creator"])),
+                    },
+                    {
+                      label: "Executor",
+                      value: dash(pick(wo, ["executor", "job_executor"])),
+                    },
                     { label: "Dibuat", value: formatDateTime(wo.created_at) },
-                    { label: "Dijadwalkan", value: formatDate(wo.scheduled_at) },
-                    { label: "Ditutup", value: formatDateTime(wo.closed_at) },
+                    {
+                      label: "Dijadwalkan",
+                      value: formatDate(
+                        pick(wo, ["scheduled_at", "started_planner", "date"]),
+                      ),
+                    },
+                    {
+                      label: "Ditutup",
+                      value: formatDateTime(pick(wo, ["closed_at", "closedDate"])),
+                    },
                   ]}
                 />
                 {wo.description ? (

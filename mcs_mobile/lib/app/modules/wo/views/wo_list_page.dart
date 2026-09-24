@@ -8,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
 import '../../../core/widgets/empty_state_widget.dart';
+import '../../../core/widgets/staggered_fade_in.dart';
 
 class WoListPage extends StatelessWidget {
   const WoListPage({Key? key}) : super(key: key);
@@ -311,7 +312,11 @@ class WoListPage extends StatelessWidget {
               }
 
               final wo = controller.filteredWoList[index];
-              return _buildWoCard(wo, controller);
+              return StaggeredFadeIn(
+                key: ValueKey(wo.woNumber),
+                index: index,
+                child: _buildWoCard(wo, controller),
+              );
             },
           ),
         ),

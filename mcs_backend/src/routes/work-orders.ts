@@ -5,6 +5,7 @@ import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { resolveCompanyCode } from '../lib/employee-api.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
+import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const workOrderRouter = Router();
@@ -45,6 +46,7 @@ const WO_TYPE_OPTIONS = [
   { code: 'PROJECT', label: 'Project' },
 ];
 const titleCase = (v: string): string => v.trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+const humanizeStatus = (v: string): string => titleCase(v.replace(/_/g, ' '));
 
 /**
  * `type_wo` kesimpen dengan banyak varian penulisan buat konsep yang sama
@@ -67,15 +69,25 @@ const TYPE_WO_VARIANTS: Record<string, string[]> = {
   PROJECT: ['PROJECT', 'project'],
 };
 workOrderRouter.get('/work-orders/options', authenticate, asyncHandler(async (_req, res) => {
-  const [priorityRows, shiftRows, assets] = await Promise.all([
+  const [priorityRows, shiftRows, statusRows, assets] = await Promise.all([
     rows<{ value: string }>('SELECT DISTINCT priority AS value FROM tb_wo_mtc_operational WHERE priority IS NOT NULL'),
     rows<{ value: string }>('SELECT DISTINCT shift AS value FROM tb_wo_mtc_operational WHERE shift IS NOT NULL'),
+    // Filter status dipakai lintas semua domain (Maintenance/MESO/Production/
+    // IS/GA) sekaligus, jadi daftar opsinya gabungan status nyata dari kelima
+    // tabel WO — bukan cuma enum satu tabel — biar status yang cuma dipakai
+    // domain tertentu (mis. WAITING_PARTS di MESO) tetap muncul di filter.
+    rows<{ value: string }>(
+      Object.values(domains).map((d) => `SELECT DISTINCT status AS value FROM \`${d.table}\` WHERE status IS NOT NULL`).join(' UNION '),
+    ),
     rows('SELECT AssetID,AssetCode,AssetName FROM asset WHERE active="active" ORDER BY AssetName LIMIT 500'),
   ]);
   ok(res, {
     types: WO_TYPE_OPTIONS,
     priorities: priorityRows.map((r) => ({ code: r.value, label: titleCase(r.value) })),
     shifts: shiftRows.map((r) => ({ code: r.value, label: titleCase(r.value) })),
+    statuses: statusRows
+      .map((r) => ({ code: r.value, label: humanizeStatus(r.value) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
     assets,
   });
 }));
@@ -153,7 +165,21 @@ workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req
   // kolom action/status terstruktur di sana juga), jadi disini di-mapping
   // ulang ke bentuk yang dibaca komponen Timeline, bukan query baru.
   const histories = approvals.map((a) => ({ actor: a.fullname, note: a.comment, at: a.created_at }));
-  ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences, histories });
+  // Web hanya nampilin tombol Setujui/Tolak/Tutup kalau `actions.can_*` ada —
+  // sebelumnya field ini gak pernah dikirim sama sekali, jadi tombolnya gak
+  // pernah muncul di halaman detail WO (harus lewat Approval Center). Pakai
+  // logic yang sama kayak Approval Center (isPendingWoApproval/Closing),
+  // bukan cuma cek status, karena status WAIT dipakai ulang buat executor/part
+  // dan gak selalu berarti user yang sedang login boleh approve WO ini.
+  // Approval Center tag baris pending-nya pakai moduleKey gaya "wo_x", beda
+  // dari key domain di sini ("maintenance") — harus ditranslasi dulu.
+  const approvalModuleKey: Record<Domain, string> = { is: 'wo_it', ga: 'wo_ga', meso: 'wo_mtc', maintenance: 'wo_operational', production: 'wo_preventive' };
+  const user = (req as AuthRequest).user!;
+  const [canApprove, canClose] = await Promise.all([
+    isPendingWoApproval(user, approvalModuleKey[domain], wo),
+    isPendingWoClosing(user, approvalModuleKey[domain], wo),
+  ]);
+  ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences, histories, actions: { can_approve: canApprove, can_close: canClose } });
 }));
 
 workOrderRouter.post('/work-orders/create', authenticate, asyncHandler(async (req, res) => {

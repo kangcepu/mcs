@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,27 @@ export function Drawer({
   footer?: ReactNode;
   width?: string;
 }) {
+  // Sama seperti Modal: tunda unmount ~150ms setelah `open` jadi false biar
+  // animasi slide-out sempat jalan, bukan langsung hilang instan.
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      setClosing(false);
+      return;
+    }
+    if (!mounted) return;
+    setClosing(true);
+    const timeout = setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, 150);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -33,17 +54,23 @@ export function Drawer({
     };
   }, [open, onClose]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!mounted || typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[95]">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div
+        className={cn(
+          "absolute inset-0 bg-slate-900/40",
+          closing ? "animate-fade-out" : "animate-fade-in",
+        )}
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
           "absolute right-0 top-0 flex h-full w-full flex-col bg-white shadow-2xl",
-          "animate-fade-in",
+          closing ? "animate-slide-out-right" : "animate-slide-in-right",
           width,
         )}
       >
