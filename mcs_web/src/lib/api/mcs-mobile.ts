@@ -26,3 +26,27 @@ export function uploadMcsMobileRelease(
 ): Promise<ApiResponse<McsMobileRelease>> {
   return apiV2.post<McsMobileRelease>("/mcs-mobile/release", undefined, { formData: form });
 }
+
+/** Baris device mobile terdaftar. GET hanya untuk permission `mcs_mobile_upload`. */
+export interface McsMobileDevice {
+  id: number | string;
+  id_user: number | string;
+  fullname?: string | null;
+  username?: string | null;
+  platform?: string | null;
+  device_name?: string | null;
+  app_version?: string | null;
+  build_number?: string | null;
+  ip_address?: string | null;
+  is_active: number | boolean;
+  last_seen_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listMcsMobileDevices(
+  params: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<ApiResponse<McsMobileDevice[]>> {
+  return apiV2.get<McsMobileDevice[]>("/mcs-mobile/devices", { params, signal });
+}

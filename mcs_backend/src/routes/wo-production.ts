@@ -95,11 +95,17 @@ async function getHeader(woNumber: string): Promise<Record<string, unknown> | nu
   return one<Record<string, unknown>>('SELECT * FROM tb_wo_preventive WHERE wo_number=?', [woNumber]);
 }
 
+const TYPE_WO_ALIASES: Record<string, string[]> = {
+  preventive: ['PREVENTIVE', 'PREVENTIVE MAINTENANCE', 'PREV MAINTENANCE', 'PM'],
+  corrective: ['CORRECTIVE', 'CORRECTIVE MAINTENANCE', 'CM'],
+  project: ['PROJECT'],
+};
+
 function normalizeTypeWo(value: unknown): string {
   const upper = String(value ?? '').toUpperCase();
-  if (['PREVENTIVE', 'PREVENTIVE MAINTENANCE', 'PREV MAINTENANCE', 'PM'].includes(upper)) return 'preventive';
-  if (['CORRECTIVE', 'CORRECTIVE MAINTENANCE', 'CM'].includes(upper)) return 'corrective';
-  if (upper === 'PROJECT') return 'project';
+  for (const [canonical, aliases] of Object.entries(TYPE_WO_ALIASES)) {
+    if (aliases.includes(upper)) return canonical;
+  }
   return String(value ?? '').toLowerCase();
 }
 
@@ -210,16 +216,19 @@ productionRouter.get('/production/list', asyncHandler(async (req, res) => {
   if (status) { where += ' AND w.status = ?'; params.push(status); }
   else { where += ` AND w.status NOT IN (${LIST_EXCLUDED_STATUSES.map(() => '?').join(',')})`; params.push(...LIST_EXCLUDED_STATUSES); }
   if (search) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR a.AssetCode LIKE ? OR a.AssetName LIKE ?)'; params.push(...Array(4).fill(`%${search}%`)); }
+  if (typeWoFilter) {
+    const aliases = TYPE_WO_ALIASES[typeWoFilter] ?? [typeWoFilter.toUpperCase()];
+    where += ` AND UPPER(w.type_wo) IN (${aliases.map(() => '?').join(',')})`;
+    params.push(...aliases);
+  }
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_wo_preventive w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
-  let items = await rows<Record<string, unknown>>(
+  const items = (await rows<Record<string, unknown>>(
     `SELECT w.*, d.division_name, d.division_code, a.AssetID, a.AssetCode, a.AssetName FROM tb_wo_preventive w
      LEFT JOIN tb_division d ON d.id_division=w.id_division LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
      ORDER BY w.date DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset],
-  );
-  if (typeWoFilter) items = items.filter((row) => normalizeTypeWo(row.type_wo) === typeWoFilter);
-  items = items.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) }));
+  )).map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) }));
 
   const totalCount = Number(total?.total ?? 0);
   legacyOk(res, { total: totalCount, limit, offset, items }, 'Work Order list retrieved successfully');
@@ -486,7 +495,10 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
   if (status === 'COMPLETE') {
     await execute('INSERT INTO tb_job_executor (job_executor, wo_number, job_explanation, status, created_at) VALUES (?,?,?,?,NOW())', [String(user.division_code ?? ''), woNumber, jobExplanation, 'ADDITIONAL']);
 
-    if (position === 'DIVHEAD') {
+    if (normalizeTypeWo(header?.type_wo) === 'preventive') {
+      await insertApprovalPreventive(woNumber, person, jobExplanation);
+      await execute("UPDATE tb_wo_preventive SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+    } else if (position === 'DIVHEAD') {
       await insertApprovalPreventive(woNumber, person, jobExplanation);
       await execute("UPDATE tb_wo_preventive SET status='WAIT_KA_DIV', updated_at=NOW() WHERE wo_number=?", [woNumber]);
     } else if (position === 'ADMIN_DIVISI') {

@@ -480,46 +480,6 @@ masterRouter.get('/system-activity-log', authenticate, asyncHandler(async (req, 
   ok(res, await rows('SELECT * FROM tb_system_activity_log ORDER BY id DESC LIMIT ?', [Math.min(Number(req.query.limit ?? 100), 500)]));
 }));
 
-masterRouter.get('/master/device-monitoring', authenticate, asyncHandler(async (req, res) => {
-  requireUserManagement((req as AuthRequest).user!);
-  const page = Math.max(1, Number(req.query.page ?? 1));
-  const perPage = Math.min(100, Math.max(10, Number(req.query.per_page ?? req.query.limit ?? 25)));
-  const q = String(req.query.q ?? '').trim();
-  const platform = String(req.query.platform ?? '').trim();
-  const status = String(req.query.status ?? '').trim();
-
-  let where = 'WHERE 1=1';
-  const params: unknown[] = [];
-  if (q) { where += ' AND (u.fullname LIKE ? OR u.username LIKE ? OR t.device_name LIKE ? OR t.ip_address LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  if (platform) { where += ' AND t.platform = ?'; params.push(platform); }
-  if (status === 'active') where += ' AND t.is_active = 1';
-  else if (status === 'inactive') where += ' AND t.is_active = 0';
-
-  const baseFrom = 'FROM tb_user_device_token t INNER JOIN tb_user u ON u.id_user = t.id_user';
-  const total = await one<{ total: number }>(`SELECT COUNT(*) total ${baseFrom} ${where}`, params);
-  const data = await rows(
-    `SELECT t.id, t.id_user, u.fullname, u.username, t.platform, t.device_name, t.app_version, t.build_number,
-            t.ip_address, t.is_active, t.last_seen_at, t.created_at, t.updated_at
-     ${baseFrom} ${where} ORDER BY t.updated_at DESC LIMIT ? OFFSET ?`,
-    [...params, perPage, (page - 1) * perPage],
-  );
-  const summary = await one<{ total_devices: number; active_devices: number; android: number; ios: number }>(
-    `SELECT COUNT(*) total_devices, SUM(t.is_active = 1) active_devices,
-            SUM(t.is_active = 1 AND t.platform = 'android') android, SUM(t.is_active = 1 AND t.platform = 'ios') ios
-     FROM tb_user_device_token t`,
-  );
-  const totalCount = Number(total?.total ?? 0);
-  ok(res, data, 'OK', {
-    page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)),
-    summary: {
-      total_devices: Number(summary?.total_devices ?? 0),
-      active_devices: Number(summary?.active_devices ?? 0),
-      android: Number(summary?.android ?? 0),
-      ios: Number(summary?.ios ?? 0),
-    },
-  });
-}));
-
 masterRouter.get('/master/:resource', authenticate, asyncHandler(async (req, res) => {
   const resourceParam = String(req.params.resource);
   if (!isResource(resourceParam)) throw new HttpError(404, 'Unknown master data resource');
