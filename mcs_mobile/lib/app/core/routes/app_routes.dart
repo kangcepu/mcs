@@ -58,6 +58,8 @@ import '../../modules/reports/views/report_asset_mutation_create_page.dart';
 import '../../modules/reports/views/report_wo_recap_page.dart';
 import '../../modules/reports/views/report_so_page.dart';
 import '../../modules/reports/views/report_so_detail_page.dart';
+import '../../modules/reports/views/report_asset_history_page.dart';
+import '../../modules/reports/views/report_qr_page.dart';
 import '../../modules/approval/views/approval_page.dart';
 import '../../modules/daily_control/views/daily_control_page.dart';
 import '../../modules/wo_void/views/wo_void_page.dart';
@@ -109,6 +111,8 @@ class AppRoutes {
   static const String reportWoRecap = '/reports/wo_recap';
   static const String reportSo = '/reports/so';
   static const String reportSoDetail = '/reports/so/detail';
+  static const String reportAssetHistory = '/reports/asset_history';
+  static const String reportQr = '/reports/qr';
   static const String dailyControl = '/daily_control';
   static const String approval = '/approval';
   static const String woVoid = '/wo_void';
@@ -341,6 +345,14 @@ class AppRoutes {
     GetPage(
       name: reportSoDetail,
       page: () => const ReportSoDetailPage(),
+    ),
+    GetPage(
+      name: reportAssetHistory,
+      page: () => const ReportAssetHistoryPage(),
+    ),
+    GetPage(
+      name: reportQr,
+      page: () => const ReportQrPage(),
     ),
     GetPage(
       name: dailyControl,

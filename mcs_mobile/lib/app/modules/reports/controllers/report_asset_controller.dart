@@ -3,196 +3,252 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../data/repositories/master_repository.dart';
+import '../../../core/constants/api_constants.dart';
+import '../../../data/providers/api_service.dart';
+import '../../../data/repositories/reports_repository.dart';
+
+class AssetFilterOption {
+  final String value;
+  final String label;
+
+  const AssetFilterOption(this.value, this.label);
+}
 
 class ReportAssetController extends GetxController {
-  final MasterRepository _masterRepository = MasterRepository();
+  static const int _pageSize = 50;
 
-  final assets = <Map<String, dynamic>>[].obs;
+  final ReportsRepository _repository = ReportsRepository();
+  final ApiService _api = ApiService();
+
+  late final String reportKey;
+  late final String title;
+
+  final items = <Map<String, dynamic>>[].obs;
   final isLoading = false.obs;
-  final isFirstLoad = true.obs;
+  final isLoadingMore = false.obs;
+  final isExporting = false.obs;
+  final errorMessage = RxnString();
+
+  final total = 0.obs;
+  final activeCount = 0.obs;
+  final page = 1.obs;
+  final totalPages = 1.obs;
+
   final query = ''.obs;
-  final selectedCompany = 'ALL'.obs;
-  final selectedLocation = 'ALL'.obs;
+  final company = ''.obs;
+  final location = ''.obs;
+  final category = ''.obs;
+  final status = ''.obs;
+
+  final companyOptions = <AssetFilterOption>[].obs;
+  final locationOptions = <AssetFilterOption>[].obs;
+  final categoryOptions = <AssetFilterOption>[].obs;
 
   final TextEditingController searchController = TextEditingController();
+  final ScrollController scrollController = ScrollController();
   Timer? _debounce;
+
+  bool get hasMore => page.value < totalPages.value;
+
+  int get activeFilterCount => [
+        company.value,
+        location.value,
+        category.value,
+        status.value,
+      ].where((v) => v.isNotEmpty).length;
 
   @override
   void onInit() {
     super.onInit();
-    fetchAssets();
+    final args = Get.arguments;
+    reportKey = args is Map && args['report'] is String
+        ? args['report'] as String
+        : 'assets';
+    title = args is Map && args['title'] is String
+        ? args['title'] as String
+        : 'Report Assets';
+    scrollController.addListener(_onScroll);
+    _loadOptions();
+    reload();
   }
 
   @override
   void onClose() {
     _debounce?.cancel();
     searchController.dispose();
+    scrollController.dispose();
     super.onClose();
   }
 
-  void onSearchChanged(String value) {
-    final next = value.trim();
-    query.value = next;
-
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 450), () {
-      fetchAssets(search: next);
-    });
-  }
-
-  Future<void> refreshData() async {
-    await fetchAssets(search: query.value);
-  }
-
-  void selectCompany(String company) {
-    selectedCompany.value = company.trim().isEmpty ? 'ALL' : company.trim();
-    selectedLocation.value = 'ALL';
-  }
-
-  void selectLocation(String location) {
-    final next = location.trim().isEmpty ? 'ALL' : location.trim();
-    selectedLocation.value =
-        selectedLocation.value == next ? 'ALL' : next;
-  }
-
-  Future<void> fetchAssets({String? search}) async {
-    try {
-      isLoading.value = true;
-      final rows = await _masterRepository.getAssets(search: search);
-      assets.assignAll(rows);
-    } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Gagal memuat report asset',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-    } finally {
-      isLoading.value = false;
-      isFirstLoad.value = false;
+  void _onScroll() {
+    if (!scrollController.hasClients) return;
+    final position = scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 240) {
+      loadMore();
     }
   }
 
-  String readValue(Map<String, dynamic> row, List<String> keys) {
+  Future<void> _loadOptions() async {
+    try {
+      final response = await _api.get('${ApiConstants.assets}/options');
+      final body = response.data;
+      if (body is! Map || body['data'] is! Map) return;
+      final data = body['data'] as Map;
+      List<AssetFilterOption> parse(dynamic raw) => raw is List
+          ? raw
+              .whereType<Map>()
+              .map((e) => AssetFilterOption(
+                    '${e['value'] ?? ''}',
+                    '${e['label'] ?? e['value'] ?? ''}',
+                  ))
+              .where((o) => o.value.trim().isNotEmpty)
+              .toList()
+          : <AssetFilterOption>[];
+      companyOptions.assignAll(parse(data['companies']));
+      locationOptions.assignAll(parse(data['locations']));
+      categoryOptions.assignAll(parse(data['categories']));
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> get _params => {
+        'q': query.value,
+        'company': company.value,
+        'location': location.value,
+        'category': category.value,
+        'active': status.value,
+      };
+
+  void onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      query.value = value.trim();
+      reload();
+    });
+  }
+
+  void applyFilters({
+    required String company,
+    required String location,
+    required String category,
+    required String status,
+  }) {
+    this.company.value = company;
+    this.location.value = location;
+    this.category.value = category;
+    this.status.value = status;
+    reload();
+  }
+
+  void resetFilters() {
+    applyFilters(company: '', location: '', category: '', status: '');
+  }
+
+  Future<void> reload() async {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      final result = await _repository.fetch(
+        reportKey,
+        _params,
+        page: 1,
+        perPage: _pageSize,
+      );
+      items.assignAll(result.rows);
+      page.value = result.page;
+      totalPages.value = result.totalPages;
+      total.value = result.total;
+      await _loadActiveCount(result.total);
+    } catch (e) {
+      items.clear();
+      total.value = 0;
+      activeCount.value = 0;
+      errorMessage.value = '$e'.replaceFirst('Exception: ', '');
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> _loadActiveCount(int matching) async {
+    if (status.value == 'active') {
+      activeCount.value = matching;
+      return;
+    }
+    if (status.value == 'inactive') {
+      activeCount.value = 0;
+      return;
+    }
+    try {
+      final result = await _repository.fetch(
+        reportKey,
+        {..._params, 'active': 'active'},
+        page: 1,
+        perPage: 10,
+      );
+      activeCount.value = result.total;
+    } catch (_) {
+      activeCount.value = 0;
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (isLoading.value || isLoadingMore.value || !hasMore) return;
+    isLoadingMore.value = true;
+    try {
+      final result = await _repository.fetch(
+        reportKey,
+        _params,
+        page: page.value + 1,
+        perPage: _pageSize,
+      );
+      items.addAll(result.rows);
+      page.value = result.page;
+      totalPages.value = result.totalPages;
+    } catch (e) {
+      Get.snackbar(
+        'Gagal memuat',
+        '$e'.replaceFirst('Exception: ', ''),
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFFDC2626),
+        colorText: Colors.white,
+      );
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
+
+  Future<void> export(String format) async {
+    if (isExporting.value) return;
+    isExporting.value = true;
+    try {
+      await _repository.downloadAndOpen(
+        reportKey,
+        _params,
+        format: format,
+        fileName: title.replaceAll(' ', '_'),
+      );
+    } catch (e) {
+      Get.snackbar(
+        'Export gagal',
+        '$e'.replaceFirst('Exception: ', ''),
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFFDC2626),
+        colorText: Colors.white,
+      );
+    } finally {
+      isExporting.value = false;
+    }
+  }
+
+  String read(Map<String, dynamic> row, List<String> keys) {
     for (final key in keys) {
       final value = row[key];
       if (value != null && value.toString().trim().isNotEmpty) {
         return value.toString().trim();
       }
     }
-    return '-';
+    return '';
   }
 
-  String assetName(Map<String, dynamic> row) => readValue(
-        row,
-        const ['AssetName', 'asset_name', 'description', 'name'],
-      );
-
-  String assetCode(Map<String, dynamic> row) => readValue(
-        row,
-        const ['AssetCode', 'asset_code', 'tag_number', 'code'],
-      );
-
-  String company(Map<String, dynamic> row) => readValue(
-        row,
-        const ['CompanyName', 'Company', 'company', 'company_name'],
-      );
-
-  String normalizedCompany(Map<String, dynamic> row) {
-    final raw = company(row).trim().toUpperCase();
-    if (raw == 'UC' || raw.contains('UTAMA CORPORATION')) {
-      return 'UC';
-    }
-    if (raw == 'GSU' || raw.contains('GANDA SARIBU UTAMA')) {
-      return 'GSU';
-    }
-    if (raw == 'RU' || raw.contains('RATIMDO UTAMA')) {
-      return 'RU';
-    }
-    return raw;
-  }
-
-  String category(Map<String, dynamic> row) => readValue(
-        row,
-        const ['CategoryAsset', 'category', 'Category', 'category_asset'],
-      );
-
-  String location(Map<String, dynamic> row) => readValue(
-        row,
-        const ['LocationAsset', 'location', 'Location', 'location_asset'],
-      );
-
-  String remark(Map<String, dynamic> row) => readValue(
-        row,
-        const ['Keterangan', 'Remarks', 'remark', 'remarks'],
-      );
-
-  List<String> get companyOptions => const ['ALL', 'UC', 'GSU', 'RU'];
-
-  int get totalAssetCount => assets.length;
-
-  int companyAssetCount(String companyCode) {
-    final code = companyCode.trim().toUpperCase();
-    if (code.isEmpty || code == 'ALL') {
-      return totalAssetCount;
-    }
-    return assets.where((row) => normalizedCompany(row) == code).length;
-  }
-
-  List<Map<String, dynamic>> get filteredAssetsByCompany {
-    final companyFilter = selectedCompany.value.trim().toUpperCase();
-    if (companyFilter.isEmpty || companyFilter == 'ALL') {
-      return assets.toList();
-    }
-    return assets
-        .where((row) => normalizedCompany(row) == companyFilter)
-        .toList();
-  }
-
-  List<Map<String, dynamic>> get filteredAssets {
-    final locationFilter = selectedLocation.value.trim().toUpperCase();
-    if (locationFilter.isEmpty || locationFilter == 'ALL') {
-      return filteredAssetsByCompany;
-    }
-    return filteredAssetsByCompany
-        .where((row) => location(row).trim().toUpperCase() == locationFilter)
-        .toList();
-  }
-
-  List<MapEntry<String, int>> get locationSummaries {
-    final map = <String, int>{};
-    for (final row in filteredAssetsByCompany) {
-      final key = location(row).trim().isEmpty ? '-' : location(row).trim();
-      map[key] = (map[key] ?? 0) + 1;
-    }
-
-    final entries = map.entries.toList()
-      ..sort((a, b) {
-        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
-      });
-    return entries;
-  }
-
-  List<String> get locationOptions => [
-        'ALL',
-        ...locationSummaries.map((entry) => entry.key),
-      ];
-
-  int locationAssetCount(String locationName) {
-    if (locationName.trim().toUpperCase() == 'ALL') {
-      return filteredAssetsByCompany.length;
-    }
-
-    for (final entry in locationSummaries) {
-      if (entry.key.trim().toUpperCase() == locationName.trim().toUpperCase()) {
-        return entry.value;
-      }
-    }
-    return 0;
-  }
-
-  bool get isReadyToShowAssetList =>
-      selectedCompany.value != 'ALL' && selectedLocation.value != 'ALL';
+  bool isActive(Map<String, dynamic> row) =>
+      '${row['active'] ?? ''}'.toLowerCase() == 'active';
 }

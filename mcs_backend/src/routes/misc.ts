@@ -16,6 +16,7 @@ import { runPreventiveAlarmCron } from '../lib/preventive-alarm.js';
 import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl, putStorageConfig, saveFileWithKey, saveUploadedFile, testStorageConnection } from '../lib/storage.js';
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
 import { getWoUnifiedList } from '../lib/void-center.js';
+import { buildReportExport } from '../lib/report-export.js';
 import type { AuthRequest } from '../types.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -264,6 +265,18 @@ function canReadAssets(user: AuthRequest['user']): boolean {
   return Number(user?.list_of_asset ?? 0) === 1 || Number(user?.privilage_asset ?? 0) === 1;
 }
 
+miscRouter.get('/reports/:report/export', authenticate, asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const report = String(req.params.report).toLowerCase().trim();
+  const format = String(req.query.format ?? 'xlsx').toLowerCase() === 'pdf' ? 'pdf' : 'xlsx';
+  if (report !== 'recap-work-orders' && !canReadAssets(user)) throw new HttpError(403, 'Asset access is not permitted', 'REPORT_ACCESS_DENIED');
+  const query = Object.fromEntries(Object.entries(req.query).map(([k, v]) => [k, String(Array.isArray(v) ? v[0] : v ?? '')]));
+  const file = await buildReportExport(report, query, user, format);
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+  res.send(file.buffer);
+}));
+
 miscRouter.get('/reports/:report', authenticate, asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   const report = String(req.params.report).toLowerCase().trim();
@@ -277,7 +290,7 @@ miscRouter.get('/reports/:report', authenticate, asyncHandler(async (req, res) =
   }
   if (report === 'assets' || report === 'list-of-assets') {
     if (!canReadAssets(user)) throw new HttpError(403, 'Asset access is not permitted', 'REPORT_ACCESS_DENIED');
-    const { data, meta } = await getAssetReportList({ q: q('q'), company: q('company'), location: q('location'), category: q('category'), active: q('active'), page, per_page: perPage });
+    const { data, meta } = await getAssetReportList({ q: q('q'), company: q('company'), location: q('location'), category: q('category'), active: q('active') || (['active', 'inactive'].includes(q('status')) ? q('status') : ''), page, per_page: perPage });
     ok(res, data, undefined, meta);
     return;
   }

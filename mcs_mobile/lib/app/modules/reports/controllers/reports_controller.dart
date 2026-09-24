@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/routes/app_routes.dart';
 
 enum ReportTarget {
+  assets,
+  listOfAssets,
   assetHistory,
   cetakQr,
   reportSo,
@@ -37,24 +39,50 @@ class ReportItem {
 }
 
 class ReportsController extends GetxController {
+  static const List<String> _assetKeys = ['list_of_asset', 'privilage_asset'];
+  static const List<String> _recapKeys = [
+    'recap_wo',
+    'wo_mtc',
+    'wo_mtc_all',
+    'wo_operational',
+    'wo_preventive',
+    'wo_it',
+    'wo_ga',
+    'wo_cross_access',
+  ];
+
   final List<ReportItem> _allReports = [
+    const ReportItem(
+      title: 'Report Assets',
+      subtitle: 'Daftar asset dengan filter lengkap',
+      icon: Icons.inventory_2_outlined,
+      color: Color(0xFF6366F1),
+      target: ReportTarget.assets,
+      additionalPermissionKeys: _assetKeys,
+    ),
+    const ReportItem(
+      title: 'List Of Asset',
+      subtitle: 'Daftar asset perusahaan',
+      icon: Icons.list_alt_outlined,
+      color: Color(0xFF14B8A6),
+      target: ReportTarget.listOfAssets,
+      additionalPermissionKeys: _assetKeys,
+    ),
     const ReportItem(
       title: 'Asset History',
       subtitle: 'Riwayat perawatan asset',
       icon: Icons.history_toggle_off,
       color: Color(0xFF0EA5E9),
       target: ReportTarget.assetHistory,
-      nativeReady: false,
-      permissionKey: 'report_asset_history',
+      additionalPermissionKeys: _assetKeys,
     ),
     const ReportItem(
       title: 'Cetak QR',
-      subtitle: 'Cetak QR asset',
+      subtitle: 'Label QR asset',
       icon: Icons.qr_code_2,
       color: Color(0xFF10B981),
       target: ReportTarget.cetakQr,
-      nativeReady: false,
-      permissionKey: 'report_asset_history',
+      additionalPermissionKeys: _assetKeys,
     ),
     const ReportItem(
       title: 'Report SO',
@@ -66,11 +94,11 @@ class ReportsController extends GetxController {
     ),
     const ReportItem(
       title: 'Recap Work Order',
-      subtitle: 'Rekap WO maintenance',
+      subtitle: 'Rekap WO semua modul',
       icon: Icons.assignment_outlined,
       color: Color(0xFFEF4444),
       target: ReportTarget.recapWo,
-      permissionKey: 'recap_wo',
+      additionalPermissionKeys: _recapKeys,
     ),
     const ReportItem(
       title: 'Crystal Report WO',
@@ -119,8 +147,20 @@ class ReportsController extends GetxController {
       case ReportTarget.recapWo:
         Get.toNamed(AppRoutes.reportWoRecap);
         return;
+      case ReportTarget.assets:
+        Get.toNamed(AppRoutes.reportAsset,
+            arguments: {'report': 'assets', 'title': item.title});
+        return;
+      case ReportTarget.listOfAssets:
+        Get.toNamed(AppRoutes.reportAsset,
+            arguments: {'report': 'list-of-assets', 'title': item.title});
+        return;
       case ReportTarget.assetHistory:
+        Get.toNamed(AppRoutes.reportAssetHistory);
+        return;
       case ReportTarget.cetakQr:
+        Get.toNamed(AppRoutes.reportQr);
+        return;
       case ReportTarget.crystalWo:
         _showNativeUnavailable(item.title);
         return;
