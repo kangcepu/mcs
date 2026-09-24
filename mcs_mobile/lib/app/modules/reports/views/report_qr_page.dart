@@ -129,40 +129,63 @@ class _AssetList extends StatelessWidget {
       }
       return RefreshIndicator(
         onRefresh: controller.load,
-        child: ListView.separated(
-          controller: controller.scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
-          itemCount: controller.assets.length + 2,
-          separatorBuilder: (_, __) => const SizedBox(height: 6),
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Text(
-                  '${controller.assets.length} dari ${controller.total.value} aset',
-                  style: const TextStyle(fontSize: 12, color: _kMuted),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final columns = width >= 1000
+                ? 3
+                : width >= 620
+                    ? 2
+                    : 1;
+            return CustomScrollView(
+              controller: controller.scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+                    child: Text(
+                      '${controller.assets.length} dari ${controller.total.value} aset',
+                      style: const TextStyle(fontSize: 12, color: _kMuted),
+                    ),
+                  ),
                 ),
-              );
-            }
-            if (index == controller.assets.length + 1) {
-              return controller.isLoadingMore.value
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
-                    )
-                  : const SizedBox(height: 4);
-            }
-            final row = controller.assets[index - 1];
-            return _AssetCard(
-              row: row,
-              onPrint: () => _openLabel(context, row),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  sliver: SliverGrid(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 6,
+                      mainAxisExtent: 88,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final row = controller.assets[index];
+                        return _AssetCard(
+                          row: row,
+                          onPrint: () => _openLabel(context, row),
+                        );
+                      },
+                      childCount: controller.assets.length,
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: controller.isLoadingMore.value
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        )
+                      : const SizedBox(height: 12),
+                ),
+              ],
             );
           },
         ),

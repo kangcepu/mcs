@@ -109,7 +109,7 @@ class _AssetSearchView extends StatelessWidget {
                 message: 'Coba ubah kata kunci pencarian.',
               );
             }
-            return RefreshIndicator(
+            return _constrained(RefreshIndicator(
               onRefresh: controller.loadAssets,
               child: ListView.separated(
                 controller: controller.assetScroll,
@@ -130,7 +130,7 @@ class _AssetSearchView extends StatelessWidget {
                   );
                 },
               ),
-            );
+            ));
           }),
         ),
       ],
@@ -259,7 +259,7 @@ class _HistoryView extends StatelessWidget {
                 ),
               );
             }
-            return RefreshIndicator(
+            return _constrained(RefreshIndicator(
               onRefresh: controller.loadHistory,
               child: ListView.separated(
                 controller: controller.historyScroll,
@@ -276,7 +276,7 @@ class _HistoryView extends StatelessWidget {
                   return _HistoryCard(row: controller.history[index]);
                 },
               ),
-            );
+            ));
           }),
         ),
       ],
@@ -596,3 +596,11 @@ class _Notice extends StatelessWidget {
     );
   }
 }
+
+Widget _constrained(Widget child) => Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: child,
+      ),
+    );

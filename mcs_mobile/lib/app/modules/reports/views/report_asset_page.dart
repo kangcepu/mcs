@@ -115,7 +115,18 @@ class ReportAssetPage extends StatelessWidget {
               ],
             ),
           ),
-          Obx(() => _ActiveFilterChips(controller: controller)),
+          Obx(() {
+            final chips = <String>[
+              if (controller.company.value.isNotEmpty) controller.company.value,
+              if (controller.location.value.isNotEmpty)
+                controller.location.value,
+              if (controller.category.value.isNotEmpty)
+                controller.category.value,
+              if (controller.status.value.isNotEmpty)
+                controller.status.value == 'active' ? 'Aktif' : 'Nonaktif',
+            ];
+            return _ActiveFilterChips(chips: chips);
+          }),
           Expanded(
             child: Obx(() {
               if (controller.isLoading.value && controller.items.isEmpty) {
@@ -146,48 +157,63 @@ class ReportAssetPage extends StatelessWidget {
                   ),
                 );
               }
-              final count = controller.items.length;
               return RefreshIndicator(
                 onRefresh: controller.reload,
-                child: ListView.separated(
-                  controller: controller.scrollController,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
-                  itemCount: count + 1,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    if (index == count) {
-                      return Obx(
-                        () => controller.isLoadingMore.value
-                            ? const Padding(
-                                padding: EdgeInsets.all(10),
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final columns = width >= 1000
+                        ? 3
+                        : width >= 620
+                            ? 2
+                            : 1;
+                    final count = controller.items.length;
+                    Widget footer() => Obx(
+                          () => Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Center(
+                              child: controller.isLoadingMore.value
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(
+                                      '${controller.items.length} dari ${controller.total.value} asset',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF9CA3AF),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                              )
-                            : Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: Center(
-                                  child: Text(
-                                    '${controller.items.length} dari ${controller.total.value} asset',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF9CA3AF),
-                                    ),
-                                  ),
-                                ),
+                            ),
+                          ),
+                        );
+                    return CustomScrollView(
+                      controller: controller.scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+                          sliver: SliverGrid(
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: columns,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 6,
+                              mainAxisExtent: 100,
+                            ),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) => _AssetCard(
+                                row: controller.items[index],
+                                controller: controller,
                               ),
-                      );
-                    }
-                    return _AssetCard(
-                      row: controller.items[index],
-                      controller: controller,
+                              childCount: count,
+                            ),
+                          ),
+                        ),
+                        SliverToBoxAdapter(child: footer()),
+                      ],
                     );
                   },
                 ),
@@ -324,19 +350,12 @@ class ReportAssetPage extends StatelessWidget {
 }
 
 class _ActiveFilterChips extends StatelessWidget {
-  final ReportAssetController controller;
+  final List<String> chips;
 
-  const _ActiveFilterChips({required this.controller});
+  const _ActiveFilterChips({required this.chips});
 
   @override
   Widget build(BuildContext context) {
-    final chips = <String>[
-      if (controller.company.value.isNotEmpty) controller.company.value,
-      if (controller.location.value.isNotEmpty) controller.location.value,
-      if (controller.category.value.isNotEmpty) controller.category.value,
-      if (controller.status.value.isNotEmpty)
-        controller.status.value == 'active' ? 'Aktif' : 'Nonaktif',
-    ];
     if (chips.isEmpty) return const SizedBox.shrink();
     return SizedBox(
       height: 30,

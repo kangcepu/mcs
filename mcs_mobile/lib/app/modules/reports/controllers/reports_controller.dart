@@ -167,13 +167,6 @@ class ReportsController extends GetxController {
     }
   }
 
-  String actionLabel(ReportItem item) {
-    if (!item.nativeReady) {
-      return 'Segera Hadir';
-    }
-    return 'Buka Halaman';
-  }
-
   void _showNativeUnavailable(String title) {
     Get.snackbar(
       'Belum tersedia',
