@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../providers/api_service.dart';
 import '../../core/constants/api_constants.dart';
 
@@ -54,83 +56,45 @@ class MasterRepository {
     }
   }
 
+  static const int _assetPageSize = 200;
+  static const int _assetMaxPages = 50;
+
   Future<List<Map<String, dynamic>>> getAssets({String? search}) async {
+    final all = <Map<String, dynamic>>[];
     try {
-      final queryParams = {
-        if (search != null && search.isNotEmpty) 'q': search,
-      };
+      for (var page = 1; page <= _assetMaxPages; page++) {
+        final response = await _apiService.get(
+          ApiConstants.assets,
+          queryParameters: {
+            if (search != null && search.isNotEmpty) 'q': search,
+            'page': page,
+            'per_page': _assetPageSize,
+          },
+        );
 
-      final response = await _apiService.get(
-        ApiConstants.assets,
-        queryParameters: queryParams,
-      );
-
-      print('🔍 Assets API Response:');
-      print('   Status Code: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
+        if (response.statusCode != 200) break;
         final data = response.data;
-        if (data['success'] == true) {
-          final responseData = data['data'];
+        if (data is! Map || data['success'] != true) break;
 
-          if (responseData is List) {
-            print('   ✅ Format: List with ${responseData.length} items');
-            return List<Map<String, dynamic>>.from(responseData);
-          } else if (responseData is Map) {
-            final firstKey = responseData.keys.first.toString();
-
-            if (firstKey == '0' || int.tryParse(firstKey) != null) {
-              print(
-                  '   ✅ Format: PHP numeric-keyed Map with ${responseData.length} items');
-              final List<Map<String, dynamic>> assetsList = [];
-
-              responseData.forEach((key, value) {
-                if (value is Map<String, dynamic>) {
-                  assetsList.add(value);
-                }
-              });
-
-              print('   ✅ Converted to list: ${assetsList.length} items');
-              return assetsList;
-            } else if (responseData.containsKey('items')) {
-              final items = responseData['items'];
-              print('   ✅ Found items array with ${items.length} items');
-              return List<Map<String, dynamic>>.from(items);
-            } else {
-              print('   ⚠️ Unknown Map format, wrapping in list');
-              return List<Map<String, dynamic>>.from([responseData]);
-            }
-          }
+        final responseData = data['data'];
+        final pageItems = responseData is List
+            ? responseData
+            : (responseData is Map && responseData['items'] is List)
+                ? responseData['items'] as List
+                : const [];
+        for (final item in pageItems) {
+          if (item is Map) all.add(Map<String, dynamic>.from(item));
         }
+
+        final meta = data['meta'];
+        final totalPages =
+            meta is Map ? int.tryParse('${meta['total_pages']}') ?? 1 : 1;
+        if (pageItems.isEmpty || page >= totalPages) break;
       }
-      return [];
+      return all;
     } catch (e) {
-      print('❌ getAssets error: $e');
-      return [];
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getAssetMutations({String? search}) async {
-    try {
-      final queryParams = <String, dynamic>{
-        'limit': 300,
-        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
-      };
-
-      final response = await _apiService.get(
-        ApiConstants.assetMutations,
-        queryParameters: queryParams,
-      );
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data['success'] == true && data['data'] is List) {
-          return List<Map<String, dynamic>>.from(data['data']);
-        }
-      }
-      return [];
-    } catch (e) {
-      throw Exception('Get asset mutations error: $e');
+      debugPrint('getAssets error: $e');
+      return all;
     }
   }
 

@@ -85,7 +85,6 @@ class ApiConstants {
   static const String sections = '/v2/master/sections';
   static const String assets = '/v2/assets';
   static const String assetDetail = '/v2/assets/detail';
-  static const String assetMutations = '/v2/assets';
   static const String assetMutationMeta = '/v2/asset-mutations/meta';
   static const String assetMutationAssets = '/v2/asset-mutations/assets';
   static const String assetMutationRequests = '/v2/asset-mutations';

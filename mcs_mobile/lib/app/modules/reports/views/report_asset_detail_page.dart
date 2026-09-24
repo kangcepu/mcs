@@ -66,19 +66,38 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
     try {
       final result = await _repository.getAssetDetail(assetCode: _assetCode);
 
-      final assetMap = result['asset'] is Map
-          ? Map<String, dynamic>.from(result['asset'] as Map)
-          : <String, dynamic>{};
-      final mediaMap = result['media'] is Map
-          ? Map<String, dynamic>.from(result['media'] as Map)
-          : <String, dynamic>{};
+      final assetMap = Map<String, dynamic>.from(result)
+        ..removeWhere((key, _) =>
+            key == 'attachments' || key == 'custom_details' || key == 'parts');
 
-      final images = _toMapList(mediaMap['images']);
-      final documents = _toMapList(mediaMap['documents']);
+      final images = <Map<String, dynamic>>[];
+      final documents = <Map<String, dynamic>>[];
+      for (final row in _toMapList(result['attachments'])) {
+        final filename = (row['filename'] ?? '').toString().trim();
+        if (filename.isEmpty) continue;
+        final original = (row['original_filename'] ?? '').toString().trim();
+        final entry = <String, dynamic>{
+          ...row,
+          'name': original.isEmpty ? filename : original,
+          'url': '/uploads/masterAsset/$filename',
+        };
+        final mime = (row['mime'] ?? '').toString().toLowerCase();
+        final ext = filename.contains('.')
+            ? filename.split('.').last.toLowerCase()
+            : '';
+        const imageExts = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'jfif'};
+        if (mime.startsWith('image/') || imageExts.contains(ext)) {
+          images.add(entry);
+        } else {
+          documents.add(entry);
+        }
+      }
 
       if (!mounted) return;
       setState(() {
-        _asset = assetMap.isNotEmpty ? assetMap : Map<String, dynamic>.from(_baseRow);
+        _asset = assetMap.isNotEmpty
+            ? {..._baseRow, ...assetMap}
+            : Map<String, dynamic>.from(_baseRow);
         _images = images;
         _documents = documents;
       });

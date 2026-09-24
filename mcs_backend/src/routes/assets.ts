@@ -134,7 +134,11 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
 
   const where: string[] = [];
   const params: unknown[] = [];
-  if (q) { where.push('(AssetCode LIKE ? OR AssetName LIKE ? OR AliasName LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  if (q) {
+    const searchFields = ['AssetID', 'AssetCode', 'AssetName', 'AliasName', 'brand', 'Keterangan', 'CompanyName', 'LocationAsset', 'CategoryAsset'];
+    where.push(`(${searchFields.map((f) => `${f} LIKE ?`).join(' OR ')})`);
+    params.push(...searchFields.map(() => `%${q}%`));
+  }
   const company = String(req.query.company ?? '').trim();
   if (company) { where.push('CompanyName = ?'); params.push(company); }
   const location = String(req.query.location ?? '').trim();
