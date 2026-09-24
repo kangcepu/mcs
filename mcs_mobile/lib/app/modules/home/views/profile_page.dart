@@ -282,18 +282,48 @@ class _ProfilePageState extends State<ProfilePage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildIdentityCard(),
-                  const SizedBox(height: 18),
-                  _buildProfileCard(),
-                  const SizedBox(height: 18),
-                  _buildPasswordCard(),
-                  const SizedBox(height: 18),
-                  _buildLogoutCard(),
-                ],
+              padding: const EdgeInsets.all(12),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 720;
+                  if (wide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            children: [
+                              _buildIdentityCard(),
+                              const SizedBox(height: 10),
+                              _buildProfileCard(constraints.maxWidth),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              _buildPasswordCard(sideBySide: false),
+                              const SizedBox(height: 10),
+                              _buildLogoutButton(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  return Column(
+                    children: [
+                      _buildIdentityCard(),
+                      const SizedBox(height: 10),
+                      _buildProfileCard(constraints.maxWidth),
+                      const SizedBox(height: 10),
+                      _buildPasswordCard(sideBySide: true),
+                      const SizedBox(height: 10),
+                      _buildLogoutButton(),
+                    ],
+                  );
+                },
               ),
             ),
     );
@@ -301,24 +331,24 @@ class _ProfilePageState extends State<ProfilePage> {
 
   BoxDecoration get _cardDecoration => BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       );
 
   Widget _buildAvatar(User? user) {
-    const size = 72.0;
+    const size = 56.0;
     final initials = _initials(user?.fullname ?? '');
     final fallback = Center(
       child: Text(
         initials,
         style: const TextStyle(
-          fontSize: 24,
+          fontSize: 20,
           fontWeight: FontWeight.w800,
           color: Color(0xFF1D4ED8),
         ),
@@ -344,7 +374,7 @@ class _ProfilePageState extends State<ProfilePage> {
       height: size,
       decoration: BoxDecoration(
         color: const Color(0xFFDBEAFE),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       clipBehavior: Clip.antiAlias,
@@ -355,111 +385,133 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildIdentityCard() {
     final user = _user;
     final hasPicked = _pickedPhotoPath != null;
+    const compact = VisualDensity(horizontal: -3, vertical: -3);
+    const smallText = TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: _cardDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              _buildAvatar(user),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          _buildAvatar(user),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (user?.fullname ?? '').trim().isEmpty ? '-' : user!.fullname,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                Text(
+                  user?.username ?? '-',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 0,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text(
-                      (user?.fullname ?? '').trim().isEmpty
-                          ? '-'
-                          : user!.fullname,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF111827),
+                    TextButton.icon(
+                      onPressed: _isPhotoBusy ? null : _chooseSource,
+                      style: TextButton.styleFrom(
+                        visualDensity: compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: smallText,
                       ),
+                      icon: const Icon(Icons.image_outlined, size: 16),
+                      label: Text(hasPicked ? 'Ganti Pilihan' : 'Pilih Foto'),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      user?.username ?? '-',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF6B7280),
+                    if (hasPicked)
+                      TextButton(
+                        onPressed: _isPhotoBusy ? null : _savePhoto,
+                        style: TextButton.styleFrom(
+                          visualDensity: compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: smallText,
+                        ),
+                        child: _isPhotoBusy
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Simpan Foto'),
                       ),
-                    ),
+                    if (hasPicked)
+                      TextButton(
+                        onPressed: _isPhotoBusy
+                            ? null
+                            : () => setState(() => _pickedPhotoPath = null),
+                        style: TextButton.styleFrom(
+                          visualDensity: compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: smallText,
+                          foregroundColor: const Color(0xFF6B7280),
+                        ),
+                        child: const Text('Batal'),
+                      ),
+                    if (!hasPicked && _hasSavedPhoto)
+                      TextButton.icon(
+                        onPressed: _isPhotoBusy ? null : _removePhoto,
+                        style: TextButton.styleFrom(
+                          visualDensity: compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: smallText,
+                          foregroundColor: Colors.red,
+                        ),
+                        icon: const Icon(Icons.delete_outline, size: 16),
+                        label: const Text('Hapus'),
+                      ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Divider(height: 1),
-          const SizedBox(height: 14),
-          const Text(
-            'Foto Profil',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF6B7280),
+                const Text(
+                  'JPG / PNG / WEBP, maks 2 MB',
+                  style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _isPhotoBusy ? null : _chooseSource,
-                icon: const Icon(Icons.image_outlined, size: 18),
-                label: Text(hasPicked ? 'Ganti Pilihan' : 'Pilih Foto'),
-              ),
-              if (hasPicked)
-                ElevatedButton(
-                  onPressed: _isPhotoBusy ? null : _savePhoto,
-                  child: _isPhotoBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Simpan Foto'),
-                ),
-              if (hasPicked)
-                TextButton(
-                  onPressed: _isPhotoBusy
-                      ? null
-                      : () => setState(() => _pickedPhotoPath = null),
-                  child: const Text('Batal'),
-                ),
-              if (!hasPicked && _hasSavedPhoto)
-                TextButton.icon(
-                  onPressed: _isPhotoBusy ? null : _removePhoto,
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Hapus'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'JPG / PNG / WEBP, maksimal 2 MB.',
-            style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildProfileCard() {
+  Widget _buildProfileCard(double availableWidth) {
     final user = _user;
+    final items = <List<String>>[
+      ['Nama Lengkap', user?.fullname ?? '-'],
+      ['Kode Karyawan / NIK', user?.username ?? '-'],
+      ['Email', user?.email ?? '-'],
+      ['Nomor HP', user?.phone ?? '-'],
+      ['Divisi', user?.division?.divisionName ?? '-'],
+      ['Company', user?.company?.companyName ?? '-'],
+    ];
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
       decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,27 +519,52 @@ class _ProfilePageState extends State<ProfilePage> {
           const Text(
             'Informasi Akun',
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 14,
               fontWeight: FontWeight.w800,
               color: Color(0xFF111827),
             ),
           ),
-          const SizedBox(height: 14),
-          _buildInfoTile('Nama Lengkap', user?.fullname ?? '-'),
-          _buildInfoTile('Kode Karyawan / NIK', user?.username ?? '-'),
-          _buildInfoTile('Email', user?.email ?? '-'),
-          _buildInfoTile('Nomor HP', user?.phone ?? '-'),
-          _buildInfoTile('Divisi', user?.division?.divisionName ?? '-'),
-          _buildInfoTile('Company', user?.company?.companyName ?? '-'),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, box) {
+              const gap = 12.0;
+              final tileWidth = (box.maxWidth - gap) / 2;
+              return Wrap(
+                spacing: gap,
+                children: [
+                  for (final item in items)
+                    SizedBox(
+                      width: tileWidth,
+                      child: _buildInfoTile(item[0], item[1]),
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPasswordCard() {
+  Widget _buildPasswordCard({required bool sideBySide}) {
+    final newField = _buildPasswordField(
+      controller: _newPasswordController,
+      label: 'Password Baru (min. $_minPasswordLength)',
+      obscureText: _obscureNew,
+      errorText: _newPasswordError,
+      onToggle: () => setState(() => _obscureNew = !_obscureNew),
+    );
+    final confirmField = _buildPasswordField(
+      controller: _confirmPasswordController,
+      label: 'Konfirmasi Password Baru',
+      obscureText: _obscureConfirm,
+      errorText: _confirmPasswordError,
+      onToggle: () => setState(() => _obscureConfirm = !_obscureConfirm),
+    );
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,42 +572,34 @@ class _ProfilePageState extends State<ProfilePage> {
           const Text(
             'Ganti Password',
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 14,
               fontWeight: FontWeight.w800,
               color: Color(0xFF111827),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           _buildPasswordField(
             controller: _currentPasswordController,
             label: 'Password Saat Ini',
             obscureText: _obscureCurrent,
-            onToggle: () {
-              setState(() => _obscureCurrent = !_obscureCurrent);
-            },
+            onToggle: () => setState(() => _obscureCurrent = !_obscureCurrent),
           ),
-          const SizedBox(height: 12),
-          _buildPasswordField(
-            controller: _newPasswordController,
-            label: 'Password Baru',
-            obscureText: _obscureNew,
-            errorText: _newPasswordError,
-            helperText: 'Minimal $_minPasswordLength karakter.',
-            onToggle: () {
-              setState(() => _obscureNew = !_obscureNew);
-            },
-          ),
-          const SizedBox(height: 12),
-          _buildPasswordField(
-            controller: _confirmPasswordController,
-            label: 'Konfirmasi Password Baru',
-            obscureText: _obscureConfirm,
-            errorText: _confirmPasswordError,
-            onToggle: () {
-              setState(() => _obscureConfirm = !_obscureConfirm);
-            },
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          if (sideBySide)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: newField),
+                const SizedBox(width: 8),
+                Expanded(child: confirmField),
+              ],
+            )
+          else ...[
+            newField,
+            const SizedBox(height: 8),
+            confirmField,
+          ],
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -538,15 +607,15 @@ class _ProfilePageState extends State<ProfilePage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF111827),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(vertical: 10),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
               child: _isSaving
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
@@ -563,28 +632,23 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildLogoutCard() {
-    return Container(
+  Widget _buildLogoutButton() {
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDecoration,
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: _homeController.logout,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFDC2626),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+      child: ElevatedButton.icon(
+        onPressed: _homeController.logout,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFDC2626),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
           ),
-          icon: const Icon(Icons.logout_rounded),
-          label: const Text(
-            'Logout',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
+        ),
+        icon: const Icon(Icons.logout_rounded, size: 18),
+        label: const Text(
+          'Logout',
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -592,23 +656,24 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildInfoTile(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
             style: const TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
               color: Color(0xFF6B7280),
             ),
           ),
-          const SizedBox(height: 4),
           Text(
             value.trim().isEmpty ? '-' : value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
               color: Color(0xFF111827),
             ),
@@ -624,20 +689,28 @@ class _ProfilePageState extends State<ProfilePage> {
     required bool obscureText,
     required VoidCallback onToggle,
     String? errorText,
-    String? helperText,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
       onChanged: (_) => setState(() {}),
+      style: const TextStyle(fontSize: 13),
       decoration: InputDecoration(
         labelText: label,
+        labelStyle: const TextStyle(fontSize: 12),
         errorText: errorText,
-        helperText: helperText,
+        isDense: true,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        suffixIconConstraints:
+            const BoxConstraints(minWidth: 36, minHeight: 36),
         suffixIcon: IconButton(
           onPressed: onToggle,
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
           icon: Icon(
             obscureText ? Icons.visibility_off_outlined : Icons.visibility,
+            size: 18,
           ),
         ),
       ),
