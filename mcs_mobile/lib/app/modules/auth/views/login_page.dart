@@ -187,7 +187,7 @@ class LoginPage extends StatelessWidget {
 
                   // Copyright Text
                   Text(
-                    'Copyright © 2025. All rights reserved.',
+                    'Copyright © ${DateTime.now().year}. All rights reserved.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
