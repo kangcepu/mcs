@@ -14,6 +14,27 @@ interface Handlers {
   onResync: () => void;
 }
 
+type Listener = () => void;
+const listeners = new Set<Listener>();
+let connectionState: "connected" | "connecting" | "disconnected" = "disconnected";
+
+export function getRealtimeConnectionState(): "connected" | "connecting" | "disconnected" {
+  return connectionState;
+}
+
+export function subscribeRealtimeConnection(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function setConnectionState(next: "connected" | "connecting" | "disconnected"): void {
+  if (connectionState === next) return;
+  connectionState = next;
+  listeners.forEach((l) => l());
+}
+
 const WATCHDOG_MS = 45_000;
 const MIN_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -29,6 +50,7 @@ export function startRealtime({ onChange, onResync }: Handlers): () => void {
 
   const dispatch = (name: string, data: string) => {
     if (name === "ready") {
+      setConnectionState("connected");
       if (hadConnection) onResync();
       hadConnection = true;
       return;
@@ -51,6 +73,7 @@ export function startRealtime({ onChange, onResync }: Handlers): () => void {
     const token = getToken();
     if (!token) return "auth";
     controller = new AbortController();
+    setConnectionState("connecting");
     try {
       const response = await fetch(`${API_V2_URL}/realtime/stream`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
@@ -91,6 +114,7 @@ export function startRealtime({ onChange, onResync }: Handlers): () => void {
       return "retry";
     } finally {
       if (watchdog) clearTimeout(watchdog);
+      setConnectionState("disconnected");
     }
   };
 

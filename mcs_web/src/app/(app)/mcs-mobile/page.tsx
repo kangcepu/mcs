@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { CheckCircle2, Download, FileArchive, MonitorSmartphone, ShieldAlert, Smartphone, Upload, Wifi } from "lucide-react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { Activity, AlertTriangle, CheckCircle2, Download, FileArchive, MonitorSmartphone, ShieldAlert, Smartphone, Upload, Wifi } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Button, Field, Input, Textarea } from "@/components/ui/primitives";
 import { LoadingSkeleton } from "@/components/ui/states";
@@ -16,7 +16,8 @@ import { useMcsMobileRelease, useUploadMcsMobileRelease, useMcsMobileDevices } f
 import { PERMISSIONS } from "@/lib/permissions";
 import { formatDateTime, formatBytes, formatNumber } from "@/lib/format";
 import { toAbsoluteUploadUrl } from "@/lib/env";
-import { ApiError } from "@/types/api";
+import { ApiError, type RealtimeServerStatus } from "@/types/api";
+import { getRealtimeConnectionState, subscribeRealtimeConnection } from "@/lib/realtime";
 import type { McsMobileDevice } from "@/lib/api/mcs-mobile";
 
 const MAX_RELEASE_BYTES = 300 * 1024 * 1024;
@@ -48,10 +49,19 @@ export default function McsMobilePage() {
   const [q, setQ] = useState("");
   const [platform, setPlatform] = useState("");
   const [status, setStatus] = useState("active");
+  const [versionFilter, setVersionFilter] = useState("");
+  const [group, setGroup] = useState("");
+  const [onlineFilter, setOnlineFilter] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
-  const devices = useMcsMobileDevices({ q, platform, status, page, per_page: perPage }, canUpload && tab === "devices");
+  const devices = useMcsMobileDevices({ q, platform, status, version: versionFilter, group: group || undefined, online: onlineFilter || undefined, page, per_page: perPage }, canUpload && tab === "devices");
   const summary = devices.data?.meta?.summary;
+  const realtime = devices.data?.meta?.realtime;
+  const maxOutdatedVersion = devices.data?.meta?.max_outdated_version ?? "1.5.2";
+  const versionOptions = [
+    { value: "outdated", label: `Harus update (≤ ${maxOutdatedVersion})` },
+    { value: "latest", label: `Sudah terbaru (> ${maxOutdatedVersion})` },
+  ];
 
   const selectFile = (next: File | null) => {
     if (!next) {
@@ -97,12 +107,23 @@ export default function McsMobilePage() {
   };
 
   const columns: Column<McsMobileDevice>[] = [
-    { key: "fullname", header: "User", cell: (row) => <div><div className="font-medium text-slate-900">{row.fullname || "-"}</div><div className="text-xs text-slate-500">{row.username || "-"}</div></div> },
+    { key: "fullname", header: "User", cell: (row) => <div><div className="flex items-center gap-1.5 font-medium text-slate-900">{row.online ? <span title="Online sekarang" className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span> : null}{row.fullname || "-"}</div><div className="text-xs text-slate-500">{row.username || "-"}{group === "" && (row.device_count ?? 1) > 1 ? ` · ${row.device_count} device terdaftar` : ""}</div></div> },
     { key: "device_name", header: "Device", cell: (row) => row.device_name || "-" },
     { key: "platform", header: "Platform", cell: (row) => <span className="capitalize">{row.platform || "-"}</span> },
-    { key: "app_version", header: "App Version", cell: (row) => row.app_version ? `${row.app_version}${row.build_number ? ` (${row.build_number})` : ""}` : "-" },
+    { key: "app_version", header: "App Version", cell: (row) => (
+      <div className="flex items-center gap-2">
+        <span>{row.app_version ? `${row.app_version}${row.build_number ? ` (${row.build_number})` : ""}` : "-"}</span>
+        {row.outdated ? <span className="whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-600/20">Harus update</span> : null}
+        {row.is_latest === false ? <span className="whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/20">Device lama</span> : null}
+      </div>
+    ) },
     { key: "ip_address", header: "IP Address", cell: (row) => row.ip_address || "-" },
-    { key: "last_seen_at", header: "Terakhir Aktif", cell: (row) => row.last_seen_at ? new Date(row.last_seen_at.replace(" ", "T")).toLocaleString("id-ID") : "-" },
+    { key: "last_seen_at", header: "Terakhir Aktif", cell: (row) => row.online ? (
+      <div>
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Online sekarang</span>
+        {row.online_since ? <div className="mt-0.5 text-[11px] text-slate-500">sejak {new Date(row.online_since).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</div> : null}
+      </div>
+    ) : (row.last_seen_at ? new Date(row.last_seen_at.replace(" ", "T")).toLocaleString("id-ID") : "-") },
     { key: "is_active", header: "Status", cell: (row) => <StatusBadge status={row.is_active ? "active" : "inactive"} /> },
   ];
 
@@ -201,21 +222,84 @@ export default function McsMobilePage() {
         </>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile icon={<MonitorSmartphone className="h-5 w-5" />} label="Total Device" value={formatNumber(summary?.total_devices)} />
-            <StatTile icon={<CheckCircle2 className="h-5 w-5" />} label="Device Aktif" value={formatNumber(summary?.active_devices)} />
+          <RealtimePanel status={realtime} loading={devices.isLoading} />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <StatTile icon={<MonitorSmartphone className="h-5 w-5" />} label="Total User" value={formatNumber(summary?.total_users)} />
+            <StatTile icon={<CheckCircle2 className="h-5 w-5" />} label="User Aktif" value={formatNumber(summary?.active_users)} />
             <StatTile icon={<Smartphone className="h-5 w-5" />} label="Android" value={formatNumber(summary?.android)} />
-            <StatTile icon={<Wifi className="h-5 w-5" />} label="iOS" value={formatNumber(summary?.ios)} />
+            <StatTile icon={<Wifi className="h-5 w-5" />} label="Online sekarang (mobile)" value={formatNumber(summary?.online_mobile_users)} />
+            <StatTile icon={<AlertTriangle className="h-5 w-5" />} label={`User harus update (≤ ${maxOutdatedVersion})`} value={formatNumber(summary?.outdated_users)} />
           </div>
           <FilterBar search={q} onSearchChange={(value) => { setQ(value); setPage(1); }} searchPlaceholder="Cari user, device, atau IP…" onRefresh={() => devices.refetch()} isFetching={devices.isFetching}>
             <FilterSelect value={platform} onChange={(value) => { setPlatform(value); setPage(1); }} placeholder="Semua platform" options={platforms} />
             <FilterSelect value={status} onChange={(value) => { setStatus(value); setPage(1); }} placeholder="Semua status" options={statuses} />
+            <FilterSelect value={group} onChange={(value) => { setGroup(value); setPage(1); }} placeholder="1 baris per user" options={[{ value: "device", label: "Semua device" }]} />
+            <FilterSelect value={onlineFilter} onChange={(value) => { setOnlineFilter(value); setPage(1); }} placeholder="Semua (online/offline)" options={[{ value: "online", label: "Sedang online" }, { value: "offline", label: "Tidak online" }]} />
+            <FilterSelect value={versionFilter} onChange={(value) => { setVersionFilter(value); setPage(1); }} placeholder="Semua versi" options={versionOptions} />
           </FilterBar>
           <DataTable columns={columns} data={devices.data?.data} rowKey={(row) => row.id} isLoading={devices.isLoading} isFetching={devices.isFetching && !devices.isLoading} error={devices.error} onRetry={() => devices.refetch()} emptyTitle="Belum ada device terdaftar" emptyDescription="Device yang login lewat MCS Mobile akan muncul di sini." />
           {(devices.data?.data.length ?? 0) > 0 ? <div className="card"><Pagination meta={devices.data?.meta} page={page} perPage={perPage} onPageChange={setPage} onPerPageChange={(value) => { setPerPage(value); setPage(1); }} /></div> : null}
         </>
       )}
     </PageContainer>
+  );
+}
+
+function formatAgo(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "belum ada";
+  if (seconds < 5) return "baru saja";
+  if (seconds < 60) return `${seconds} dtk lalu`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} mnt lalu`;
+  return `${Math.floor(seconds / 3600)} jam lalu`;
+}
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return d > 0 ? `${d}h ${h}j` : h > 0 ? `${h}j ${m}m` : `${m}m`;
+}
+
+function RealtimePanel({ status, loading }: { status?: RealtimeServerStatus; loading: boolean }) {
+  const browser = useSyncExternalStore(subscribeRealtimeConnection, getRealtimeConnectionState, () => "disconnected" as const);
+  const watcherOk = status ? status.watcher.last_poll_ok && (status.watcher.last_poll_seconds_ago ?? 0) <= status.watcher.interval_seconds * 4 : false;
+  const healthy = Boolean(status?.running) && watcherOk;
+  const tone = !status ? "bg-slate-400" : healthy ? "bg-emerald-500" : "bg-amber-500";
+  const title = !status ? (loading ? "Memeriksa layanan realtime…" : "Status layanan realtime tidak tersedia") : healthy ? "Layanan realtime berjalan" : "Layanan realtime perlu dicek";
+  const items: Array<[string, string]> = status ? [
+    ["Server aktif", formatUptime(status.uptime_seconds)],
+    ["Koneksi terbuka", `${status.clients_total} (mobile ${status.clients_mobile} · web ${status.clients_web})`],
+    ["Pemantau database", status.watcher.active ? `poll ${formatAgo(status.watcher.last_poll_seconds_ago)} · ${status.watcher.last_poll_ok ? `OK ${status.watcher.last_poll_ms} ms` : "GAGAL"}` : "idle (tidak ada klien)"],
+    ["Perubahan terdeteksi", `${formatAgo(status.watcher.last_change_seconds_ago)}`],
+    ["Event terkirim", `${status.events_total} · terakhir ${formatAgo(status.last_event_seconds_ago)}`],
+    ["Browser ini", browser === "connected" ? "Terhubung" : browser === "connecting" ? "Menyambung…" : "Terputus"],
+  ] : [];
+
+  return (
+    <div className="card p-3">
+      <div className="flex items-center gap-2">
+        <span className="relative flex h-2.5 w-2.5">
+          {healthy ? <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /> : null}
+          <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${tone}`} />
+        </span>
+        <Activity className="h-4 w-4 text-slate-500" />
+        <span className="text-sm font-semibold text-slate-900">{title}</span>
+        <span className="ml-auto text-[11px] text-slate-400">diperbarui otomatis tiap 10 detik</span>
+      </div>
+      {items.length ? (
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs md:grid-cols-3 lg:grid-cols-6">
+          {items.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-slate-400">{label}</dt>
+              <dd className="font-medium text-slate-700">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <p className="mt-2 text-[11px] leading-4 text-slate-400">
+        Online = aplikasi mobile sedang terbuka dan tersambung realtime. Jika aplikasi ditutup atau berjalan di background, koneksinya terputus dan user tampil tidak online. Hanya versi aplikasi yang memuat fitur realtime yang bisa terdeteksi online.
+      </p>
+    </div>
   );
 }
 

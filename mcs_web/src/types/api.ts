@@ -12,6 +12,29 @@ export interface PageMeta {
   total: number;
   total_pages: number;
   summary?: Record<string, number>;
+  max_outdated_version?: string;
+  realtime?: RealtimeServerStatus;
+}
+
+export interface RealtimeServerStatus {
+  running: boolean;
+  uptime_seconds: number;
+  heartbeat_seconds: number;
+  clients_total: number;
+  clients_mobile: number;
+  clients_web: number;
+  users_online: number;
+  events_total: number;
+  last_event_seconds_ago: number | null;
+  watcher: {
+    active: boolean;
+    interval_seconds: number;
+    polls_total: number;
+    last_poll_seconds_ago: number | null;
+    last_poll_ok: boolean;
+    last_poll_ms: number;
+    last_change_seconds_ago: number | null;
+  };
 }
 
 /** Parameter paginasi yang dipakai hampir semua list endpoint. */

@@ -14,7 +14,22 @@ export interface RealtimeEvent {
 interface Client {
   res: Response;
   userId: number;
+  kind: 'mobile' | 'web';
+  userAgent: string;
+  connectedAt: number;
+  lastWriteAt: number;
 }
+
+const startedAt = Date.now();
+const stats = {
+  pollCount: 0,
+  lastPollAt: 0,
+  lastPollOk: true,
+  lastPollMs: 0,
+  lastChangeAt: 0,
+  lastEventAt: 0,
+  eventCount: 0,
+};
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const HEARTBEAT_MS = 20_000;
@@ -27,10 +42,13 @@ let eventSeq = 0;
 export function publishRealtime(event: RealtimeEvent): void {
   if (clients.size === 0) return;
   eventSeq += 1;
+  stats.eventCount += 1;
+  stats.lastEventAt = Date.now();
   const payload = JSON.stringify({ id: eventSeq, ts: Date.now(), ...event, topics: [...new Set(event.topics)] });
   for (const client of clients) {
     try {
       client.res.write(`id: ${eventSeq}\nevent: change\ndata: ${payload}\n\n`);
+      client.lastWriteAt = Date.now();
     } catch {
       clients.delete(client);
     }
@@ -120,6 +138,7 @@ let watching = false;
 async function pollDatabase(): Promise<void> {
   if (watching) return;
   watching = true;
+  const began = Date.now();
   try {
     const result = await rows<{ t: string; c: number; m: string | null }>(WATCH_SQL);
     const next = new Map(result.map((r) => [r.t, `${r.c}|${r.m ?? ''}`]));
@@ -134,12 +153,20 @@ async function pollDatabase(): Promise<void> {
           module = changed.size === 1 ? spec.module : undefined;
         }
       }
-      if (topics.size) publishRealtime({ topics: [...topics], module, source: 'db' });
+      if (topics.size) {
+        stats.lastChangeAt = Date.now();
+        publishRealtime({ topics: [...topics], module, source: 'db' });
+      }
     }
     baseline = next;
+    stats.lastPollOk = true;
   } catch {
     baseline = null;
+    stats.lastPollOk = false;
   } finally {
+    stats.pollCount += 1;
+    stats.lastPollAt = Date.now();
+    stats.lastPollMs = stats.lastPollAt - began;
     watching = false;
   }
 }
@@ -169,7 +196,16 @@ realtimeRouter.get('/realtime/stream', authenticate, (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  const client: Client = { res, userId: Number((req as AuthRequest).user?.id_user ?? 0) };
+  const userAgent = String(req.header('user-agent') ?? '');
+  const now = Date.now();
+  const client: Client = {
+    res,
+    userId: Number((req as AuthRequest).user?.id_user ?? 0),
+    kind: /dart/i.test(userAgent) || /okhttp/i.test(userAgent) ? 'mobile' : 'web',
+    userAgent,
+    connectedAt: now,
+    lastWriteAt: now,
+  };
   clients.add(client);
   startWatcher();
   res.write(`retry: 3000\nevent: ready\ndata: ${JSON.stringify({ ts: Date.now(), clients: clients.size })}\n\n`);
@@ -177,6 +213,7 @@ realtimeRouter.get('/realtime/stream', authenticate, (req, res) => {
   const heartbeat = setInterval(() => {
     try {
       res.write(`: ping ${Date.now()}\n\n`);
+      client.lastWriteAt = Date.now();
     } catch {
       clearInterval(heartbeat);
     }
@@ -188,3 +225,50 @@ realtimeRouter.get('/realtime/stream', authenticate, (req, res) => {
     stopWatcherIfIdle();
   });
 });
+
+export interface OnlineUser {
+  id_user: number;
+  mobile_connections: number;
+  web_connections: number;
+  connected_since: number;
+  last_active: number;
+}
+
+export function getOnlineUsers(): Map<number, OnlineUser> {
+  const map = new Map<number, OnlineUser>();
+  for (const client of clients) {
+    const entry = map.get(client.userId) ?? { id_user: client.userId, mobile_connections: 0, web_connections: 0, connected_since: client.connectedAt, last_active: client.lastWriteAt };
+    if (client.kind === 'mobile') entry.mobile_connections += 1;
+    else entry.web_connections += 1;
+    entry.connected_since = Math.min(entry.connected_since, client.connectedAt);
+    entry.last_active = Math.max(entry.last_active, client.lastWriteAt);
+    map.set(client.userId, entry);
+  }
+  return map;
+}
+
+export function getRealtimeServerStatus(): Record<string, unknown> {
+  const now = Date.now();
+  const all = [...clients];
+  return {
+    running: true,
+    started_at: startedAt,
+    uptime_seconds: Math.round((now - startedAt) / 1000),
+    heartbeat_seconds: HEARTBEAT_MS / 1000,
+    clients_total: all.length,
+    clients_mobile: all.filter((c) => c.kind === 'mobile').length,
+    clients_web: all.filter((c) => c.kind === 'web').length,
+    users_online: new Set(all.map((c) => c.userId)).size,
+    events_total: stats.eventCount,
+    last_event_seconds_ago: stats.lastEventAt ? Math.round((now - stats.lastEventAt) / 1000) : null,
+    watcher: {
+      active: watchTimer !== null,
+      interval_seconds: WATCH_INTERVAL_MS / 1000,
+      polls_total: stats.pollCount,
+      last_poll_seconds_ago: stats.lastPollAt ? Math.round((now - stats.lastPollAt) / 1000) : null,
+      last_poll_ok: stats.lastPollOk,
+      last_poll_ms: stats.lastPollMs,
+      last_change_seconds_ago: stats.lastChangeAt ? Math.round((now - stats.lastChangeAt) / 1000) : null,
+    },
+  };
+}

@@ -27,7 +27,7 @@ export function useMcsMobileDevices(params: Record<string, string | number | und
     queryKey: ["mcs-mobile-devices", params],
     queryFn: ({ signal }) => listMcsMobileDevices(params, signal),
     placeholderData: keepPreviousData,
-    refetchInterval: 60_000,
+    refetchInterval: 10_000,
     enabled,
   });
 }

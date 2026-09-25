@@ -39,6 +39,13 @@ export interface McsMobileDevice {
   build_number?: string | null;
   ip_address?: string | null;
   is_active: number | boolean;
+  outdated?: boolean;
+  is_latest?: boolean;
+  online?: boolean;
+  online_web?: boolean;
+  online_since?: number | null;
+  device_count?: number;
+  active_device_count?: number;
   last_seen_at?: string | null;
   created_at: string;
   updated_at: string;

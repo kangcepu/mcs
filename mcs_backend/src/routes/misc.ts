@@ -17,6 +17,7 @@ import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl,
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
 import { getWoUnifiedList } from '../lib/void-center.js';
 import { buildReportExport } from '../lib/report-export.js';
+import { getOnlineUsers, getRealtimeServerStatus } from '../realtime.js';
 import type { AuthRequest } from '../types.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -375,45 +376,113 @@ miscRouter.post('/mcs-mobile/release', authenticate, mobileReleaseUpload.single(
   ok(res, await mobileReleaseConfig(), 'MCS Mobile release uploaded');
 }));
 
+const MOBILE_MAX_OUTDATED_VERSION = '1.5.2';
+
+interface DeviceRow {
+  id: number; id_user: number; fullname: string | null; username: string | null; platform: string | null; device_name: string | null;
+  app_version: string | null; build_number: string | null; ip_address: string | null; is_active: number;
+  last_seen_at: string | null; created_at: string; updated_at: string; seen_key: string;
+}
+
+function isOutdatedVersion(version: unknown, maxOutdatedVersion: string): boolean {
+  const raw = String(version ?? '').trim();
+  if (!raw) return true;
+  const parse = (v: string): number[] => v.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const current = parse(raw);
+  const limit = parse(maxOutdatedVersion);
+  for (let i = 0; i < Math.max(current.length, limit.length); i += 1) {
+    const diff = (current[i] ?? 0) - (limit[i] ?? 0);
+    if (diff !== 0) return diff < 0;
+  }
+  return true;
+}
+
 miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   if (!canUploadMobileRelease(user)) throw new HttpError(403, 'MCS Mobile upload permission is required', 'MCS_MOBILE_UPLOAD_DENIED');
 
   const page = Math.max(1, Number(req.query.page ?? 1));
   const perPage = Math.min(100, Math.max(10, Number(req.query.per_page ?? req.query.limit ?? 25)));
-  const q = String(req.query.q ?? '').trim();
+  const q = String(req.query.q ?? '').trim().toLowerCase();
   const platform = String(req.query.platform ?? '').trim();
   const status = String(req.query.status ?? '').trim();
+  const versionFilter = String(req.query.version ?? '').trim();
+  const onlineFilter = String(req.query.online ?? '').trim();
+  const groupByUser = String(req.query.group ?? 'user') !== 'device';
+  const maxOutdatedVersion = String(req.query.max_outdated_version ?? '').trim() || MOBILE_MAX_OUTDATED_VERSION;
 
-  let where = 'WHERE 1=1';
-  const params: unknown[] = [];
-  if (q) { where += ' AND (u.fullname LIKE ? OR u.username LIKE ? OR t.device_name LIKE ? OR t.ip_address LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  if (platform) { where += ' AND t.platform = ?'; params.push(platform); }
-  if (status === 'active') where += ' AND t.is_active = 1';
-  else if (status === 'inactive') where += ' AND t.is_active = 0';
-
-  const baseFrom = 'FROM tb_user_device_token t INNER JOIN tb_user u ON u.id_user = t.id_user';
-  const total = await one<{ total: number }>(`SELECT COUNT(*) total ${baseFrom} ${where}`, params);
-  const data = await rows(
+  const everything = (await rows<Omit<DeviceRow, 'seen_key'>>(
     `SELECT t.id, t.id_user, u.fullname, u.username, t.platform, t.device_name, t.app_version, t.build_number,
             REPLACE(t.ip_address, '::ffff:', '') AS ip_address, t.is_active, t.last_seen_at, t.created_at, t.updated_at
-     ${baseFrom} ${where} ORDER BY t.updated_at DESC LIMIT ? OFFSET ?`,
-    [...params, perPage, (page - 1) * perPage],
-  );
-  const summary = await one<{ total_devices: number; active_devices: number; android: number; ios: number }>(
-    `SELECT COUNT(*) total_devices, SUM(t.is_active = 1) active_devices,
-            SUM(t.is_active = 1 AND t.platform = 'android') android, SUM(t.is_active = 1 AND t.platform = 'ios') ios
-     FROM tb_user_device_token t`,
-  );
-  const totalCount = Number(total?.total ?? 0);
+     FROM tb_user_device_token t INNER JOIN tb_user u ON u.id_user = t.id_user`,
+  )).map((row): DeviceRow => ({ ...row, seen_key: String(row.last_seen_at ?? '') > String(row.updated_at ?? '') ? String(row.last_seen_at) : String(row.updated_at ?? '') }))
+    .sort((a, b) => b.seen_key.localeCompare(a.seen_key));
+
+  const latestByUser = new Map<string, DeviceRow>();
+  const countByUser = new Map<string, { total: number; active: number }>();
+  for (const row of everything) {
+    const key = String(row.id_user);
+    if (!latestByUser.has(key)) latestByUser.set(key, row);
+    const counts = countByUser.get(key) ?? { total: 0, active: 0 };
+    counts.total += 1;
+    if (Number(row.is_active) === 1) counts.active += 1;
+    countByUser.set(key, counts);
+  }
+
+  const onlineUsers = getOnlineUsers();
+  const decorated = everything.map((row) => {
+    const key = String(row.id_user);
+    const presence = onlineUsers.get(Number(row.id_user));
+    const counts = countByUser.get(key) ?? { total: 1, active: 1 };
+    const isLatest = latestByUser.get(key)?.id === row.id;
+    return {
+      ...row,
+      seen_key: undefined,
+      device_count: counts.total,
+      active_device_count: counts.active,
+      is_latest: isLatest,
+      online: isLatest && Boolean(presence && presence.mobile_connections > 0),
+      online_web: Boolean(presence && presence.web_connections > 0),
+      online_since: isLatest && presence?.mobile_connections ? presence.connected_since : null,
+      outdated: isLatest && isOutdatedVersion(row.app_version, maxOutdatedVersion),
+    };
+  });
+
+  const pool = groupByUser ? decorated.filter((row) => row.is_latest) : decorated;
+  const filtered = pool.filter((row) => {
+    if (q && ![row.fullname, row.username, row.device_name, row.ip_address].some((v) => String(v ?? '').toLowerCase().includes(q))) return false;
+    if (platform && row.platform !== platform) return false;
+    if (status === 'active' && Number(row.is_active) !== 1) return false;
+    if (status === 'inactive' && Number(row.is_active) === 1) return false;
+    if (versionFilter === 'outdated' && !row.outdated) return false;
+    if (versionFilter === 'latest' && (row.outdated || !row.is_latest)) return false;
+    if (onlineFilter === 'online' && !row.online) return false;
+    if (onlineFilter === 'offline' && row.online) return false;
+    return true;
+  });
+
+  const totalCount = filtered.length;
+  const data = filtered.slice((page - 1) * perPage, page * perPage);
+
+  const latestRows = [...latestByUser.values()];
+  const activeUsers = latestRows.filter((r) => Number(r.is_active) === 1);
+  const outdatedUsers = activeUsers.filter((r) => isOutdatedVersion(r.app_version, maxOutdatedVersion));
+  const onlineMobileUsers = latestRows.filter((r) => (onlineUsers.get(Number(r.id_user))?.mobile_connections ?? 0) > 0);
   ok(res, data, 'OK', {
     page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)),
+    max_outdated_version: maxOutdatedVersion,
+    group: groupByUser ? 'user' : 'device',
     summary: {
-      total_devices: Number(summary?.total_devices ?? 0),
-      active_devices: Number(summary?.active_devices ?? 0),
-      android: Number(summary?.android ?? 0),
-      ios: Number(summary?.ios ?? 0),
+      total_users: latestRows.length,
+      active_users: activeUsers.length,
+      total_devices: everything.length,
+      active_devices: everything.filter((r) => Number(r.is_active) === 1).length,
+      android: activeUsers.filter((r) => r.platform === 'android').length,
+      ios: activeUsers.filter((r) => r.platform === 'ios').length,
+      outdated_users: outdatedUsers.length,
+      online_mobile_users: onlineMobileUsers.length,
     },
+    realtime: getRealtimeServerStatus(),
   });
 }));
 
