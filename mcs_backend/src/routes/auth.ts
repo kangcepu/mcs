@@ -1,3 +1,4 @@
+import { clientIp } from '../lib/client-ip.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { applyAutomaticAccess, authenticate, findUserByCredentials, findUserById, findUserByIdentity, isPasswordEmpty, md5, publicUser, publicUserWithEmployee, requiresPasswordChange, signToken, syncEmployeeStatusFromApi } from '../auth.js';
@@ -75,7 +76,7 @@ const registerDeviceInput = z.object({
 authRouter.post('/auth/register_device_token', authenticate, asyncHandler(async (req, res) => {
   const authReq = req as AuthRequest;
   const input = registerDeviceInput.parse(req.body);
-  const ipAddress = String(req.ip ?? '').replace(/^::ffff:/, '');
+  const ipAddress = clientIp(req).ip;
 
   if (input.previous_token && input.previous_token !== input.token) {
     await execute('UPDATE tb_user_device_token SET is_active = 0, updated_at = NOW() WHERE token = ?', [input.previous_token]);

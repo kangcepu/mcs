@@ -1,3 +1,4 @@
+import { clientIp } from '../lib/client-ip.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Router } from 'express';
@@ -396,6 +397,19 @@ function isOutdatedVersion(version: unknown, maxOutdatedVersion: string): boolea
   }
   return true;
 }
+
+miscRouter.get('/client-ip', authenticate, (req, res) => {
+  const detected = clientIp(req);
+  const pick = (name: string): string | null => {
+    const raw = req.headers[name];
+    return raw ? String(Array.isArray(raw) ? raw[0] : raw) : null;
+  };
+  ok(res, {
+    ...detected,
+    socket: String(req.socket.remoteAddress ?? '').replace(/^::ffff:/, ''),
+    headers: { 'cf-connecting-ip': pick('cf-connecting-ip'), 'x-forwarded-for': pick('x-forwarded-for'), 'x-real-ip': pick('x-real-ip') },
+  });
+});
 
 miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;

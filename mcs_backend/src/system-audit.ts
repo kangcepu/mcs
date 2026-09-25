@@ -1,3 +1,4 @@
+import { clientIp } from './lib/client-ip.js';
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
@@ -138,7 +139,7 @@ async function record(req: Request, statusCode: number, responseBody: unknown): 
       [
         moduleFor(path), actionFor(path, method), referenceFor(body), path.slice(0, 255), method,
         success ? 'success' : 'failed', statusCode, actor.id, actor.username.slice(0, 100), actor.fullname.slice(0, 255),
-        String(req.ip ?? '').slice(0, 64), String(req.header('user-agent') ?? '').slice(0, 500),
+        clientIp(req).ip.slice(0, 64), String(req.header('user-agent') ?? '').slice(0, 500),
         JSON.stringify(body).slice(0, 30000),
       ],
     );
