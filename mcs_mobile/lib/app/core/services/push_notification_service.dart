@@ -52,6 +52,8 @@ class PushNotificationService {
       'pending_notification_navigation';
   static const String _preventiveAlarmPermissionGuideKey =
       'preventive_alarm_permission_guide_v4';
+  static const String _preventiveAlarmGuideBuildKey =
+      'preventive_alarm_permission_guide_build';
   static const String _dailyControlChildNotificationIdsStorageKey =
       'daily_control_child_notification_ids';
   static const int _dailyControlSummaryNotificationId = 910001;
@@ -217,16 +219,51 @@ class PushNotificationService {
         _localNotifications.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.requestNotificationsPermission();
-    // Android 14+ may require the user to explicitly allow full-screen alarm
-    // intents. On older Android versions this is a harmless no-op.
-    await androidPlugin?.requestFullScreenIntentPermission();
+  }
+
+  Future<Map<String, bool>?> _readAlarmPermissionState() async {
+    try {
+      final raw = await _appBadgeChannel.invokeMapMethod<String, dynamic>(
+        'getPreventiveAlarmPermissionState',
+      );
+      if (raw == null) return null;
+      return {for (final entry in raw.entries) entry.key: entry.value == true};
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  static Future<void> clearPreferencesKeepingPermissionFlags(
+    SharedPreferences prefs,
+  ) async {
+    final guideDone = prefs.getBool(_preventiveAlarmPermissionGuideKey);
+    final guideBuild = prefs.getString(_preventiveAlarmGuideBuildKey);
+    await prefs.clear();
+    if (guideDone != null) {
+      await prefs.setBool(_preventiveAlarmPermissionGuideKey, guideDone);
+    }
+    if (guideBuild != null) {
+      await prefs.setString(_preventiveAlarmGuideBuildKey, guideBuild);
+    }
   }
 
   Future<void> showPreventiveAlarmPermissionGuideIfNeeded() async {
     if (!Platform.isAndroid) return;
 
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_preventiveAlarmPermissionGuideKey) ?? false) {
+    final state = await _readAlarmPermissionState();
+
+    if (state != null && state.values.every((granted) => granted)) {
+      await prefs.setBool(_preventiveAlarmPermissionGuideKey, true);
+      return;
+    }
+
+    final build = (await PackageInfo.fromPlatform()).buildNumber;
+    if (state == null) {
+      if (prefs.getBool(_preventiveAlarmPermissionGuideKey) ?? false) return;
+    } else if (prefs.getString(_preventiveAlarmGuideBuildKey) == build) {
       return;
     }
 
@@ -235,37 +272,62 @@ class PushNotificationService {
       return;
     }
 
+    await prefs.setString(_preventiveAlarmGuideBuildKey, build);
+
+    final needFullScreen = state == null || state['fullScreenIntent'] != true;
+    final needExact = state == null || state['exactAlarm'] != true;
+    final needOverlay = state == null || state['overlay'] != true;
+    final missing = <String>[
+      if (needFullScreen) 'Notifikasi layar penuh (pop-up)',
+      if (needExact) 'Alarm & reminders',
+      if (needOverlay) 'Tampilkan di atas aplikasi lain',
+    ];
+
     await Get.dialog<void>(
       PopScope(
         canPop: false,
         child: AlertDialog(
           title: const Text('Izin Preventive Alarm'),
-          content: const Text(
-            'Agar alarm preventive tampil di atas Home seperti alarm jam saat '
-            'MCS tidak dibuka, izinkan Alarm & reminders, pop-up background, '
-            'dan Tampilkan di atas aplikasi lain.',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Agar alarm preventive tampil di atas Home seperti alarm jam saat '
+                'MCS tidak dibuka, aktifkan izin berikut:',
+              ),
+              const SizedBox(height: 10),
+              for (final item in missing)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• $item'),
+                ),
+            ],
           ),
           actions: <Widget>[
             TextButton(
               onPressed: Get.back,
               child: const Text('NANTI'),
             ),
-            OutlinedButton(
-              onPressed: _openPreventiveAlarmPermissionSettings,
-              child: const Text('IZIN POP-UP'),
-            ),
-            OutlinedButton(
-              onPressed: _openExactAlarmPermissionSettings,
-              child: const Text('IZIN ALARM'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Get.back();
-                await prefs.setBool(_preventiveAlarmPermissionGuideKey, true);
-                await _openOverlayPermissionSettings();
-              },
-              child: const Text('IZIN TAMPIL'),
-            ),
+            if (needFullScreen)
+              OutlinedButton(
+                onPressed: _openPreventiveAlarmPermissionSettings,
+                child: const Text('IZIN POP-UP'),
+              ),
+            if (needExact)
+              OutlinedButton(
+                onPressed: _openExactAlarmPermissionSettings,
+                child: const Text('IZIN ALARM'),
+              ),
+            if (needOverlay)
+              ElevatedButton(
+                onPressed: () async {
+                  Get.back();
+                  await prefs.setBool(_preventiveAlarmPermissionGuideKey, true);
+                  await _openOverlayPermissionSettings();
+                },
+                child: const Text('IZIN TAMPIL'),
+              ),
           ],
         ),
       ),

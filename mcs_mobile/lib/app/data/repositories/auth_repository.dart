@@ -199,7 +199,7 @@ class AuthRepository {
     await prefs.remove('token');
     await prefs.remove('user_data');
     await prefs.remove('division_id');
-    await prefs.clear();
+    await PushNotificationService.clearPreferencesKeepingPermissionFlags(prefs);
   }
 
   Future<bool> validateToken() async {

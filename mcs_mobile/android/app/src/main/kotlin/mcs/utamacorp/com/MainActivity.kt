@@ -46,6 +46,9 @@ class MainActivity : FlutterActivity() {
                     "openOverlayPermissionSettings" -> {
                         result.success(openOverlayPermissionSettings())
                     }
+                    "getPreventiveAlarmPermissionState" -> {
+                        result.success(preventiveAlarmPermissionState())
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -170,6 +173,25 @@ class MainActivity : FlutterActivity() {
             @Suppress("DEPRECATION")
             manager.abandonAudioFocus(null)
         }
+    }
+
+    private fun preventiveAlarmPermissionState(): Map<String, Boolean> {
+        val overlay = Settings.canDrawOverlays(this)
+        val exactAlarm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).canScheduleExactAlarms()
+        } else {
+            true
+        }
+        val fullScreenIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).canUseFullScreenIntent()
+        } else {
+            true
+        }
+        return mapOf(
+            "overlay" to overlay,
+            "exactAlarm" to exactAlarm,
+            "fullScreenIntent" to fullScreenIntent,
+        )
     }
 
     private fun openPreventiveAlarmPermissionSettings(): Boolean {

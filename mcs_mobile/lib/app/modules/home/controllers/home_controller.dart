@@ -1052,7 +1052,8 @@ class HomeController extends GetxController
               await PushNotificationService.instance
                   .clearDailyControlBadgeCount();
               final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
+              await PushNotificationService.clearPreferencesKeepingPermissionFlags(
+                  prefs);
 
               Get.offAllNamed('/login');
             },

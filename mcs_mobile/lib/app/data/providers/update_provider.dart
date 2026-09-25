@@ -15,6 +15,10 @@ class UpdateProvider extends GetxController {
   final isDownloading = false.obs;
   final updateAvailable = false.obs;
   final downloadProgress = 0.0.obs;
+  final downloadedBytes = 0.obs;
+  final totalBytes = 0.obs;
+  final phase = 'idle'.obs;
+  final errorMessage = RxnString();
   final Rx<AppVersionModel?> latestVersion = Rx<AppVersionModel?>(null);
   final Rx<String?> currentVersion = Rx<String?>(null);
   int? _currentVersionCode;
@@ -26,6 +30,10 @@ class UpdateProvider extends GetxController {
 
   Future<void> checkForUpdate() async {
     isChecking.value = true;
+    if (!isDownloading.value) {
+      phase.value = 'idle';
+      errorMessage.value = null;
+    }
 
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -59,16 +67,18 @@ class UpdateProvider extends GetxController {
 
     isDownloading.value = true;
     downloadProgress.value = 0.0;
+    downloadedBytes.value = 0;
+    totalBytes.value = 0;
+    errorMessage.value = null;
+    phase.value = 'downloading';
 
     try {
       if (Platform.isAndroid) {
         final installStatus = await Permission.requestInstallPackages.request();
         if (!installStatus.isGranted) {
-          Get.snackbar(
-            'Izin Dibutuhkan',
-            'Aktifkan "Install unknown apps" untuk MCS Mobile.',
-            snackPosition: SnackPosition.BOTTOM,
-          );
+          errorMessage.value =
+              'Aktifkan izin "Install unknown apps" untuk MCS Mobile, lalu coba lagi.';
+          phase.value = 'error';
           await openAppSettings();
           return;
         }
@@ -84,7 +94,9 @@ class UpdateProvider extends GetxController {
         latestVersion.value!.downloadUrl,
         savePath,
         (received, total) {
+          downloadedBytes.value = received;
           if (total > 0) {
+            totalBytes.value = total;
             downloadProgress.value = received / total;
           }
         },
@@ -95,40 +107,32 @@ class UpdateProvider extends GetxController {
         throw Exception('File APK tidak valid setelah download');
       }
 
-      await _installApk(downloadedPath);
+      phase.value = 'installing';
+      final launched = await _installApk(downloadedPath);
+      phase.value = launched ? 'launched' : 'error';
+      if (!launched) {
+        errorMessage.value ??=
+            'Installer tidak dapat dibuka otomatis. Pasang manual dari file app-update.apk.';
+      }
     } catch (e) {
       debugPrint('Error downloading/installing update: $e');
-      Get.snackbar(
-        'Error',
-        'Gagal download update: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      errorMessage.value = 'Gagal mengunduh pembaruan. Periksa koneksi lalu coba lagi.';
+      phase.value = 'error';
     } finally {
       isDownloading.value = false;
     }
   }
 
-  Future<void> _installApk(String filePath) async {
+  Future<bool> _installApk(String filePath) async {
     try {
       final result = await OpenFile.open(
         filePath,
         type: 'application/vnd.android.package-archive',
       );
-
-      if (result.type != ResultType.done) {
-        Get.snackbar(
-          'Info',
-          'Gagal memulai installer otomatis. Silakan install manual dari file APK.',
-          snackPosition: SnackPosition.BOTTOM,
-        );
-      }
+      return result.type == ResultType.done;
     } catch (e) {
       debugPrint('Error installing APK: $e');
-      Get.snackbar(
-        'Error',
-        'Gagal install: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      return false;
     }
   }
 }
