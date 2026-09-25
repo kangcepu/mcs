@@ -229,6 +229,8 @@ class _AssetCard extends StatelessWidget {
                   children: [
                     Text(
                       read(row, ['AssetCode']),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,

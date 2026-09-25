@@ -1,3 +1,4 @@
+import { resolveAssetAttachmentUrl } from '../lib/asset-attachments.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
@@ -185,7 +186,7 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
     rows('SELECT * FROM tb_attachment_asset WHERE AssetCode = ? AND part_id IS NULL ORDER BY sort_order, id', [code]),
     rows('SELECT * FROM tb_parts_bom WHERE AssetCode = ? AND deleted_at IS NULL ORDER BY no_urut, id', [code]),
   ]);
-  ok(res, { ...asset as object, custom_details: details, attachments, parts });
+  ok(res, { ...asset as object, custom_details: details, attachments: attachments.map((a) => ({ ...a, url: resolveAssetAttachmentUrl(String((a as Record<string, unknown>).filename ?? '')) })), parts });
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {

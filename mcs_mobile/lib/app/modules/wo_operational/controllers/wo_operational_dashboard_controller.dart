@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/models/work_order_model.dart' as wo_model;
 import '../../../data/repositories/wo_operational_repository.dart';
 
-class WoOperationalDashboardController extends GetxController {
+class WoOperationalDashboardController extends GetxController with RealtimeRefresh {
   final WoOperationalRepository _woRepository = WoOperationalRepository();
   
   final Rx<wo_model.DashboardStats?> stats = Rx<wo_model.DashboardStats?>(null);
@@ -25,6 +26,10 @@ class WoOperationalDashboardController extends GetxController {
     super.onInit();
     setDefaultDateRange();
     loadDashboard();
+    bindRealtime(
+      const ['wo', 'wo:maintenance', 'dashboard'],
+      () => loadDashboard(silent: true),
+    );
   }
 
   void setDefaultDateRange() {
@@ -36,9 +41,9 @@ class WoOperationalDashboardController extends GetxController {
     endDate.value = '${lastDay.year}-${lastDay.month.toString().padLeft(2, '0')}-${lastDay.day.toString().padLeft(2, '0')}';
   }
 
-  Future<void> loadDashboard() async {
+  Future<void> loadDashboard({bool silent = false}) async {
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
       
       final result = await _woRepository.getDashboardStats(
         startDate: startDate.value.isEmpty ? null : startDate.value,
@@ -49,6 +54,7 @@ class WoOperationalDashboardController extends GetxController {
       stats.value = wo_model.DashboardStats.fromJson(result);
       
     } catch (e) {
+      if (silent) return;
       print('Error loading dashboard: $e');
       Get.snackbar(
         'Error',
@@ -58,7 +64,7 @@ class WoOperationalDashboardController extends GetxController {
         colorText: Colors.white,
       );
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 

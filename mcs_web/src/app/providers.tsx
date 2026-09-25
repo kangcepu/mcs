@@ -7,6 +7,7 @@ import { makeQueryClient } from "@/lib/query-client";
 import { ToastProvider } from "@/components/ui/toast";
 import { DynamicFavicon } from "@/components/branding/dynamic-favicon";
 import { RouteProgress } from "@/components/ui/route-progress";
+import { RealtimeBridge } from "@/components/realtime-bridge";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(makeQueryClient);
@@ -14,6 +15,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <RouteProgress />
+      <RealtimeBridge />
       <DynamicFavicon />
       <ToastProvider>{children}</ToastProvider>
       {process.env.NODE_ENV === "development" ? (

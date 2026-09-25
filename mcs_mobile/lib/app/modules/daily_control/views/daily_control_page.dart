@@ -8,6 +8,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
 import '../../../core/utils/daily_control_image_editor_helper.dart';
@@ -3341,6 +3342,7 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
   String? _mentionTrigger;
   double _dragOffsetY = 0;
   late DailyControlActivity _activity;
+  RealtimeSubscription? _realtime;
   @override
   void initState() {
     super.initState();
@@ -3371,6 +3373,17 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
     _loadComments();
     _loadPartMentions();
     _listenForActivityUpdate();
+    _realtime = RealtimeSubscription(
+      topics: const ['daily-control'],
+      where: (event) =>
+          event.woNumber == null ||
+          event.woNumber!.trim().isEmpty ||
+          event.woNumber!.trim() == _activity.woNumber.trim(),
+      onChange: () async {
+        if (!mounted || _isSaving) return;
+        await _refreshCommentsFromServer();
+      },
+    );
   }
 
   void _listenForActivityUpdate() {
@@ -3417,6 +3430,7 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
 
   @override
   void dispose() {
+    _realtime?.dispose();
     _focusNode.removeListener(_handleComposerChanged);
     _inputController.removeListener(_handleComposerChanged);
     _inputController.dispose();

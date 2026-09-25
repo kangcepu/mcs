@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/wo_operational_repository.dart';
 import '../../../data/models/dashboard_stats_model.dart' as dashboard_model;
 import '../../../data/models/work_order_model.dart';
@@ -10,7 +11,7 @@ import '../../../data/models/wo_constants.dart';
 import '../utils/wo_operational_status_mapper.dart';
 
 class WoOperationalListController extends GetxController
-    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver, RealtimeRefresh {
   final WoOperationalRepository _woRepository = WoOperationalRepository();
   static const Duration _realtimeInterval = Duration(seconds: 20);
   static const List<String> _tabTypes = <String>[
@@ -72,6 +73,57 @@ class WoOperationalListController extends GetxController
       refreshList();
     });
     _initialize();
+    bindRealtime(const ['wo', 'wo:maintenance'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!canViewWo.value) return;
+    for (var i = 0; i < 25 && (isLoading.value || isLoadingMore.value); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    if (isLoading.value || isLoadingMore.value) return;
+
+    final typeWo = _currentTypeWo();
+    final status = selectedStatus.value?.code;
+    final search = searchQuery.value;
+    final company = selectedCompany.value;
+    final oldestFirst = showOldestUnfinishedOnly.value;
+    final pages = currentPage.value < 1 ? 1 : currentPage.value;
+    final fetchLimit = (pages * limit).clamp(limit, 200).toInt();
+
+    try {
+      final result = await _woRepository.getWoList(
+        page: 1,
+        limit: fetchLimit,
+        status: status,
+        search: search.isNotEmpty ? search : null,
+        company: company.isNotEmpty ? company : null,
+        typeWo: typeWo,
+        sortOrder: oldestFirst ? 'asc' : 'desc',
+      );
+
+      if (isLoading.value ||
+          isLoadingMore.value ||
+          typeWo != _currentTypeWo() ||
+          status != selectedStatus.value?.code ||
+          search != searchQuery.value ||
+          company != selectedCompany.value ||
+          oldestFirst != showOldestUnfinishedOnly.value) {
+        return;
+      }
+
+      total.value = result.total;
+      totalPages.value = (result.total / limit).ceil();
+      currentPage.value = fetchLimit ~/ limit;
+      hasMore.value = result.items.length < result.total &&
+          result.items.length >= fetchLimit;
+      allWoList.value = result.items;
+      applyFilter();
+    } catch (e) {
+      debugPrint('Silent WO refresh error: $e');
+    }
+
+    await refreshRealtimeSummary();
   }
 
   Future<void> _initialize() async {

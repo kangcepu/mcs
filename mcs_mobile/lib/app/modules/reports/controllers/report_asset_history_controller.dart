@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/reports_repository.dart';
 
-class ReportAssetHistoryController extends GetxController {
+class ReportAssetHistoryController extends GetxController
+    with RealtimeRefresh {
   static const int _assetPerPage = 20;
   static const int _historyPerPage = 30;
   static const int minQueryLength = 2;
@@ -84,6 +86,41 @@ class ReportAssetHistoryController extends GetxController {
     historyScroll.addListener(() {
       if (_nearEnd(historyScroll)) loadMoreHistory();
     });
+    bindRealtime(const ['wo'], _silentRefreshHistory);
+  }
+
+  Future<void> _silentRefreshHistory() async {
+    final code = selectedCode;
+    if (code.isEmpty || historyLoading.value || historyLoadingMore.value) {
+      return;
+    }
+    final token = ++_historyToken;
+    final pages = _historyPage.clamp(1, 10);
+    try {
+      final rows = <Map<String, dynamic>>[];
+      var result = await _repository.fetch(
+        'assets-history',
+        {'asset_code': code},
+        perPage: _historyPerPage,
+      );
+      if (token != _historyToken) return;
+      rows.addAll(result.rows);
+      for (var next = 2; next <= pages && result.hasMore; next++) {
+        result = await _repository.fetch(
+          'assets-history',
+          {'asset_code': code},
+          page: next,
+          perPage: _historyPerPage,
+        );
+        if (token != _historyToken) return;
+        rows.addAll(result.rows);
+      }
+      history.assignAll(rows);
+      historyTotal.value = result.total;
+      _historyPage = result.page;
+      _historyHasMore = result.hasMore;
+      historyError.value = '';
+    } catch (_) {}
   }
 
   @override

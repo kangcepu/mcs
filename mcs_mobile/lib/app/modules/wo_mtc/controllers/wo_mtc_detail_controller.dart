@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../data/repositories/wo_mtc_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
@@ -26,7 +27,7 @@ import '../../../core/utils/media_picker_helper.dart';
 import '../../../core/widgets/pdf_viewer_page.dart';
 import '../../../core/widgets/video_player_page.dart';
 
-class WoMtcDetailController extends GetxController {
+class WoMtcDetailController extends GetxController with RealtimeRefresh {
   final WoMtcRepository _woMtcRepository = WoMtcRepository();
   final AuthRepository _authRepository = AuthRepository();
   final ApiService _apiService = ApiService();
@@ -249,7 +250,20 @@ class WoMtcDetailController extends GetxController {
     loadUserData();
     if ((woNumber ?? '').isNotEmpty) {
       loadAllData();
+      bindRealtime(
+        const ['wo', 'wo:meso'],
+        _silentRefresh,
+        where: (e) => e.woNumber == null || e.woNumber == woNumber,
+      );
     }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isProcessing.value) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (isProcessing.value) return;
+    }
+    await loadAllData(silent: true);
   }
 
   List<MaterialRequest> _materialRequestsFromRaw(dynamic raw) {
@@ -308,28 +322,29 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  Future<void> loadAllData() async {
-    await loadWoDetail();
+  Future<void> loadAllData({bool silent = false}) async {
+    await loadWoDetail(silent: silent);
     await Future.wait([
-      loadExecutors(),
-      loadLabor(),
-      loadMaterial(),
-      loadMaterialRequests(),
+      loadExecutors(silent: silent),
+      loadLabor(silent: silent),
+      loadMaterial(silent: silent),
+      loadMaterialRequests(silent: silent),
       loadApprovalHistory(),
     ]);
   }
 
-  Future<void> loadWoDetail() async {
+  Future<void> loadWoDetail({bool silent = false}) async {
     if (woNumber == null) return;
 
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
       final bundle = await _woMtcRepository.getWoDetailBundle(woNumber!);
       final header = (bundle['header'] as Map<String, dynamic>? ?? {});
       detailExtras.value = (bundle['extras'] as Map<String, dynamic>? ?? {});
 
       final result = WorkOrderMtc.fromJson(header);
       woDetail.value = result;
+      if (silent && isPartExecutionDirty.value) return;
       preventiveParts.value = _mapListFromRaw(detailExtras['preventive_parts'])
           .map((item) => wo_model.PreventivePartExecution.fromJson(item))
           .toList();
@@ -341,13 +356,13 @@ class WoMtcDetailController extends GetxController {
         partExecutionRows.clear();
       }
       isPartExecutionDirty.value = false;
-      _applyInitialDetailTab();
+      if (!silent) _applyInitialDetailTab();
       print('WO Detail Loaded: ${result.woNumber} - ${result.status}');
     } catch (e) {
       print('Error loading WO detail: $e');
-      _showError('Gagal memuat detail WO: ${e.toString()}');
+      if (!silent) _showError('Gagal memuat detail WO: ${e.toString()}');
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 
@@ -412,7 +427,7 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  Future<void> loadExecutors() async {
+  Future<void> loadExecutors({bool silent = false}) async {
     if (woNumber == null) return;
 
     try {
@@ -447,6 +462,7 @@ class WoMtcDetailController extends GetxController {
       print('Executors Loaded: ${result.length} items');
     } catch (e) {
       print('Error loading executors: $e');
+      if (silent) return;
       final raw = _mapListFromRaw(detailExtras['executors']);
       if (raw.isNotEmpty) {
         executors.value = raw.map(Executor.fromJson).toList();
@@ -456,7 +472,7 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  Future<void> loadLabor() async {
+  Future<void> loadLabor({bool silent = false}) async {
     if (woNumber == null) return;
 
     try {
@@ -474,6 +490,7 @@ class WoMtcDetailController extends GetxController {
       print('Labor Loaded: ${result.length} items');
     } catch (e) {
       print('Error loading labor: $e');
+      if (silent) return;
       final raw = _mapListFromRaw(detailExtras['labor']);
       if (raw.isNotEmpty) {
         labor.value = raw.map(Labor.fromJson).toList();
@@ -483,7 +500,7 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  Future<void> loadMaterial() async {
+  Future<void> loadMaterial({bool silent = false}) async {
     if (woNumber == null) return;
 
     try {
@@ -501,6 +518,7 @@ class WoMtcDetailController extends GetxController {
       print('Material Loaded: ${result.length} items');
     } catch (e) {
       print('Error loading material: $e');
+      if (silent) return;
       final raw = _mapListFromRaw(detailExtras['material']);
       if (raw.isNotEmpty) {
         material.value = raw.map(MaterialMtc.fromJson).toList();
@@ -522,7 +540,7 @@ class WoMtcDetailController extends GetxController {
     }
   }
 
-  Future<void> loadMaterialRequests() async {
+  Future<void> loadMaterialRequests({bool silent = false}) async {
     if (woNumber == null) return;
 
     bool matchesExecutor(MaterialRequest item) {
@@ -600,6 +618,7 @@ class WoMtcDetailController extends GetxController {
       print('Material Requests Loaded: ${materialRequests.length} items');
     } catch (e) {
       print('Error loading material requests: $e');
+      if (silent) return;
       final fromMaterialRequests =
           _materialRequestsFromRaw(detailExtras['material_requests']);
       final fromMaterialReceived =

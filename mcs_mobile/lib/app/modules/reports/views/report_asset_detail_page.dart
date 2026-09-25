@@ -6,6 +6,7 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../core/utils/media_picker_helper.dart';
 import '../../../core/widgets/pdf_viewer_page.dart';
 import '../../../core/widgets/video_player_page.dart';
@@ -32,11 +33,31 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
   List<Map<String, dynamic>> _documents = <Map<String, dynamic>>[];
 
   String _assetCode = '';
+  RealtimeSubscription? _realtime;
 
   @override
   void initState() {
     super.initState();
     _bootstrap();
+    _realtime = RealtimeSubscription(
+      topics: const ['assets'],
+      where: (event) =>
+          event.woNumber == null ||
+          event.woNumber!.trim().isEmpty ||
+          event.woNumber!.trim() == _assetCode,
+      onChange: () async {
+        if (!mounted || _isLoading || _isDownloading || _assetCode.isEmpty) {
+          return;
+        }
+        await _loadDetail(silent: true);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _realtime?.dispose();
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
@@ -62,7 +83,7 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
     await _loadDetail();
   }
 
-  Future<void> _loadDetail() async {
+  Future<void> _loadDetail({bool silent = false}) async {
     try {
       final result = await _repository.getAssetDetail(assetCode: _assetCode);
 
@@ -76,10 +97,11 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
         final filename = (row['filename'] ?? '').toString().trim();
         if (filename.isEmpty) continue;
         final original = (row['original_filename'] ?? '').toString().trim();
+        final baseName = filename.split('/').last;
         final entry = <String, dynamic>{
           ...row,
-          'name': original.isEmpty ? filename : original,
-          'url': '/uploads/masterAsset/$filename',
+          'name': original.contains('.') ? original : baseName,
+          'url': _attachmentUrl(filename),
         };
         final mime = (row['mime'] ?? '').toString().toLowerCase();
         final ext = filename.contains('.')
@@ -102,17 +124,24 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
         _documents = documents;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || silent) return;
       setState(() {
         _asset = Map<String, dynamic>.from(_baseRow);
       });
     } finally {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _isLoading = false;
         });
       }
     }
+  }
+
+  String _attachmentUrl(String filename) {
+    final path = filename.contains('/')
+        ? 'uploads/$filename'
+        : 'uploads/assets/docs/masterAsset/$filename';
+    return '/${path.split('/').map(Uri.encodeComponent).join('/')}';
   }
 
   List<Map<String, dynamic>> _toMapList(dynamic raw) {

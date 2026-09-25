@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:get/get.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../../core/utils/api_error_helper.dart';
+import '../../core/widgets/pdf_viewer_page.dart';
 import '../providers/api_service.dart';
 
 class ReportPage {
@@ -174,6 +176,10 @@ class ReportsRepository {
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$fileName.$format');
       await file.writeAsBytes(bytes, flush: true);
+      if (format == 'pdf') {
+        Get.to(() => PdfViewerPage(title: '$fileName.pdf', file: file));
+        return;
+      }
       final result = await OpenFile.open(file.path);
       if (result.type != ResultType.done) {
         throw Exception(

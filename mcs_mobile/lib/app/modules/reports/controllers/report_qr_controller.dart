@@ -9,9 +9,10 @@ import 'package:get/get.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/reports_repository.dart';
 
-class ReportQrController extends GetxController {
+class ReportQrController extends GetxController with RealtimeRefresh {
   static const int _perPage = 15;
 
   final ReportsRepository _repository = ReportsRepository();
@@ -41,6 +42,37 @@ class ReportQrController extends GetxController {
       }
     });
     load();
+    bindRealtime(const ['assets'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isLoading.value || isLoadingMore.value) return;
+    final token = _token;
+    final search = query.value;
+    final pages = _page.clamp(1, 20);
+    try {
+      final rows = <Map<String, dynamic>>[];
+      var last = await _repository.assets(
+        q: search,
+        perPage: _perPage,
+        activeOnly: true,
+      );
+      rows.addAll(last.rows);
+      for (var next = 2; next <= pages && last.hasMore; next++) {
+        last = await _repository.assets(
+          q: search,
+          page: next,
+          perPage: _perPage,
+          activeOnly: true,
+        );
+        rows.addAll(last.rows);
+      }
+      if (token != _token || isLoading.value || isLoadingMore.value) return;
+      assets.assignAll(rows);
+      total.value = last.total;
+      _page = last.page;
+      _hasMore = last.hasMore;
+    } catch (_) {}
   }
 
   @override

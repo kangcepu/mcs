@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/wo_production_repository.dart';
 import '../../../data/models/wo_model.dart';
 import '../../../data/models/dashboard_stats_model.dart';
 import '../../../data/models/wo_constants.dart';
 
 class WoProductionListController extends GetxController
-    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver, RealtimeRefresh {
   final WoProductionRepository _woProductionRepository = WoProductionRepository();
   static const Duration _realtimeInterval = Duration(seconds: 20);
   static const List<String> _tabTypes = <String>[
@@ -69,6 +70,7 @@ class WoProductionListController extends GetxController
       refresh(showLoader: false, showError: false);
     });
     _initialize();
+    bindRealtime(const ['wo', 'wo:production'], _silentRefresh);
   }
 
   Future<void> _initialize() async {
@@ -91,7 +93,7 @@ class WoProductionListController extends GetxController
       if (isLoading.value || isLoadingMore.value) {
         return;
       }
-      await refresh(showLoader: false, showError: false);
+      await _silentRefresh();
     });
   }
 
@@ -106,7 +108,7 @@ class WoProductionListController extends GetxController
       if (isLoading.value || isLoadingMore.value) {
         return;
       }
-      await refresh(showLoader: false, showError: false);
+      await _silentRefresh();
     });
   }
 
@@ -187,7 +189,11 @@ class WoProductionListController extends GetxController
     bool showLoader = true,
     bool showError = true,
   }) async {
-    await loadAllWoList(showLoader: showLoader, showError: showError);
+    await loadAllWoList(
+      isRefresh: true,
+      showLoader: showLoader,
+      showError: showError,
+    );
     applyFilter();
   }
 
@@ -195,7 +201,12 @@ class WoProductionListController extends GetxController
     bool isRefresh = false,
     bool showLoader = true,
     bool showError = true,
+    bool silent = false,
   }) async {
+    if (silent) {
+      showLoader = false;
+      showError = false;
+    }
     try {
       if (!canViewWo.value) {
         if (showError) {
@@ -214,12 +225,26 @@ class WoProductionListController extends GetxController
         isLoading.value = true;
       }
 
+      final startTab = activeTab.value;
+      final startStatus = selectedStatus.value;
+      final startPage = currentPage.value;
+      final fetchLimit = silent ? _silentFetchLimit : limit;
+
       final result = await _woProductionRepository.getWoList(
-        limit: limit,
-        offset: currentPage.value * limit,
+        limit: fetchLimit,
+        offset: silent ? 0 : currentPage.value * limit,
         status: selectedStatus.value?.code,
         typeWo: _currentTypeWo(),
       );
+
+      if (silent &&
+          (activeTab.value != startTab ||
+              selectedStatus.value != startStatus ||
+              currentPage.value != startPage ||
+              isLoading.value ||
+              isLoadingMore.value)) {
+        return;
+      }
 
       final List<dynamic> items = result['items'] ?? [];
       total.value = result['total'] ?? 0;
@@ -227,7 +252,10 @@ class WoProductionListController extends GetxController
       final List<WorkOrder> newWoList =
           items.map((json) => WorkOrder.fromJson(json)).toList();
 
-      if (isRefresh) {
+      if (silent) {
+        allWoList.value = newWoList;
+        currentPage.value = fetchLimit ~/ limit - 1;
+      } else if (isRefresh) {
         allWoList.value = newWoList;
       } else {
         allWoList.addAll(newWoList);
@@ -289,12 +317,29 @@ class WoProductionListController extends GetxController
           );
           nextCounts[type] = int.tryParse('${result['total'] ?? 0}') ?? 0;
         } catch (_) {
-          nextCounts[type] = 0;
+          nextCounts[type] = tabCounts[type] ?? 0;
         }
       }),
     );
 
     tabCounts.assignAll(nextCounts);
+  }
+
+  int get _silentFetchLimit {
+    final pages = (allWoList.length / limit).ceil();
+    return (pages < 1 ? 1 : pages > 25 ? 25 : pages) * limit;
+  }
+
+  Future<void> _silentRefresh() async {
+    for (var i = 0; i < 10 && (isLoading.value || isLoadingMore.value); i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    if (isLoading.value || isLoadingMore.value) return;
+    await Future.wait([
+      loadDashboard(showLoader: false),
+      loadAllWoList(silent: true).then((_) => applyFilter()),
+      loadTabCounts(),
+    ]);
   }
 
   int getTabCount(String type) => tabCounts[type] ?? 0;

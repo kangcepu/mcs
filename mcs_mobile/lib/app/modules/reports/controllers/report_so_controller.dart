@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/routes/app_routes.dart';
 import '../../../data/repositories/report_so_repository.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
 
 class ReportSoController extends GetxController {
   final ReportSoRepository _repository = ReportSoRepository();
@@ -144,13 +144,6 @@ class ReportSoController extends GetxController {
     final file = File('${tempDir.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
 
-    final openResult = await OpenFile.open(file.path, type: 'application/pdf');
-    if (openResult.type != ResultType.done) {
-      Get.snackbar(
-        'Info',
-        'PDF tersimpan di: ${file.path}',
-        snackPosition: SnackPosition.BOTTOM,
-      );
-    }
+    Get.to(() => PdfViewerPage(title: filename, file: file));
   }
 }

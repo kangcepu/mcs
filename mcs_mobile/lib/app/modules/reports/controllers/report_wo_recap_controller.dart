@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/providers/api_service.dart';
 import '../../../data/repositories/reports_repository.dart';
 
@@ -35,7 +36,7 @@ class RecapKpi {
   });
 }
 
-class ReportWoRecapController extends GetxController {
+class ReportWoRecapController extends GetxController with RealtimeRefresh {
   static const String _report = 'recap-work-orders';
   static const String _optionsPath = '/v2/work-orders/options';
   static const int _pageSize = 30;
@@ -121,6 +122,17 @@ class ReportWoRecapController extends GetxController {
     super.onInit();
     scrollController.addListener(_onScroll);
     _bootstrap();
+    bindRealtime(
+      const ['wo'],
+      _silentRefresh,
+      debounce: const Duration(seconds: 2),
+    );
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!isReady.value || activeModule.value.isEmpty) return;
+    if (isLoading.value || isLoadingMore.value) return;
+    await Future.wait([loadFirstPage(silent: true), loadKpi(silent: true)]);
   }
 
   @override
@@ -213,24 +225,42 @@ class ReportWoRecapController extends GetxController {
     await Future.wait([loadFirstPage(), loadKpi()]);
   }
 
-  Future<void> loadFirstPage() async {
+  Future<void> loadFirstPage({bool silent = false}) async {
     final seq = ++_listSeq;
-    isLoading.value = true;
-    errorMessage.value = '';
+    if (!silent) {
+      isLoading.value = true;
+      errorMessage.value = '';
+    }
     try {
-      final result = await _repository.fetch(
+      final params = filterParams;
+      final pages = silent ? _page.clamp(1, 10) : 1;
+      final loaded = <Map<String, dynamic>>[];
+      var result = await _repository.fetch(
         _report,
-        filterParams,
+        params,
         page: 1,
         perPage: _pageSize,
       );
       if (seq != _listSeq) return;
-      rows.assignAll(result.rows);
+      loaded.addAll(result.rows);
+      for (var next = 2; next <= pages && result.hasMore; next++) {
+        result = await _repository.fetch(
+          _report,
+          params,
+          page: next,
+          perPage: _pageSize,
+        );
+        if (seq != _listSeq) return;
+        loaded.addAll(result.rows);
+      }
+      rows.assignAll(loaded);
       total.value = result.total;
       hasMore.value = result.hasMore;
-      _page = 1;
+      _page = result.page;
+      if (silent) errorMessage.value = '';
     } catch (e) {
       if (seq != _listSeq) return;
+      if (silent) return;
       rows.clear();
       total.value = 0;
       hasMore.value = false;
@@ -264,10 +294,12 @@ class ReportWoRecapController extends GetxController {
     }
   }
 
-  Future<void> loadKpi() async {
+  Future<void> loadKpi({bool silent = false}) async {
     final seq = ++_kpiSeq;
-    isKpiLoading.value = true;
-    kpiError.value = '';
+    if (!silent) {
+      isKpiLoading.value = true;
+      kpiError.value = '';
+    }
     try {
       final params = filterParams;
       var waiting = 0;
@@ -320,6 +352,7 @@ class ReportWoRecapController extends GetxController {
       );
     } catch (e) {
       if (seq != _kpiSeq) return;
+      if (silent) return;
       kpi.value = const RecapKpi();
       kpiError.value = _message(e);
     } finally {

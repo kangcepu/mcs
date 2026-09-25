@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../data/models/asset_before_bom_model.dart';
 import '../../../data/models/asset_bom_model.dart';
@@ -10,6 +9,7 @@ import '../../../data/models/company_model.dart';
 import '../../../data/models/location_model.dart';
 import '../../../data/repositories/stock_opname_input_repository.dart';
 import 'stock_opname_controller.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
 
 class StockOpnameInputBOMController extends GetxController {
   final StockOpnameInputRepository _repository = StockOpnameInputRepository();
@@ -279,11 +279,7 @@ class StockOpnameInputBOMController extends GetxController {
     final file =
         File('${tempDir.path}/laporan_bom_${noSO.replaceAll('.', '_')}.pdf');
     await file.writeAsBytes(result['bytes'] as List<int>, flush: true);
-    final openResult = await OpenFile.open(file.path, type: 'application/pdf');
-    if (openResult.type != ResultType.done) {
-      Get.snackbar('Info', 'PDF tersimpan di ${file.path}',
-          snackPosition: SnackPosition.BOTTOM);
-    }
+    Get.to(() => PdfViewerPage(title: file.path.split('/').last, file: file));
   }
 
   void clearSelectedAsset() {

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/wo_production_repository.dart';
 
-class WoProductionDetailController extends GetxController {
+class WoProductionDetailController extends GetxController
+    with RealtimeRefresh {
   final WoProductionRepository _woProductionRepository =
       WoProductionRepository();
 
@@ -113,7 +115,20 @@ class WoProductionDetailController extends GetxController {
     loadUserData();
     if ((woNumber ?? '').isNotEmpty) {
       loadWoDetail();
+      bindRealtime(
+        const ['wo', 'wo:production'],
+        _silentRefresh,
+        where: (e) => e.woNumber == null || e.woNumber == woNumber,
+      );
     }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isProcessing.value) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (isProcessing.value) return;
+    }
+    await loadWoDetail(silent: true);
   }
 
   Future<void> loadUserData() async {
@@ -128,17 +143,17 @@ class WoProductionDetailController extends GetxController {
     }
   }
 
-  Future<void> loadWoDetail() async {
+  Future<void> loadWoDetail({bool silent = false}) async {
     if (woNumber == null) return;
 
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
       final result = await _woProductionRepository.getWoDetail(woNumber!);
       woDetail.value = result;
     } catch (e) {
       print('Error loading WO detail: $e');
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 

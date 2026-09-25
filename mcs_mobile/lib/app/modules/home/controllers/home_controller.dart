@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:async';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/dashboard_repository.dart';
 import '../../../data/repositories/daily_control_repository.dart';
@@ -43,7 +44,8 @@ class MenuItem {
   });
 }
 
-class HomeController extends GetxController with WidgetsBindingObserver {
+class HomeController extends GetxController
+    with WidgetsBindingObserver, RealtimeRefresh {
   final DashboardRepository _dashboardRepository = DashboardRepository();
   final DailyControlRepository _dailyControlRepository =
       DailyControlRepository();
@@ -215,6 +217,13 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     loadWoStats();
     loadModuleCounts();
     refreshDailyControlUnreadCount();
+    if (Get.isRegistered<RealtimeService>()) {
+      RealtimeService.to.ensureStarted();
+    }
+    bindRealtime(
+      const ['wo', 'approval', 'daily-control', 'asset-mutation', 'dashboard'],
+      _refreshLiveCounts,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scheduleUpdateCheck(const Duration(milliseconds: 600));
     });
@@ -954,9 +963,17 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     );
   }
 
-  Future<void> loadWoStats() async {
+  Future<void> _refreshLiveCounts() async {
+    await Future.wait<void>([
+      loadWoStats(silent: true),
+      loadModuleCounts(),
+      refreshDailyControlUnreadCount(),
+    ]);
+  }
+
+  Future<void> loadWoStats({bool silent = false}) async {
     try {
-      isLoadingStats.value = true;
+      if (!silent) isLoadingStats.value = true;
       final prefs = await SharedPreferences.getInstance();
 
       final results = await Future.wait<int>([
@@ -969,9 +986,11 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       correctiveWoCount.value = results[1];
       projectWoCount.value = results[2];
     } catch (e) {
-      preventiveWoCount.value = 0;
-      correctiveWoCount.value = 0;
-      projectWoCount.value = 0;
+      if (!silent) {
+        preventiveWoCount.value = 0;
+        correctiveWoCount.value = 0;
+        projectWoCount.value = 0;
+      }
     } finally {
       isLoadingStats.value = false;
     }
@@ -1028,6 +1047,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
           ),
           ElevatedButton(
             onPressed: () async {
+              if (Get.isRegistered<RealtimeService>()) RealtimeService.to.stop();
               await PushNotificationService.instance.unregisterCurrentToken();
               await PushNotificationService.instance
                   .clearDailyControlBadgeCount();

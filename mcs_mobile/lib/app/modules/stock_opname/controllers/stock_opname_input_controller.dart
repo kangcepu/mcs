@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../../core/constants/api_constants.dart';
@@ -17,6 +16,7 @@ import '../../../data/repositories/stock_opname_input_repository.dart';
 import '../../../data/repositories/stock_opname_repository.dart';
 import '../../../data/repositories/status_so_repository.dart';
 import 'stock_opname_controller.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
 
 class StockOpnameInputController extends GetxController {
   final StockOpnameInputRepository _repository = StockOpnameInputRepository();
@@ -443,14 +443,7 @@ class StockOpnameInputController extends GetxController {
     final file = File('${tempDir.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
 
-    final openResult = await OpenFile.open(file.path, type: 'application/pdf');
-    if (openResult.type != ResultType.done) {
-      Get.snackbar(
-        'Info',
-        'PDF tersimpan di: ${file.path}',
-        snackPosition: SnackPosition.BOTTOM,
-      );
-    }
+    Get.to(() => PdfViewerPage(title: filename, file: file));
   }
 
   Future<bool> createStockOpname({

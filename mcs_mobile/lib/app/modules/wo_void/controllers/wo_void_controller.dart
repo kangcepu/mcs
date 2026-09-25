@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/services/realtime_service.dart';
 import '../../../data/models/work_order_model.dart';
 import '../../../data/repositories/wo_operational_repository.dart';
 
@@ -12,7 +13,7 @@ class DateCount {
   DateCount({required this.date, required this.count});
 }
 
-class WoVoidController extends GetxController {
+class WoVoidController extends GetxController with RealtimeRefresh {
   final WoOperationalRepository _repository = WoOperationalRepository();
 
   static const List<Map<String, String>> moduleFilters = [
@@ -37,6 +38,16 @@ class WoVoidController extends GetxController {
   void onInit() {
     super.onInit();
     loadCandidates();
+    bindRealtime(const ['wo', 'approval'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isLoading.value ||
+        isBulkVoiding.value ||
+        voidingWoNumber.value.isNotEmpty) {
+      return;
+    }
+    await loadCandidates(silent: true);
   }
 
   List<WorkOrder> get filteredCandidates {
@@ -103,22 +114,31 @@ class WoVoidController extends GetxController {
     }
   }
 
-  Future<void> loadCandidates() async {
+  Future<void> loadCandidates({bool silent = false}) async {
     try {
-      isLoading.value = true;
-      selectedWoNumbers.clear();
+      if (!silent) {
+        isLoading.value = true;
+        selectedWoNumbers.clear();
+      }
       final candidatesFuture = _repository.getVoidPreventiveCandidates();
       final historyFuture = _repository.getVoidHistory();
-      candidates.assignAll(await candidatesFuture);
-      voidHistory.assignAll(await historyFuture);
+      final nextCandidates = await candidatesFuture;
+      final nextHistory = await historyFuture;
+      candidates.assignAll(nextCandidates);
+      voidHistory.assignAll(nextHistory);
+      if (silent) {
+        final present = nextCandidates.map((wo) => wo.woNumber).toSet();
+        selectedWoNumbers.removeWhere((number) => !present.contains(number));
+      }
     } catch (error) {
+      if (silent) return;
       Get.snackbar(
           'Gagal memuat', error.toString().replaceFirst('Exception: ', ''),
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red,
           colorText: Colors.white);
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 

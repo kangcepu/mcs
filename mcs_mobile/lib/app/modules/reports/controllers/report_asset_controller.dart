@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/providers/api_service.dart';
 import '../../../data/repositories/reports_repository.dart';
 
@@ -14,7 +15,7 @@ class AssetFilterOption {
   const AssetFilterOption(this.value, this.label);
 }
 
-class ReportAssetController extends GetxController {
+class ReportAssetController extends GetxController with RealtimeRefresh {
   static const int _pageSize = 50;
 
   final ReportsRepository _repository = ReportsRepository();
@@ -70,6 +71,39 @@ class ReportAssetController extends GetxController {
     scrollController.addListener(_onScroll);
     _loadOptions();
     reload();
+    bindRealtime(const ['assets'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isLoading.value || isLoadingMore.value) return;
+    final params = Map<String, dynamic>.from(_params);
+    final pages = page.value.clamp(1, 20);
+    try {
+      final rows = <Map<String, dynamic>>[];
+      var last = await _repository.fetch(
+        reportKey,
+        params,
+        page: 1,
+        perPage: _pageSize,
+      );
+      rows.addAll(last.rows);
+      for (var next = 2; next <= pages && next <= last.totalPages; next++) {
+        last = await _repository.fetch(
+          reportKey,
+          params,
+          page: next,
+          perPage: _pageSize,
+        );
+        rows.addAll(last.rows);
+      }
+      if (isLoading.value || isLoadingMore.value) return;
+      if ('$params' != '$_params') return;
+      items.assignAll(rows);
+      page.value = last.page;
+      totalPages.value = last.totalPages;
+      total.value = last.total;
+      await _loadActiveCount(last.total);
+    } catch (_) {}
   }
 
   @override

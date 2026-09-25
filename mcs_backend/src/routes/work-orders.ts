@@ -1,3 +1,4 @@
+import { resolveAssetAttachmentUrl } from '../lib/asset-attachments.js';
 import { Router } from 'express';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
@@ -200,19 +201,6 @@ async function transition(req: AuthRequest, res: import('express').Response, act
 
 workOrderRouter.post('/work-orders/planner', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const rawExecutors = Array.isArray(req.body.job_executor) ? req.body.job_executor : (Array.isArray(req.body.executors) ? req.body.executors : []); const executors = rawExecutors.map((e: unknown) => typeof e === 'object' && e !== null ? String((e as Record<string, unknown>).job_executor ?? '') : String(e)).filter(Boolean); const startedPlanner = req.body.started_planner ?? null; const finishedPlanner = req.body.finished_planner ?? null; const estimatePlanner = req.body.estimate_planner ?? null; await transaction(async (connection) => { if (executors.length) { await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [wo]); for (const executor of executors) await connection.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,?,?,NOW())', [wo, executor, 'IN_PROGRESS']); } await connection.execute(`UPDATE \`${domains[domain].table}\` SET status='IN_PROGRESS_EXECUTOR', started_planner=?, finished_planner=?, estimate_planner=?, updated_at=NOW() WHERE wo_number=?`, [startedPlanner, finishedPlanner, estimatePlanner, wo]); }); ok(res, { wo_number: wo, job_executor: executors.join(',') }, 'Planner assignment saved'); }));
 workOrderRouter.post('/work-orders/sub', authenticate, asyncHandler(async (req, res) => { const source = domainOf(String(req.body.module ?? 'maintenance')); const target = resolveTargetDomain(String(req.body.target_domain ?? req.body.sub_to ?? req.body.subto ?? '')); const sourceWoNumber = String(req.body.wo_number ?? ''); const original = await header(source, sourceWoNumber) as Record<string, unknown> | null; if (!original) throw new HttpError(404, 'Source work order not found'); const user = (req as AuthRequest).user!; const d = domains[target]; const executor = executorFor(target, user); const number = await transaction(async (connection) => { const n = await nextNumber(connection, target, String(user.division_code ?? user.id_division)); await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, [n, new Date().toISOString().slice(0,10), original.company ?? '', original.shift ?? '', original.type_wo ?? 'CORRECTIVE', original.priority ?? 'NORMAL', original.id_division, original.id_equipment, original.job_title, original.running_hours ?? null, original.job_requirement ?? '', executor, 'WAIT_KA_DIV', executor, user.fullname] as never); return n; }); created(res, { wo_number: sourceWoNumber, sub_wo_number: number, sub_to: executor, module: target }, 'Sub work order created'); }));
-
-/**
- * `tb_attachment_asset.filename` punya 2 format: file lama hasil migrasi
- * cuma nama file polos (butuh prefix folder lama `assets/docs/masterAsset`),
- * upload baru lewat `/assets/attachments` nyimpen relative key sendiri
- * (sudah ada `/`, dipakai apa adanya).
- */
-function resolveAssetAttachmentUrl(filename: string): string {
-  const trimmed = filename.trim();
-  if (!trimmed) return '';
-  if (trimmed.includes('/')) return `/uploads/${trimmed}`;
-  return `/uploads/assets/docs/masterAsset/${trimmed}`;
-}
 
 workOrderRouter.get('/work-orders/assets', authenticate, asyncHandler(async (req, res) => {
   const term = `%${String(req.query.q ?? '')}%`;

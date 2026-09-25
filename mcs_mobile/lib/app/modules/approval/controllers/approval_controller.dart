@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/models/approval_center_model.dart';
 import '../../../data/repositories/approval_repository.dart';
 
-class ApprovalController extends GetxController {
+class ApprovalController extends GetxController with RealtimeRefresh {
   final ApprovalRepository _repository = ApprovalRepository();
 
   final isLoading = false.obs;
@@ -30,6 +31,56 @@ class ApprovalController extends GetxController {
   void onInit() {
     super.onInit();
     refreshAll();
+    bindRealtime(const ['approval', 'wo', 'asset-mutation'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isLoading.value || isProcessing.value) return;
+    try {
+      final loaded = loadedSections.entries
+          .where((entry) => entry.value == true)
+          .map((entry) => entry.key)
+          .toList();
+      final nextSummary = await _repository.getSummary();
+      final results = await Future.wait<List<ApprovalItem>?>(
+        loaded.map((section) => _fetchSection(section)),
+      );
+      summary.value = nextSummary;
+      for (var i = 0; i < loaded.length; i++) {
+        final items = results[i];
+        if (items == null) continue;
+        switch (loaded[i]) {
+          case 'wo_approvals':
+            woApprovals.assignAll(items);
+            break;
+          case 'wo_closings':
+            woClosings.assignAll(items);
+            break;
+          case 'mutations':
+            mutations.assignAll(items);
+            break;
+          case 'materials':
+            materials.assignAll(items);
+            break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<List<ApprovalItem>?> _fetchSection(String section) async {
+    try {
+      switch (section) {
+        case 'wo_approvals':
+          return await _repository.getWoApprovals();
+        case 'wo_closings':
+          return await _repository.getWoClosings();
+        case 'mutations':
+          return await _repository.getMutations();
+        case 'materials':
+          return await _repository.getMaterials();
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> refreshAll({List<String>? keepSectionsLoaded}) async {

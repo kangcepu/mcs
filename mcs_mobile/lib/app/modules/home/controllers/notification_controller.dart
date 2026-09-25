@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../data/models/notification_model.dart';
 import '../../../data/repositories/notification_repository.dart';
 import '../views/notification_bottom_sheet.dart';
 
-class NotificationController extends GetxController {
+class NotificationController extends GetxController with RealtimeRefresh {
   final NotificationRepository _repository = NotificationRepository();
 
   final totalNotifications = 0.obs;
@@ -27,6 +28,11 @@ class NotificationController extends GetxController {
     super.onInit();
     loadNotifications();
     startPeriodicCheck();
+    bindRealtime(
+      const ['wo', 'approval', 'daily-control', 'any'],
+      () => loadNotifications(silent: true),
+      debounce: const Duration(seconds: 1),
+    );
   }
 
   void startPeriodicCheck() {
@@ -39,9 +45,10 @@ class NotificationController extends GetxController {
     });
   }
 
-  Future<void> loadNotifications() async {
+  Future<void> loadNotifications({bool silent = false}) async {
+    if (silent && isLoading.value) return;
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
 
       final result = await _repository.getNotificationSummary();
       if (result.status && result.data != null) {
@@ -65,7 +72,11 @@ class NotificationController extends GetxController {
 
         totalNotifications.value = newCount;
 
-        if (isFirstLoad.value && newCount > 0) {
+        if (silent) {
+          if (newCount > oldCount && oldCount > 0) {
+            hasNewNotifications.value = true;
+          }
+        } else if (isFirstLoad.value && newCount > 0) {
           isFirstLoad.value = false;
           await Future.delayed(const Duration(milliseconds: 800));
           await showNotificationPopup();
@@ -79,7 +90,7 @@ class NotificationController extends GetxController {
     } catch (_) {
       // Keep silent: notification failure must not block main home page flow.
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 

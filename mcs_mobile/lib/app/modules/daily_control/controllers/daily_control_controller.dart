@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/constants/api_constants.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/app_date_picker_helper.dart';
 import '../../../core/utils/daily_control_image_editor_helper.dart';
@@ -679,7 +680,7 @@ class DailyControlUserUpdateStatus {
 }
 
 class DailyControlController extends GetxController
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RealtimeRefresh {
   final DailyControlRepository _repository = DailyControlRepository();
   static const Duration _realtimeInterval = Duration(seconds: 8);
 
@@ -748,6 +749,14 @@ class DailyControlController extends GetxController
     availableMtcAreaFilters.assignAll(const ['ALL']);
     unawaited(_restoreUnreadActivityCount());
     _bootstrap();
+    bindRealtime(const ['daily-control', 'wo'], _silentRefresh);
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!hasLoadedInitialData.value || isLoading.value || isSaving.value) {
+      return;
+    }
+    await loadData(showLoader: false, showError: false);
   }
 
   Future<void> _restoreUnreadActivityCount() async {

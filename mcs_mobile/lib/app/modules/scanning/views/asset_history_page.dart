@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/services/realtime_service.dart';
 import '../../../data/models/wo_mtc_model.dart';
+import '../../../data/repositories/wo_mtc_repository.dart';
 
 class AssetHistoryPage extends StatefulWidget {
   final String assetCode;
   final String assetName;
   final List<WorkOrderMtc> history;
+  final String idEquipment;
 
   const AssetHistoryPage({
     super.key,
     required this.assetCode,
     required this.assetName,
     required this.history,
+    this.idEquipment = '',
   });
 
   @override
@@ -20,28 +24,51 @@ class AssetHistoryPage extends StatefulWidget {
 
 class _AssetHistoryPageState extends State<AssetHistoryPage> {
   _HistoryFilter _filter = _HistoryFilter.all;
+  late List<WorkOrderMtc> _history = widget.history;
+  RealtimeSubscription? _realtime;
 
-  int get _correctiveCount => widget.history
+  @override
+  void initState() {
+    super.initState();
+    if (widget.idEquipment.isEmpty) return;
+    final repository = WoMtcRepository();
+    _realtime = RealtimeSubscription(
+      topics: const ['wo'],
+      onChange: () async {
+        final fresh = await repository.getAssetHistory(widget.idEquipment);
+        if (!mounted) return;
+        setState(() => _history = fresh);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _realtime?.dispose();
+    super.dispose();
+  }
+
+  int get _correctiveCount => _history
       .where((item) => _kindOf(item) == _HistoryKind.corrective)
       .length;
 
-  int get _preventiveCount => widget.history
+  int get _preventiveCount => _history
       .where((item) => _kindOf(item) == _HistoryKind.preventive)
       .length;
 
-  int get _projectCount => widget.history
+  int get _projectCount => _history
       .where((item) => _kindOf(item) == _HistoryKind.project)
       .length;
 
   List<WorkOrderMtc> get _visibleHistory {
-    if (_filter == _HistoryFilter.all) return widget.history;
+    if (_filter == _HistoryFilter.all) return _history;
 
     final expectedKind = _filter == _HistoryFilter.corrective
         ? _HistoryKind.corrective
         : _filter == _HistoryFilter.preventive
             ? _HistoryKind.preventive
             : _HistoryKind.project;
-    return widget.history
+    return _history
         .where((item) => _kindOf(item) == expectedKind)
         .toList();
   }
@@ -122,7 +149,7 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
           ),
           const SizedBox(width: 12),
           Text(
-            '${widget.history.length}\nWO',
+            '${_history.length}\nWO',
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: Colors.black54,
@@ -144,7 +171,7 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
           Expanded(
             child: _HistoryFilterButton(
               label: 'All',
-              count: widget.history.length,
+              count: _history.length,
               color: const Color(0xFF334155),
               selected: _filter == _HistoryFilter.all,
               onTap: () => setState(() => _filter = _HistoryFilter.all),

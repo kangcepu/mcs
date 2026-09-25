@@ -10,6 +10,7 @@ import 'app/core/constants/app_motion.dart';
 import 'app/core/utils/network_checker.dart';
 import 'app/core/constants/api_constants.dart';
 import 'app/core/services/push_notification_service.dart';
+import 'app/core/services/realtime_service.dart';
 import 'app/data/providers/update_provider.dart';
 import 'app/core/widgets/responsive_app_wrapper.dart';
 
@@ -46,6 +47,7 @@ Future<void> main() async {
   await PushNotificationService.instance.initialize();
 
   Get.put(UpdateProvider());
+  Get.put(RealtimeService(), permanent: true).ensureStarted();
 
   runApp(const MyApp());
 }

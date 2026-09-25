@@ -6,9 +6,11 @@ import '../../../data/repositories/wo_operational_repository.dart';
 import '../../../data/repositories/material_part_request_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/realtime_service.dart';
 import '../utils/wo_operational_status_mapper.dart';
 
-class WoOperationalDetailController extends GetxController {
+class WoOperationalDetailController extends GetxController
+    with RealtimeRefresh {
   final WoOperationalRepository _woRepository = WoOperationalRepository();
   final MaterialPartRequestRepository _partRequestRepo =
       MaterialPartRequestRepository();
@@ -25,6 +27,7 @@ class WoOperationalDetailController extends GetxController {
 
   final isLoading = false.obs;
   final isPartExecutionDirty = false.obs;
+  bool _partBusy = false;
   final selectedDetailTab = 0.obs;
   final woNumber = ''.obs;
   final openSummaryOnly = false.obs;
@@ -206,7 +209,17 @@ class WoOperationalDetailController extends GetxController {
     loadUserData();
     if (woNumber.value.isNotEmpty) {
       loadDetail();
+      bindRealtime(
+        const ['wo', 'wo:maintenance', 'material'],
+        _silentRefresh,
+        where: (e) => e.woNumber == null || e.woNumber == woNumber.value,
+      );
     }
+  }
+
+  Future<void> _silentRefresh() async {
+    if (isLoading.value) return;
+    await Future.wait<void>([loadUserData(), loadDetail(silent: true)]);
   }
 
   Future<void> loadUserData() async {
@@ -231,9 +244,9 @@ class WoOperationalDetailController extends GetxController {
     }
   }
 
-  Future<void> loadDetail() async {
+  Future<void> loadDetail({bool silent = false}) async {
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
 
       final result = await _woRepository.getWoDetail(woNumber.value);
       final detail = wo_model.WorkOrderDetail.fromJson(result);
@@ -245,17 +258,22 @@ class WoOperationalDetailController extends GetxController {
       approvals.value = detail.approvals;
       servicePhotos.value = detail.servicePhotos;
 
-      if (isPreventiveWo) {
-        final rows = detail.partExecution.isNotEmpty
-            ? detail.partExecution
-            : detail.preventiveParts;
-        partExecutionRows.value = rows;
-      } else {
-        partExecutionRows.clear();
+      final keepPartEdits =
+          silent && (isPartExecutionDirty.value || _partBusy);
+      if (!keepPartEdits) {
+        if (isPreventiveWo) {
+          final rows = detail.partExecution.isNotEmpty
+              ? detail.partExecution
+              : detail.preventiveParts;
+          partExecutionRows.value = rows;
+        } else {
+          partExecutionRows.clear();
+        }
+        isPartExecutionDirty.value = false;
       }
-      _applyInitialDetailTab();
-      isPartExecutionDirty.value = false;
+      if (!silent) _applyInitialDetailTab();
     } catch (e) {
+      if (silent) return;
       if (_isNotFoundDetailError(e) && _looksLikeMtcWo(woNumber.value)) {
         await Get.offNamed(
           AppRoutes.woMtcDetail,
@@ -273,7 +291,7 @@ class WoOperationalDetailController extends GetxController {
         colorText: Colors.white,
       );
     } finally {
-      isLoading.value = false;
+      if (!silent) isLoading.value = false;
     }
   }
 
@@ -529,6 +547,7 @@ class WoOperationalDetailController extends GetxController {
 
     final row = partExecutionRows[index];
 
+    _partBusy = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -542,6 +561,7 @@ class WoOperationalDetailController extends GetxController {
         filePath: filePath,
       );
 
+      _partBusy = false;
       if (Get.isDialogOpen == true) {
         Get.back();
       }
@@ -560,6 +580,7 @@ class WoOperationalDetailController extends GetxController {
         colorText: Colors.white,
       );
     } catch (e) {
+      _partBusy = false;
       if (Get.isDialogOpen == true) {
         Get.back();
       }
@@ -578,6 +599,7 @@ class WoOperationalDetailController extends GetxController {
       return;
     }
 
+    _partBusy = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -589,6 +611,7 @@ class WoOperationalDetailController extends GetxController {
         rows: partExecutionRows.toList(),
       );
 
+      _partBusy = false;
       if (Get.isDialogOpen == true) {
         Get.back();
       }
@@ -603,6 +626,7 @@ class WoOperationalDetailController extends GetxController {
 
       await loadDetail();
     } catch (e) {
+      _partBusy = false;
       if (Get.isDialogOpen == true) {
         Get.back();
       }

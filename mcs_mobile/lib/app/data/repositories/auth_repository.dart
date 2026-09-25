@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../providers/api_service.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/push_notification_service.dart';
+import '../../core/services/realtime_service.dart';
 import '../../core/utils/api_error_helper.dart';
 import '../models/user_model.dart';
 
@@ -42,6 +43,7 @@ class AuthRepository {
 
           final token = responseData['token']?.toString() ?? '';
           await prefs.setString('token', token);
+          RealtimeService.startIfAvailable();
 
           try {
             final userData = responseData['user'];
@@ -190,6 +192,7 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
+    RealtimeService.stopIfAvailable();
     await PushNotificationService.instance.unregisterCurrentToken();
     await PushNotificationService.instance.clearDailyControlBadgeCount();
     final prefs = await SharedPreferences.getInstance();

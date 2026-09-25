@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/wo_ga_repository.dart';
 import '../../../data/models/wo_model.dart';
 import '../../../data/models/dashboard_stats_model.dart';
 import '../../../data/models/wo_constants.dart';
 
 class WoGaListController extends GetxController
-    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with GetSingleTickerProviderStateMixin, WidgetsBindingObserver, RealtimeRefresh {
   final WoGaRepository _woRepository = WoGaRepository();
   static const Duration _realtimeInterval = Duration(seconds: 20);
   static const List<String> _tabTypes = <String>[
@@ -69,6 +70,7 @@ class WoGaListController extends GetxController
       refresh(showLoader: false, showError: false);
     });
     _initialize();
+    bindRealtime(const ['wo', 'wo:ga'], _silentRefresh);
   }
 
   Future<void> _initialize() async {
@@ -91,7 +93,7 @@ class WoGaListController extends GetxController
       if (isLoading.value || isLoadingMore.value) {
         return;
       }
-      await refresh(showLoader: false, showError: false);
+      await _silentRefresh();
     });
   }
 
@@ -106,7 +108,7 @@ class WoGaListController extends GetxController
       if (isLoading.value || isLoadingMore.value) {
         return;
       }
-      await refresh(showLoader: false, showError: false);
+      await _silentRefresh();
     });
   }
 
@@ -272,7 +274,7 @@ class WoGaListController extends GetxController
     ]);
   }
 
-  Future<void> loadTabCounts() async {
+  Future<void> loadTabCounts({bool silent = false}) async {
     if (!canViewWo.value) return;
 
     final types = ['preventive', 'corrective', 'project'];
@@ -288,12 +290,59 @@ class WoGaListController extends GetxController
           );
           nextCounts[type] = int.tryParse('${result['total'] ?? 0}') ?? 0;
         } catch (_) {
-          nextCounts[type] = 0;
+          nextCounts[type] = silent ? (tabCounts[type] ?? 0) : 0;
         }
       }),
     );
 
     tabCounts.assignAll(nextCounts);
+  }
+
+  Future<void> _silentRefresh() async {
+    await Future.wait([
+      loadDashboard(showLoader: false),
+      loadTabCounts(silent: true),
+      _reloadLoadedRows(),
+    ]);
+  }
+
+  Future<void> _reloadLoadedRows() async {
+    var waited = 0;
+    while ((isLoading.value || isLoadingMore.value) && waited < 25) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      waited++;
+    }
+    if (!canViewWo.value || isLoading.value || isLoadingMore.value) return;
+
+    final startPage = currentPage.value;
+    final pages = (startPage + 1).clamp(1, 10).toInt();
+    final typeWo = _currentTypeWo();
+
+    try {
+      final result = await _woRepository.getWoList(
+        limit: limit * pages,
+        offset: 0,
+        status: selectedStatus.value?.code,
+        typeWo: typeWo,
+      );
+      if (isLoading.value ||
+          isLoadingMore.value ||
+          currentPage.value != startPage) {
+        return;
+      }
+
+      final List<dynamic> items = result['items'] ?? [];
+      final fresh = items.map((json) => WorkOrder.fromJson(json)).toList();
+      final kept = typeWo == null
+          ? <WorkOrder>[]
+          : allWoList.where((wo) => _normalizeTypeWo(wo.typeWo) != typeWo);
+
+      total.value = int.tryParse('${result['total'] ?? 0}') ?? 0;
+      currentPage.value = pages - 1;
+      allWoList.assignAll([...kept, ...fresh]);
+      hasMore.value = fresh.length < total.value;
+      applyFilter();
+    } catch (_) {}
   }
 
   int getTabCount(String type) => tabCounts[type] ?? 0;

@@ -226,6 +226,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
           assetCode: (asset['AssetCode'] ?? '-').toString(),
           assetName: (asset['AssetName'] ?? '-').toString(),
           history: history,
+          idEquipment: idEquipment,
         ),
       );
     } catch (error) {

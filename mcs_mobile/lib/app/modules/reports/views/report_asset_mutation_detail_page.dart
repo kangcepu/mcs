@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/asset_mutation_repository.dart';
 
 class ReportAssetMutationDetailPage extends StatefulWidget {
@@ -23,6 +24,7 @@ class _ReportAssetMutationDetailPageState
   List<Map<String, dynamic>> _details = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _approvals = <Map<String, dynamic>>[];
   bool _canApprove = false;
+  RealtimeSubscription? _realtime;
 
   @override
   void initState() {
@@ -32,6 +34,23 @@ class _ReportAssetMutationDetailPageState
       _docNo = args['doc_no'].toString();
     }
     _load();
+    _realtime = RealtimeSubscription(
+      topics: const ['asset-mutation', 'assets', 'approval'],
+      where: (event) =>
+          event.woNumber == null ||
+          event.woNumber!.trim().isEmpty ||
+          event.woNumber!.trim() == _docNo.trim(),
+      onChange: () async {
+        if (!mounted || _approving || _loading) return;
+        await _load(silent: true);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _realtime?.dispose();
+    super.dispose();
   }
 
   String _read(Map<String, dynamic> row, List<String> keys,
@@ -45,7 +64,7 @@ class _ReportAssetMutationDetailPageState
     return fallback;
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     if (_docNo.trim().isEmpty) {
       setState(() {
         _loading = false;
@@ -81,15 +100,17 @@ class _ReportAssetMutationDetailPageState
         _canApprove = perms['can_approve'] == true;
       });
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        e.toString().replaceFirst('Exception: ', ''),
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (!silent) {
+        Get.snackbar(
+          'Error',
+          e.toString().replaceFirst('Exception: ', ''),
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+      }
     } finally {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _loading = false;
         });

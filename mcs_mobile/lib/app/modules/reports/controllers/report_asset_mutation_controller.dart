@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/asset_mutation_repository.dart';
 import '../../../core/routes/app_routes.dart';
 
-class ReportAssetMutationController extends GetxController {
+class ReportAssetMutationController extends GetxController
+    with RealtimeRefresh {
   final AssetMutationRepository _repository = AssetMutationRepository();
 
   final requests = <Map<String, dynamic>>[].obs;
@@ -24,6 +26,10 @@ class ReportAssetMutationController extends GetxController {
   void onInit() {
     super.onInit();
     loadRequests();
+    bindRealtime(
+      const ['asset-mutation', 'assets', 'approval'],
+      () => loadRequests(search: query.value, silent: true),
+    );
   }
 
   @override
@@ -68,9 +74,10 @@ class ReportAssetMutationController extends GetxController {
     }
   }
 
-  Future<void> loadRequests({String? search}) async {
+  Future<void> loadRequests({String? search, bool silent = false}) async {
+    if (silent && isLoading.value) return;
     try {
-      isLoading.value = true;
+      if (!silent) isLoading.value = true;
       final data = await _repository.getRequests(search: search ?? '');
       final items = data['items'] is List
           ? List<Map<String, dynamic>>.from(
@@ -96,16 +103,20 @@ class ReportAssetMutationController extends GetxController {
       canCreate.value = fromApiCreate;
       canApprove.value = fromApiApprove;
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Gagal memuat data mutation request',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (!silent) {
+        Get.snackbar(
+          'Error',
+          'Gagal memuat data mutation request',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+      }
     } finally {
-      isLoading.value = false;
-      isFirstLoad.value = false;
+      if (!silent) {
+        isLoading.value = false;
+        isFirstLoad.value = false;
+      }
     }
   }
 

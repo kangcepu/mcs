@@ -497,6 +497,8 @@ class _AssetCard extends StatelessWidget {
               ),
               Text(
                 [code, alias].where((v) => v.isNotEmpty).join('  ·  '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -506,6 +508,8 @@ class _AssetCard extends StatelessWidget {
               if (meta.isNotEmpty)
                 Text(
                   meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
                 ),
               if (brand.isNotEmpty || remark.isNotEmpty)
