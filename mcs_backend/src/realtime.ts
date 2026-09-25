@@ -37,6 +37,7 @@ const WATCH_INTERVAL_MS = 5_000;
 const WO_MODULES = ['is', 'ga', 'meso', 'maintenance', 'production'];
 
 const clients = new Set<Client>();
+const lastMobileDisconnect = new Map<number, number>();
 let eventSeq = 0;
 
 export function publishRealtime(event: RealtimeEvent): void {
@@ -222,6 +223,7 @@ realtimeRouter.get('/realtime/stream', authenticate, (req, res) => {
   req.on('close', () => {
     clearInterval(heartbeat);
     clients.delete(client);
+    if (client.kind === 'mobile' && client.userId) lastMobileDisconnect.set(client.userId, Date.now());
     stopWatcherIfIdle();
   });
 });
@@ -271,4 +273,8 @@ export function getRealtimeServerStatus(): Record<string, unknown> {
       last_change_seconds_ago: stats.lastChangeAt ? Math.round((now - stats.lastChangeAt) / 1000) : null,
     },
   };
+}
+
+export function getLastMobileDisconnect(userId: number): number | null {
+  return lastMobileDisconnect.get(userId) ?? null;
 }

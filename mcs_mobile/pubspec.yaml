@@ -2,7 +2,7 @@ name: mcs_mobile
 description: "Maintenance Control System"
 publish_to: 'none' 
 
-version: 1.5.5+55
+version: 1.5.6+56
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

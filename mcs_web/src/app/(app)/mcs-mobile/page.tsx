@@ -27,9 +27,11 @@ const platforms = [
   { value: "ios", label: "iOS" },
 ];
 
-const statuses = [
-  { value: "active", label: "Aktif" },
-  { value: "inactive", label: "Nonaktif" },
+const presenceOptions = [
+  { value: "aktif", label: "Aktif (online + idle)" },
+  { value: "online", label: "Online (sedang buka)" },
+  { value: "idle", label: "Idle (background)" },
+  { value: "inactive", label: "Tidak aktif (logout)" },
 ];
 
 export default function McsMobilePage() {
@@ -48,13 +50,12 @@ export default function McsMobilePage() {
 
   const [q, setQ] = useState("");
   const [platform, setPlatform] = useState("");
-  const [status, setStatus] = useState("active");
+  const [presenceFilter, setPresenceFilter] = useState("aktif");
   const [versionFilter, setVersionFilter] = useState("");
   const [group, setGroup] = useState("");
-  const [onlineFilter, setOnlineFilter] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
-  const devices = useMcsMobileDevices({ q, platform, status, version: versionFilter, group: group || undefined, online: onlineFilter || undefined, page, per_page: perPage }, canUpload && tab === "devices");
+  const devices = useMcsMobileDevices({ q, platform, presence: presenceFilter, version: versionFilter, group: group || undefined, page, per_page: perPage }, canUpload && tab === "devices");
   const summary = devices.data?.meta?.summary;
   const realtime = devices.data?.meta?.realtime;
   const maxOutdatedVersion = devices.data?.meta?.max_outdated_version ?? "1.5.2";
@@ -118,13 +119,17 @@ export default function McsMobilePage() {
       </div>
     ) },
     { key: "ip_address", header: "IP Address", cell: (row) => row.ip_address || "-" },
-    { key: "last_seen_at", header: "Terakhir Aktif", cell: (row) => row.online ? (
-      <div>
-        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Online sekarang</span>
-        {row.online_since ? <div className="mt-0.5 text-[11px] text-slate-500">sejak {new Date(row.online_since).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</div> : null}
-      </div>
-    ) : (row.last_seen_at ? new Date(row.last_seen_at.replace(" ", "T")).toLocaleString("id-ID") : "-") },
-    { key: "is_active", header: "Status", cell: (row) => <StatusBadge status={row.is_active ? "active" : "inactive"} /> },
+    { key: "last_seen_at", header: "Aktivitas", cell: (row) => {
+      const at = row.last_active_at ? new Date(row.last_active_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : row.last_seen_at ? new Date(row.last_seen_at.replace(" ", "T")).toLocaleString("id-ID") : "-";
+      if (row.presence === "online") return <span className="text-xs text-slate-600">sejak {row.online_since ? new Date(row.online_since).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>;
+      if (row.presence === "idle") return <span className="text-xs text-slate-600">terakhir online {at}</span>;
+      return <span className="text-xs text-slate-500">terakhir terlihat {at}</span>;
+    } },
+    { key: "is_active", header: "Status", cell: (row) => {
+      if (row.presence === "online") return <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Online</span>;
+      if (row.presence === "idle") return <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Idle</span>;
+      return <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/20"><span className="h-1.5 w-1.5 rounded-full bg-slate-400" />Tidak aktif</span>;
+    } },
   ];
 
   return (
@@ -225,16 +230,15 @@ export default function McsMobilePage() {
           <RealtimePanel status={realtime} loading={devices.isLoading} />
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <StatTile icon={<MonitorSmartphone className="h-5 w-5" />} label="Total User" value={formatNumber(summary?.total_users)} />
-            <StatTile icon={<CheckCircle2 className="h-5 w-5" />} label="User Aktif" value={formatNumber(summary?.active_users)} />
-            <StatTile icon={<Smartphone className="h-5 w-5" />} label="Android" value={formatNumber(summary?.android)} />
-            <StatTile icon={<Wifi className="h-5 w-5" />} label="Online sekarang (mobile)" value={formatNumber(summary?.online_mobile_users)} />
+            <StatTile icon={<Wifi className="h-5 w-5" />} label="Online (sedang buka)" value={formatNumber(summary?.online_users)} />
+            <StatTile icon={<Smartphone className="h-5 w-5" />} label="Idle (background)" value={formatNumber(summary?.idle_users)} />
+            <StatTile icon={<CheckCircle2 className="h-5 w-5" />} label="Tidak aktif (logout)" value={formatNumber(summary?.inactive_users)} />
             <StatTile icon={<AlertTriangle className="h-5 w-5" />} label={`User harus update (≤ ${maxOutdatedVersion})`} value={formatNumber(summary?.outdated_users)} />
           </div>
           <FilterBar search={q} onSearchChange={(value) => { setQ(value); setPage(1); }} searchPlaceholder="Cari user, device, atau IP…" onRefresh={() => devices.refetch()} isFetching={devices.isFetching}>
+            <FilterSelect value={presenceFilter} onChange={(value) => { setPresenceFilter(value); setPage(1); }} placeholder="Semua status" options={presenceOptions} />
             <FilterSelect value={platform} onChange={(value) => { setPlatform(value); setPage(1); }} placeholder="Semua platform" options={platforms} />
-            <FilterSelect value={status} onChange={(value) => { setStatus(value); setPage(1); }} placeholder="Semua status" options={statuses} />
             <FilterSelect value={group} onChange={(value) => { setGroup(value); setPage(1); }} placeholder="1 baris per user" options={[{ value: "device", label: "Semua device" }]} />
-            <FilterSelect value={onlineFilter} onChange={(value) => { setOnlineFilter(value); setPage(1); }} placeholder="Semua (online/offline)" options={[{ value: "online", label: "Sedang online" }, { value: "offline", label: "Tidak online" }]} />
             <FilterSelect value={versionFilter} onChange={(value) => { setVersionFilter(value); setPage(1); }} placeholder="Semua versi" options={versionOptions} />
           </FilterBar>
           <DataTable columns={columns} data={devices.data?.data} rowKey={(row) => row.id} isLoading={devices.isLoading} isFetching={devices.isFetching && !devices.isLoading} error={devices.error} onRetry={() => devices.refetch()} emptyTitle="Belum ada device terdaftar" emptyDescription="Device yang login lewat MCS Mobile akan muncul di sini." />
@@ -297,7 +301,7 @@ function RealtimePanel({ status, loading }: { status?: RealtimeServerStatus; loa
         </dl>
       ) : null}
       <p className="mt-2 text-[11px] leading-4 text-slate-400">
-        Online = aplikasi mobile sedang terbuka dan tersambung realtime. Jika aplikasi ditutup atau berjalan di background, koneksinya terputus dan user tampil tidak online. Hanya versi aplikasi yang memuat fitur realtime yang bisa terdeteksi online.
+        Online = aplikasi sedang dibuka dan tersambung. Idle = user masih login tetapi aplikasinya di background atau ditutup. Tidak aktif = user sudah logout. Hanya versi aplikasi yang memuat fitur realtime yang bisa terdeteksi online; versi lama akan tampil Idle.
       </p>
     </div>
   );

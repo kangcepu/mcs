@@ -17,7 +17,7 @@ import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl,
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
 import { getWoUnifiedList } from '../lib/void-center.js';
 import { buildReportExport } from '../lib/report-export.js';
-import { getOnlineUsers, getRealtimeServerStatus } from '../realtime.js';
+import { getLastMobileDisconnect, getOnlineUsers, getRealtimeServerStatus } from '../realtime.js';
 import type { AuthRequest } from '../types.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -405,9 +405,8 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
   const perPage = Math.min(100, Math.max(10, Number(req.query.per_page ?? req.query.limit ?? 25)));
   const q = String(req.query.q ?? '').trim().toLowerCase();
   const platform = String(req.query.platform ?? '').trim();
-  const status = String(req.query.status ?? '').trim();
   const versionFilter = String(req.query.version ?? '').trim();
-  const onlineFilter = String(req.query.online ?? '').trim();
+  const presenceFilter = String(req.query.presence ?? '').trim();
   const groupByUser = String(req.query.group ?? 'user') !== 'device';
   const maxOutdatedVersion = String(req.query.max_outdated_version ?? '').trim() || MOBILE_MAX_OUTDATED_VERSION;
 
@@ -430,20 +429,33 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
   }
 
   const onlineUsers = getOnlineUsers();
+  const toMs = (value: unknown): number | null => {
+    const parsed = value ? new Date(String(value).replace(' ', 'T')).getTime() : NaN;
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+  const presenceOf = (row: DeviceRow, isLatest: boolean): 'online' | 'idle' | 'inactive' => {
+    const conn = onlineUsers.get(Number(row.id_user));
+    if (isLatest && conn && conn.mobile_connections > 0) return 'online';
+    return Number(row.is_active) === 1 ? 'idle' : 'inactive';
+  };
+
   const decorated = everything.map((row) => {
     const key = String(row.id_user);
-    const presence = onlineUsers.get(Number(row.id_user));
+    const conn = onlineUsers.get(Number(row.id_user));
     const counts = countByUser.get(key) ?? { total: 1, active: 1 };
     const isLatest = latestByUser.get(key)?.id === row.id;
+    const presence = presenceOf(row, isLatest);
     return {
       ...row,
       seen_key: undefined,
       device_count: counts.total,
       active_device_count: counts.active,
       is_latest: isLatest,
-      online: isLatest && Boolean(presence && presence.mobile_connections > 0),
-      online_web: Boolean(presence && presence.web_connections > 0),
-      online_since: isLatest && presence?.mobile_connections ? presence.connected_since : null,
+      presence,
+      online: presence === 'online',
+      online_web: Boolean(conn && conn.web_connections > 0),
+      online_since: presence === 'online' ? conn?.connected_since ?? null : null,
+      last_active_at: presence === 'online' ? Date.now() : (isLatest ? getLastMobileDisconnect(Number(row.id_user)) : null) ?? toMs(row.last_seen_at) ?? toMs(row.updated_at),
       outdated: isLatest && isOutdatedVersion(row.app_version, maxOutdatedVersion),
     };
   });
@@ -452,12 +464,12 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
   const filtered = pool.filter((row) => {
     if (q && ![row.fullname, row.username, row.device_name, row.ip_address].some((v) => String(v ?? '').toLowerCase().includes(q))) return false;
     if (platform && row.platform !== platform) return false;
-    if (status === 'active' && Number(row.is_active) !== 1) return false;
-    if (status === 'inactive' && Number(row.is_active) === 1) return false;
+    if (presenceFilter === 'aktif' && row.presence === 'inactive') return false;
+    if (presenceFilter === 'online' && row.presence !== 'online') return false;
+    if (presenceFilter === 'idle' && row.presence !== 'idle') return false;
+    if (presenceFilter === 'inactive' && row.presence !== 'inactive') return false;
     if (versionFilter === 'outdated' && !row.outdated) return false;
     if (versionFilter === 'latest' && (row.outdated || !row.is_latest)) return false;
-    if (onlineFilter === 'online' && !row.online) return false;
-    if (onlineFilter === 'offline' && row.online) return false;
     return true;
   });
 
@@ -465,9 +477,9 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
   const data = filtered.slice((page - 1) * perPage, page * perPage);
 
   const latestRows = [...latestByUser.values()];
-  const activeUsers = latestRows.filter((r) => Number(r.is_active) === 1);
-  const outdatedUsers = activeUsers.filter((r) => isOutdatedVersion(r.app_version, maxOutdatedVersion));
-  const onlineMobileUsers = latestRows.filter((r) => (onlineUsers.get(Number(r.id_user))?.mobile_connections ?? 0) > 0);
+  const presenceByUser = latestRows.map((r) => ({ row: r, presence: presenceOf(r, true) }));
+  const activeUsers = presenceByUser.filter((x) => x.presence !== 'inactive');
+  const outdatedUsers = activeUsers.filter((x) => isOutdatedVersion(x.row.app_version, maxOutdatedVersion));
   ok(res, data, 'OK', {
     page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)),
     max_outdated_version: maxOutdatedVersion,
@@ -475,12 +487,14 @@ miscRouter.get('/mcs-mobile/devices', authenticate, asyncHandler(async (req, res
     summary: {
       total_users: latestRows.length,
       active_users: activeUsers.length,
+      online_users: presenceByUser.filter((x) => x.presence === 'online').length,
+      idle_users: presenceByUser.filter((x) => x.presence === 'idle').length,
+      inactive_users: presenceByUser.filter((x) => x.presence === 'inactive').length,
       total_devices: everything.length,
       active_devices: everything.filter((r) => Number(r.is_active) === 1).length,
-      android: activeUsers.filter((r) => r.platform === 'android').length,
-      ios: activeUsers.filter((r) => r.platform === 'ios').length,
+      android: activeUsers.filter((x) => x.row.platform === 'android').length,
+      ios: activeUsers.filter((x) => x.row.platform === 'ios').length,
       outdated_users: outdatedUsers.length,
-      online_mobile_users: onlineMobileUsers.length,
     },
     realtime: getRealtimeServerStatus(),
   });

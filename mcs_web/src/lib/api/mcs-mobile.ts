@@ -41,6 +41,8 @@ export interface McsMobileDevice {
   is_active: number | boolean;
   outdated?: boolean;
   is_latest?: boolean;
+  presence?: "online" | "idle" | "inactive";
+  last_active_at?: number | null;
   online?: boolean;
   online_web?: boolean;
   online_since?: number | null;
