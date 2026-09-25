@@ -190,7 +190,7 @@ isRouter.get('/is/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
   const page = Math.max(1, Number(req.query.page ?? 1));
   const limit = Math.min(500, Math.max(1, Number(req.query.limit ?? 20)));
-  const offset = (page - 1) * limit;
+  const offset = req.query.offset !== undefined ? Math.max(0, Number(req.query.offset) || 0) : (page - 1) * limit;
   const status = req.query.status ? String(req.query.status) : undefined;
   const search = req.query.search ? String(req.query.search) : undefined;
   const typeWo = req.query.type_wo ? String(req.query.type_wo) : undefined;
@@ -215,7 +215,7 @@ isRouter.get('/is/list', asyncHandler(async (req, res) => {
   const items = await rows<Record<string, unknown>>(
     `SELECT w.*, d.division_name, d.division_code, a.AssetID, a.AssetName FROM tb_wo_it w
      LEFT JOIN tb_division d ON d.id_division=w.id_division LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
-     ORDER BY w.date DESC LIMIT ? OFFSET ?`,
+     ORDER BY w.date DESC, w.created_at DESC, w.wo_number DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   ).then((r) => r.map((row) => ({ ...row, type_wo: normalizeTypeWo(row.type_wo) })));
 

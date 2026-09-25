@@ -65,12 +65,16 @@ function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string):
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
   const position = String(user.id_position ?? '').toUpperCase();
   if (crossAccess || !position) return { sql: '', params: [] };
+  const creatorAliases = [...new Set([String(user.fullname ?? '').trim(), String(user.username ?? '').trim()].filter(Boolean))];
+  const creatorSql = creatorAliases.length ? ` OR ${tableAlias}.creator IN (${creatorAliases.map(() => '?').join(',')})` : '';
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
-    return { sql: `${tableAlias}.job_executor LIKE ?`, params: [`%${user.division_code ?? ''}%`] };
+    const code = String(user.division_code ?? '').trim();
+    if (!code) return { sql: '', params: [] };
+    return { sql: `(${tableAlias}.job_executor LIKE ?${creatorSql})`, params: [`%${code}%`, ...creatorAliases] };
   }
   if (position === 'ADMIN_DIVISI' || position === 'DIVHEAD') {
     if (String(user.id_division ?? '') === mtcDivisionId) return { sql: '', params: [] };
-    return { sql: `${tableAlias}.id_division = ?`, params: [user.id_division] };
+    return { sql: `(${tableAlias}.id_division = ?${creatorSql})`, params: [user.id_division, ...creatorAliases] };
   }
   return { sql: '', params: [] };
 }

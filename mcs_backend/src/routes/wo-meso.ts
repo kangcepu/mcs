@@ -294,7 +294,7 @@ mesoRouter.use('/meso', authenticate, (req, res, next) => {
 // `DECLINE` gak pernah beneran kesimpen di kolom status manapun — status
 // tolak yang asli adalah `REJECT` (dicek langsung ke data). Tetap disertain
 // `DECLINE` buat jaga-jaga tanpa menghapusnya.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
 
 function normalizeTypeWo(value: unknown): string {
   const upper = String(value ?? '').toUpperCase();
