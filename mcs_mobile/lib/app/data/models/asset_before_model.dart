@@ -25,7 +25,7 @@ class AssetBefore {
       assetImage: json['Image'],
       statusSO: json['status'],
       username: json['username']?.toString().toUpperCase(),
-      filename: json['filename']?.toString().toUpperCase(),
+      filename: json['filename']?.toString(),
     );
   }
 

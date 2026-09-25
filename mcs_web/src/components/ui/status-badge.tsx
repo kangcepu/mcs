@@ -56,6 +56,8 @@ const STATUS_MAP: Record<string, { tone: Tone; label?: string }> = {
   // status WO (tb_wo_mtc_operational / tb_wo_mtc / tb_wo_preventive / tb_wo_it / tb_wo_ga)
   wait_ka_div: { tone: "amber", label: "Menunggu Ka Div" },
   wait_ka_div_mtc: { tone: "amber", label: "Menunggu Ka Div" },
+  wait_ka_div_itis: { tone: "amber", label: "Menunggu Ka Div" },
+  wait_ka_div_hrga: { tone: "amber", label: "Menunggu Ka Div" },
   wait_ka_dept_meso: { tone: "amber", label: "Menunggu Ka Dept" },
   wait_executor_admin: { tone: "amber", label: "Menunggu Admin" },
   complete_executor: { tone: "cyan", label: "Selesai Dikerjakan" },
@@ -66,6 +68,14 @@ const STATUS_MAP: Record<string, { tone: Tone; label?: string }> = {
   need_closed: { tone: "amber", label: "Perlu Ditutup" },
   void: { tone: "slate", label: "Void" },
 };
+
+export function statusLabel(status?: string | null): string {
+  const key = (status ?? "").toString().toLowerCase().trim();
+  if (!key) return "-";
+  const mapped = STATUS_MAP[key]?.label;
+  if (mapped) return mapped;
+  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function statusTone(status?: string | null): Tone {
   if (!status) return "slate";

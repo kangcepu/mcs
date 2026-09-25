@@ -5,33 +5,13 @@ import 'package:get/get.dart';
 
 import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/reports_repository.dart';
+import '../../../data/models/wo_constants.dart';
 
 class ReportAssetHistoryController extends GetxController
     with RealtimeRefresh {
   static const int _assetPerPage = 20;
   static const int _historyPerPage = 30;
   static const int minQueryLength = 2;
-
-  static const Map<String, String> _statusLabel = {
-    'WAIT_KA_DIV': 'Menunggu Ka. Divisi',
-    'WAIT_KA_DIV_ITIS': 'Menunggu Ka. ITIS',
-    'WAIT_KA_DIV_MTC': 'Menunggu Ka. MTC',
-    'WAIT_KA_DIV_HRGA': 'Menunggu Ka. HRGA',
-    'WAIT_KA_DEPT_MESO': 'Menunggu Ka. Dept MESO',
-    'WAIT_EXECUTOR_ADMIN': 'Menunggu Admin Eksekutor',
-    'IN_PROGRESS_EXECUTOR': 'Dikerjakan',
-    'WAITING_PARTS': 'Menunggu Part',
-    'PARTS_RECEIVED': 'Part Diterima',
-    'COMPLETE_EXECUTOR': 'Selesai Eksekutor',
-    'NEED_CLOSED': 'Perlu Ditutup',
-    'COMPLETE': 'Selesai',
-    'CLOSED': 'Ditutup',
-    'VOID': 'Void',
-    'REJECT': 'Ditolak',
-    'DECLINE': 'Ditolak',
-    'FROM_MAINTENANCE': 'Dari Maintenance',
-    'FORWARD_TO_MESO': 'Diteruskan ke MESO',
-  };
 
   static const List<String> _months = [
     'Jan',
@@ -145,18 +125,7 @@ class ReportAssetHistoryController extends GetxController
     return '';
   }
 
-  static String statusText(dynamic value) {
-    final s = '${value ?? ''}'.trim().toUpperCase();
-    if (s.isEmpty) return '-';
-    final label = _statusLabel[s];
-    if (label != null) return label;
-    return s
-        .replaceAll('_', ' ')
-        .toLowerCase()
-        .split(' ')
-        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-        .join(' ');
-  }
+  static String statusText(dynamic value) => WoStatusLabels.of(value);
 
   static String dateText(dynamic value) {
     final s = '${value ?? ''}'.trim();

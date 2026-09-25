@@ -138,10 +138,9 @@ class _ReportAssetDetailPageState extends State<ReportAssetDetailPage> {
   }
 
   String _attachmentUrl(String filename) {
-    final path = filename.contains('/')
-        ? 'uploads/$filename'
-        : 'uploads/assets/docs/masterAsset/$filename';
-    return '/${path.split('/').map(Uri.encodeComponent).join('/')}';
+    return ApiConstants.uploadUrl(
+      filename.contains('/') ? filename : 'assets/docs/masterAsset/$filename',
+    );
   }
 
   List<Map<String, dynamic>> _toMapList(dynamic raw) {

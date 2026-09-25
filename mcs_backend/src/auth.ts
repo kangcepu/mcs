@@ -137,7 +137,7 @@ export function applyAutomaticAccess(user: User): User {
 export function resolveAvatarUrl(avatar: string | null | undefined): string | null {
   const trimmed = String(avatar ?? '').trim();
   if (!trimmed || trimmed === 'avatar.png') return null;
-  if (trimmed.includes('/')) return `/uploads/${trimmed}`;
+  if (trimmed.includes('/')) return `/uploads/${trimmed.replace(/^\/?uploads\//, '')}`;
   return `/uploads/assets/img/profile/${trimmed}`;
 }
 

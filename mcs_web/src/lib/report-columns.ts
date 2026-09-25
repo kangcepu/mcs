@@ -3,6 +3,8 @@
  * dan terbaca (bukan dump semua field mentah).
  */
 
+import { statusLabel } from "@/components/ui/status-badge";
+
 export interface ReportCol {
   key: string;
   header: string;
@@ -48,35 +50,10 @@ export function fmtDateTime(v: unknown): string {
   );
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  WAIT_KA_DIV: "Menunggu Ka. Divisi",
-  WAIT_KA_DIV_ITIS: "Menunggu Ka. ITIS",
-  WAIT_KA_DIV_MTC: "Menunggu Ka. MTC",
-  WAIT_KA_DIV_HRGA: "Menunggu Ka. HRGA",
-  WAIT_KA_DEPT_MESO: "Menunggu Ka. Dept MESO",
-  WAIT_EXECUTOR_ADMIN: "Menunggu Admin Eksekutor",
-  IN_PROGRESS_EXECUTOR: "Dikerjakan",
-  WAITING_PARTS: "Menunggu Part",
-  PARTS_RECEIVED: "Part Diterima",
-  COMPLETE_EXECUTOR: "Selesai Eksekutor",
-  NEED_CLOSED: "Perlu Ditutup",
-  COMPLETE: "Selesai",
-  CLOSED: "Ditutup",
-  VOID: "Void",
-  REJECT: "Ditolak",
-  DECLINE: "Ditolak",
-  FROM_MAINTENANCE: "Dari Maintenance",
-  FORWARD_TO_MESO: "Diteruskan ke MESO",
-};
-
 export function humanizeStatus(v: unknown): string {
-  const s = String(v ?? "").trim().toUpperCase();
+  const s = String(v ?? "").trim();
   if (!s) return "";
-  if (STATUS_LABEL[s]) return STATUS_LABEL[s];
-  return s
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return statusLabel(s);
 }
 
 function activeLabel(row: Record<string, unknown>): string {

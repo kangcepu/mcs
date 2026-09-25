@@ -23,6 +23,7 @@ import { readableWoModules } from "@/lib/permissions";
 import { WO_MODULE_LABEL } from "@/types/work-order";
 import { DEFAULT_PER_PAGE, ApiError } from "@/types/api";
 import { formatNumber } from "@/lib/format";
+import { statusLabel } from "@/components/ui/status-badge";
 import { dash } from "@/lib/display";
 
 const PRESET = REPORT_COLUMN_PRESETS["recap-work-orders"]!;
@@ -312,7 +313,7 @@ export default function RecapWorkOrdersPage() {
               <option value="">Semua status</option>
               {statuses.map((st) => (
                 <option key={st.code} value={st.code}>
-                  {st.label}
+                  {statusLabel(st.code)}
                 </option>
               ))}
             </Select>

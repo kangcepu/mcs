@@ -1,17 +1,54 @@
+class WoStatusLabels {
+  static const Map<String, String> map = {
+    'WAIT_KA_DIV': 'Menunggu Ka Div',
+    'WAIT_KA_DIV_ITIS': 'Menunggu Ka Div',
+    'WAIT_KA_DIV_MTC': 'Menunggu Ka Div',
+    'WAIT_KA_DIV_HRGA': 'Menunggu Ka Div',
+    'WAIT_KA_DEPT_MESO': 'Menunggu Ka Dept',
+    'WAIT_EXECUTOR_ADMIN': 'Menunggu Admin',
+    'IN_PROGRESS_EXECUTOR': 'Dalam Proses',
+    'WAITING_PARTS': 'Menunggu Part',
+    'PARTS_RECEIVED': 'Part Diterima',
+    'COMPLETE_EXECUTOR': 'Selesai Dikerjakan',
+    'NEED_CLOSED': 'Perlu Ditutup',
+    'COMPLETE': 'Selesai',
+    'CLOSED': 'Ditutup',
+    'VOID': 'Void',
+    'REJECT': 'Ditolak',
+    'DECLINE': 'Ditolak',
+    'FROM_MAINTENANCE': 'Dari Maintenance',
+    'FORWARD_TO_MESO': 'Diteruskan ke MESO',
+    'FOWARD_TO_MESO': 'Diteruskan ke MESO',
+  };
+
+  static String of(dynamic value) {
+    final key = '${value ?? ''}'.trim().toUpperCase();
+    if (key.isEmpty) return '-';
+    final label = map[key];
+    if (label != null) return label;
+    return key
+        .replaceAll('_', ' ')
+        .toLowerCase()
+        .split(' ')
+        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+        .join(' ');
+  }
+}
+
 enum WoStatus {
-  waitKaDiv('WAIT_KA_DIV', 'Waiting Division Head'),
-  waitKaDeptMeso('WAIT_KA_DEPT_MESO', 'Wait MESO'),
-  waitExecutorAdmin('WAIT_EXECUTOR_ADMIN', 'Wait Exec'),
-  inProgressExecutor('IN_PROGRESS_EXECUTOR', 'In Progress'),
-  waitingParts('WAITING_PARTS', 'Waiting Parts'),
-  partsReceived('PARTS_RECEIVED', 'Parts Received'),
-  completeExecutor('COMPLETE_EXECUTOR', 'Complete Executor'),
-  needClosed('NEED_CLOSED', 'Need Closed'),
-  complete('COMPLETE', 'Complete'),
-  closed('CLOSED', 'Closed'),
+  waitKaDiv('WAIT_KA_DIV', 'Menunggu Ka Div'),
+  waitKaDeptMeso('WAIT_KA_DEPT_MESO', 'Menunggu Ka Dept'),
+  waitExecutorAdmin('WAIT_EXECUTOR_ADMIN', 'Menunggu Admin'),
+  inProgressExecutor('IN_PROGRESS_EXECUTOR', 'Dalam Proses'),
+  waitingParts('WAITING_PARTS', 'Menunggu Part'),
+  partsReceived('PARTS_RECEIVED', 'Part Diterima'),
+  completeExecutor('COMPLETE_EXECUTOR', 'Selesai Dikerjakan'),
+  needClosed('NEED_CLOSED', 'Perlu Ditutup'),
+  complete('COMPLETE', 'Selesai'),
+  closed('CLOSED', 'Ditutup'),
   void_('VOID', 'Void'),
-  decline('DECLINE', 'Declined'),
-  fromMaintenance('FROM_MAINTENANCE', 'From Maintenance');
+  decline('DECLINE', 'Ditolak'),
+  fromMaintenance('FROM_MAINTENANCE', 'Dari Maintenance');
 
   final String code;
   final String label;

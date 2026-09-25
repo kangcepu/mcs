@@ -37,6 +37,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Future<void> _initialize() async {
     try {
       await _videoController.initialize();
+      if (!mounted) return;
       setState(() {
         _chewieController = ChewieController(
           videoPlayerController: _videoController,
@@ -45,6 +46,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         );
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = 'Gagal memutar video: $e');
     }
   }

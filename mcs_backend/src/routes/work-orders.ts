@@ -1,4 +1,4 @@
-import { resolveAssetAttachmentUrl } from '../lib/asset-attachments.js';
+import { resolveAssetAttachmentUrl, splitAssetAttachmentFilenames } from '../lib/asset-attachments.js';
 import { Router } from 'express';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
@@ -106,7 +106,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
 
   const buildWhere = (key: Domain): { where: string; params: unknown[] } => {
     let where = 'WHERE 1=1'; const params: unknown[] = [];
-    if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
+    if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR w.job_requirement LIKE ? OR a.AssetName LIKE ? OR a.AssetCode LIKE ?)'; params.push(...Array(5).fill(`%${q}%`)); }
     if (status) { where += ' AND w.status = ?'; params.push(status); }
     if (typeWo) { const variants = TYPE_WO_VARIANTS[typeWo] ?? [typeWo]; where += ` AND w.type_wo IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
     if (company) { where += ' AND w.company LIKE ?'; params.push(`%${company}%`); }
@@ -139,7 +139,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
     })),
     Promise.all(allowedDomains.map((key) => {
       const { where, params } = buildWhere(key);
-      return one<{ total: number }>(`SELECT COUNT(*) total FROM \`${domains[key].table}\` w ${where}`, params);
+      return one<{ total: number }>(`SELECT COUNT(*) total FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
     })),
   ]);
 
@@ -225,11 +225,13 @@ workOrderRouter.get('/work-orders/assets', authenticate, asyncHandler(async (req
       codes,
     );
     for (const p of photos) {
-      const url = resolveAssetAttachmentUrl(p.filename);
-      if (!url) continue;
-      const list = photosByCode.get(p.AssetCode);
-      if (list) list.push(url);
-      else photosByCode.set(p.AssetCode, [url]);
+      for (const file of splitAssetAttachmentFilenames(p.filename)) {
+        const url = resolveAssetAttachmentUrl(file);
+        if (!url) continue;
+        const list = photosByCode.get(p.AssetCode);
+        if (list) list.push(url);
+        else photosByCode.set(p.AssetCode, [url]);
+      }
     }
   }
   ok(res, assets.map((a) => {

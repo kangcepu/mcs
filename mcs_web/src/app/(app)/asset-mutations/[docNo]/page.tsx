@@ -2,7 +2,6 @@
 
 import { use } from "react";
 import { Check, RefreshCw } from "lucide-react";
-import Image from "next/image";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -15,6 +14,7 @@ import { useAssetMutationActions, useAssetMutationDetail } from "@/hooks/use-ass
 import { ApiError } from "@/types/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { dash, pick } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 export default function AssetMutationDetailPage({
   params,
@@ -138,20 +138,23 @@ export default function AssetMutationDetailPage({
                     const attachments = Array.isArray(r.attachments)
                       ? (r.attachments as Array<Record<string, unknown>>)
                       : [];
-                    const first = attachments[0];
-                    const url = first ? pick(first, ["url"]) : "";
-                    const isImage = /\.(jpe?g|png|gif|webp)$/i.test(url);
-                    if (!first) return <span className="text-slate-400">—</span>;
+                    if (!attachments.length) return <span className="text-slate-400">—</span>;
                     return (
-                      <div className="flex items-center gap-2">
-                        {isImage ? (
-                          <a href={url} target="_blank" rel="noreferrer" className="relative h-10 w-10 overflow-hidden rounded-md border border-slate-200">
-                            <Image src={url} alt="Lampiran mutasi aset" fill sizes="40px" className="object-cover" />
-                          </a>
-                        ) : null}
-                        <span className="text-xs text-slate-500">
-                          {attachments.length} file{attachments.length > 1 ? "s" : ""}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {attachments.map((file, index) => {
+                          const url = toAbsoluteUploadUrl(pick(file, ["url"]));
+                          const name = pick(file, ["file_name", "name"]) || `Lampiran ${index + 1}`;
+                          const isImage = /\.(jpe?g|png|gif|webp|bmp)$/i.test(url);
+                          return (
+                            <a key={String(file.id ?? index)} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-brand-700 hover:underline">
+                              {isImage ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={url} alt={name} loading="lazy" className="h-10 w-10 rounded-md border border-slate-200 object-cover" />
+                              ) : null}
+                              <span className="max-w-[140px] truncate">{name}</span>
+                            </a>
+                          );
+                        })}
                       </div>
                     );
                   },

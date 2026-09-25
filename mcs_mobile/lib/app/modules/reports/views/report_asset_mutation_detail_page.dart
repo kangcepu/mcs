@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../core/constants/api_constants.dart';
 import '../../../core/services/realtime_service.dart';
+import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/utils/remote_file_opener.dart';
 import '../../../data/repositories/asset_mutation_repository.dart';
 
 class ReportAssetMutationDetailPage extends StatefulWidget {
@@ -174,64 +175,6 @@ class _ReportAssetMutationDetailPageState
     }
   }
 
-  bool _isImage(String fileName) {
-    final lower = fileName.toLowerCase();
-    return lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') ||
-        lower.endsWith('.gif') ||
-        lower.endsWith('.webp');
-  }
-
-  void _previewImage(String imageUrl, String title) {
-    final resolvedUrl = ApiConstants.mediaUrl(imageUrl);
-    if (resolvedUrl.isEmpty) return;
-    showDialog<void>(
-      context: context,
-      builder: (_) => Dialog(
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              child: Image.network(
-                resolvedUrl,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const SizedBox(
-                  height: 240,
-                  child: Center(
-                    child: Text('Gagal membuka gambar'),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 8,
-              top: 8,
-              child: Container(
-                color: Colors.black54,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
-                child: Text(
-                  title,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 8,
-              top: 8,
-              child: IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -373,11 +316,13 @@ class _ReportAssetMutationDetailPageState
                                     const ['url'],
                                     fallback: '',
                                   );
-                                  final isImage = _isImage(fileName);
+                                  final isImage =
+                                      MediaPickerHelper.isImage(fileName);
                                   return InkWell(
-                                    onTap: isImage
-                                        ? () => _previewImage(url, fileName)
-                                        : null,
+                                    onTap: url.isEmpty
+                                        ? null
+                                        : () => RemoteFileOpener.open(
+                                            url, fileName),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,

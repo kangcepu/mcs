@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../../data/models/wo_constants.dart';
 
 /// Status Badge Widget
 /// Reusable untuk semua status (WO, Asset, dll)
@@ -28,7 +29,7 @@ class StatusBadge extends StatelessWidget {
         ),
       ),
       child: Text(
-        label ?? _formatStatus(status),
+        label ?? WoStatusLabels.of(status),
         style: TextStyle(
           color: config['color'],
           fontSize: 12,
@@ -69,13 +70,5 @@ class StatusBadge extends StatelessWidget {
       default:
         return {'color': AppColors.grey};
     }
-  }
-
-  String _formatStatus(String status) {
-    return status
-        .replaceAll('_', ' ')
-        .split(' ')
-        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
-        .join(' ');
   }
 }

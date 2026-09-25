@@ -291,8 +291,15 @@ class PartExecutionMedia {
   });
 
   factory PartExecutionMedia.fromJson(Map<String, dynamic> json) {
-    final mediaType =
-        (json['media_type']?.toString() ?? 'image').toLowerCase().trim();
+    final rawType = json['media_type']?.toString().toLowerCase().trim() ?? '';
+    final mediaSource = (json['name'] ?? json['media_name'] ?? json['url'] ?? '')
+        .toString()
+        .toLowerCase();
+    final mediaType = rawType.isNotEmpty
+        ? rawType
+        : RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)$').hasMatch(mediaSource)
+            ? 'video'
+            : 'image';
 
     return PartExecutionMedia(
       id: int.tryParse(json['id']?.toString() ?? '0') ?? 0,

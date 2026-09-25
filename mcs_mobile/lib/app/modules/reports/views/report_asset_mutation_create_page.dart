@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/utils/media_picker_helper.dart';
+import '../../../core/utils/remote_file_opener.dart';
 import '../../../data/repositories/asset_mutation_repository.dart';
 import '../../../data/repositories/master_repository.dart';
 
@@ -1047,18 +1048,25 @@ class _ReportAssetMutationCreatePageState
               children: attachments.map((att) {
                 final fileName =
                     _read(att, const ['file_name'], fallback: 'file');
-                return Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(999),
+                final url = _read(att, const ['url'], fallback: '');
+                return InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: url.isEmpty
+                      ? null
+                      : () => RemoteFileOpener.open(url, fileName),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(fileName,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF1D4ED8),
+                            fontWeight: FontWeight.w600)),
                   ),
-                  child: Text(fileName,
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF1D4ED8),
-                          fontWeight: FontWeight.w600)),
                 );
               }).toList(),
             ),

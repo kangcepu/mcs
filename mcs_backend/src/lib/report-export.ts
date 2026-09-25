@@ -13,9 +13,9 @@ interface Col { header: string; width: number; value: (row: Row) => string }
 const MAX_ROWS = 20000;
 
 const STATUS_LABEL: Record<string, string> = {
-  WAIT_KA_DIV: 'Menunggu Ka. Divisi', WAIT_KA_DIV_ITIS: 'Menunggu Ka. ITIS', WAIT_KA_DIV_MTC: 'Menunggu Ka. MTC',
-  WAIT_KA_DIV_HRGA: 'Menunggu Ka. HRGA', WAIT_KA_DEPT_MESO: 'Menunggu Ka. Dept MESO', WAIT_EXECUTOR_ADMIN: 'Menunggu Admin Eksekutor',
-  IN_PROGRESS_EXECUTOR: 'Dikerjakan', WAITING_PARTS: 'Menunggu Part', PARTS_RECEIVED: 'Part Diterima', COMPLETE_EXECUTOR: 'Selesai Eksekutor',
+  WAIT_KA_DIV: 'Menunggu Ka Div', WAIT_KA_DIV_ITIS: 'Menunggu Ka Div', WAIT_KA_DIV_MTC: 'Menunggu Ka Div',
+  WAIT_KA_DIV_HRGA: 'Menunggu Ka Div', WAIT_KA_DEPT_MESO: 'Menunggu Ka Dept', WAIT_EXECUTOR_ADMIN: 'Menunggu Admin',
+  IN_PROGRESS_EXECUTOR: 'Dalam Proses', WAITING_PARTS: 'Menunggu Part', PARTS_RECEIVED: 'Part Diterima', COMPLETE_EXECUTOR: 'Selesai Dikerjakan',
   NEED_CLOSED: 'Perlu Ditutup', COMPLETE: 'Selesai', CLOSED: 'Ditutup', VOID: 'Void', REJECT: 'Ditolak', DECLINE: 'Ditolak',
   FROM_MAINTENANCE: 'Dari Maintenance', FORWARD_TO_MESO: 'Diteruskan ke MESO',
 };

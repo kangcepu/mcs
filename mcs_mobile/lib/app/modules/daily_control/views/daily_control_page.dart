@@ -2237,6 +2237,13 @@ class DailyControlPage extends StatelessWidget {
                             }
                             return PhotoViewGalleryPageOptions(
                               imageProvider: NetworkImage(media.mediaUrl),
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.white54,
+                                  size: 48,
+                                ),
+                              ),
                               minScale: PhotoViewComputedScale.contained,
                               maxScale: PhotoViewComputedScale.covered * 4,
                             );
@@ -2957,6 +2964,13 @@ class _DailyControlPreviewSheetState extends State<_DailyControlPreviewSheet> {
                             }
                             return PhotoViewGalleryPageOptions(
                               imageProvider: NetworkImage(media.mediaUrl),
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.white54,
+                                  size: 48,
+                                ),
+                              ),
                               minScale: PhotoViewComputedScale.contained,
                               maxScale: PhotoViewComputedScale.covered * 4,
                             );
@@ -3103,6 +3117,13 @@ class _DailyControlPreviewSheetState extends State<_DailyControlPreviewSheet> {
                                 }
                                 return PhotoViewGalleryPageOptions(
                                   imageProvider: NetworkImage(media.mediaUrl),
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(
+                                      Icons.broken_image_outlined,
+                                      color: Colors.white54,
+                                      size: 48,
+                                    ),
+                                  ),
                                   minScale: PhotoViewComputedScale.contained,
                                   maxScale: PhotoViewComputedScale.covered * 4,
                                   basePosition: Alignment.topCenter,
@@ -4367,6 +4388,13 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
                             }
                             return PhotoViewGalleryPageOptions(
                               imageProvider: NetworkImage(media.mediaUrl),
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.white54,
+                                  size: 48,
+                                ),
+                              ),
                               minScale: PhotoViewComputedScale.contained,
                               maxScale: PhotoViewComputedScale.covered * 4,
                             );

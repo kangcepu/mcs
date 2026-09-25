@@ -14,6 +14,7 @@ import '../../../core/widgets/work_order_detail_tabs.dart';
 import '../../../core/utils/media_picker_helper.dart';
 import '../../../core/widgets/video_player_page.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
+import '../../../data/models/wo_constants.dart';
 
 class WoDetailPage extends StatelessWidget {
   const WoDetailPage({Key? key}) : super(key: key);
@@ -1083,7 +1084,7 @@ class WoDetailPage extends StatelessWidget {
       _statusColor(status).withOpacity(0.12);
 
   String _statusLabel(String status) =>
-      status.trim().isEmpty ? '-' : status.replaceAll('_', ' ');
+      WoStatusLabels.of(status);
 
   Widget _buildDetailsCard(WoDetailController controller) {
     final header = controller.woHeader;

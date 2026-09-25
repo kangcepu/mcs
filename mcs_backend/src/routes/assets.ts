@@ -1,4 +1,4 @@
-import { resolveAssetAttachmentUrl } from '../lib/asset-attachments.js';
+import { getAssetAttachmentRows } from '../lib/asset-attachments.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
@@ -183,10 +183,10 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   const code = String((asset as Record<string, unknown>).AssetCode);
   const [details, attachments, parts] = await Promise.all([
     rows('SELECT * FROM asset_custom_details WHERE asset_code = ? ORDER BY row_order, id', [code]),
-    rows('SELECT * FROM tb_attachment_asset WHERE AssetCode = ? AND part_id IS NULL ORDER BY sort_order, id', [code]),
+    getAssetAttachmentRows(code),
     rows('SELECT * FROM tb_parts_bom WHERE AssetCode = ? AND deleted_at IS NULL ORDER BY no_urut, id', [code]),
   ]);
-  ok(res, { ...asset as object, custom_details: details, attachments: attachments.map((a) => ({ ...a, url: resolveAssetAttachmentUrl(String((a as Record<string, unknown>).filename ?? '')) })), parts });
+  ok(res, { ...asset as object, custom_details: details, attachments, parts });
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
@@ -466,7 +466,7 @@ assetRouter.get('/assets/custom-details/import-template', authenticate, requireP
 assetRouter.get('/assets/attachments', authenticate, requirePermission('list_of_asset', 'privilage_asset'), asyncHandler(async (req, res) => {
   const code = String(req.query.asset_code ?? req.query.AssetCode ?? req.query.asset ?? '');
   if (!code) throw new HttpError(400, 'asset_code is required');
-  ok(res, await rows('SELECT * FROM tb_attachment_asset WHERE AssetCode=? AND part_id IS NULL ORDER BY sort_order,id', [code]));
+  ok(res, await getAssetAttachmentRows(code));
 }));
 
 assetRouter.post('/assets/attachments', authenticate, requirePermission('privilage_asset'), upload.single('file'), asyncHandler(async (req, res) => {

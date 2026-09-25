@@ -167,7 +167,7 @@ export function GalleryTab({
             const isImage = a.type === "image";
             return (
               <div
-                key={a.id ?? i}
+                key={`${a.id ?? i}-${a.filename ?? i}`}
                 draggable={dndEnabled}
                 onDragStart={() => {
                   dragIndex.current = i;

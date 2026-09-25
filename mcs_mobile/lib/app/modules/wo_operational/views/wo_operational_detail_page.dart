@@ -799,14 +799,26 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                   borderRadius: BorderRadius.circular(12),
                   child: AspectRatio(
                     aspectRatio: 1.2,
-                    child: Image.network(
-                      previewImages.first.url,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: const Color(0xFFF3F6FA),
-                        child: const Center(child: Icon(Icons.broken_image)),
-                      ),
-                    ),
+                    child: MediaPickerHelper.isVideo(previewImages.first.url)
+                        ? Container(
+                            color: Colors.black87,
+                            child: const Center(
+                              child: Icon(
+                                Icons.play_circle_fill,
+                                color: Colors.white,
+                                size: 36,
+                              ),
+                            ),
+                          )
+                        : Image.network(
+                            previewImages.first.url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: const Color(0xFFF3F6FA),
+                              child:
+                                  const Center(child: Icon(Icons.broken_image)),
+                            ),
+                          ),
                   ),
                 ),
                 if (attachments.isNotEmpty) ...[
@@ -2413,7 +2425,7 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
     wo_model.PreventivePartExecution row,
   ) {
     final executionImages = row.executionMedia
-        .where((item) => item.mediaType == 'image' && item.url.isNotEmpty)
+        .where((item) => item.url.isNotEmpty)
         .map((item) => item.asPartImage());
 
     return <wo_model.PartImage>[

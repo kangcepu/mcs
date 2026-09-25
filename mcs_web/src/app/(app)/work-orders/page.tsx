@@ -9,7 +9,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { FilterBar, FilterDate, FilterSelect } from "@/components/ui/filter-bar";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge, statusLabel } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/primitives";
 import { useWorkOrders, useWorkOrderOptions } from "@/hooks/use-work-orders";
 import { useMe } from "@/hooks/use-auth";
@@ -64,7 +64,7 @@ export default function WorkOrdersPage() {
   const woOptions = useWorkOrderOptions();
   const STATUS_OPTIONS = (woOptions.data?.data?.statuses ?? []).map((s) => ({
     value: s.code,
-    label: s.label,
+    label: statusLabel(s.code),
   }));
   const TYPE_WO_OPTIONS = (woOptions.data?.data?.types ?? []).map((t) => ({
     value: t.code,

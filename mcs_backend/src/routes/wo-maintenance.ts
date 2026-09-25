@@ -1324,7 +1324,7 @@ maintenanceRouter.post('/maintenance/part_execution_media', partExecutionMediaUp
     [woNumber, customDetailId || null, partMesin || null, mediaType, req.file.originalname, relativePath, String(user.fullname ?? '')],
   );
 
-  legacyOk(res, { id: result.insertId, url: `/uploads/${relativePath}`, name: req.file.originalname }, 'Media uploaded');
+  legacyOk(res, { id: result.insertId, url: `/uploads/${relativePath}`, name: req.file.originalname, media_type: mediaType }, 'Media uploaded');
 }));
 
 maintenanceRouter.get('/maintenance/material_suggestions', asyncHandler(async (req, res) => {

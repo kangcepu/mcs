@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/constants/api_constants.dart';
 import '../controllers/report_qr_controller.dart';
 
 const Color _kBg = Color(0xFFF6F8FB);
@@ -508,9 +509,19 @@ class _QrLabel extends StatelessWidget {
     }
   }
 
+  Uint8List? _logoBytes() {
+    if (!logoUrl.startsWith('data:image/')) return null;
+    try {
+      return base64Decode(logoUrl.substring(logoUrl.indexOf(',') + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bytes = _qrBytes();
+    final logoBytes = _logoBytes();
     final longName = name.length > 30;
 
     return Container(
@@ -544,14 +555,23 @@ class _QrLabel extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 3),
                         child: ClipOval(
-                          child: Image.network(
-                            logoUrl,
-                            width: 46,
-                            height: 46,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) =>
-                                const SizedBox(width: 46, height: 46),
-                          ),
+                          child: logoBytes != null
+                              ? Image.memory(
+                                  logoBytes,
+                                  width: 46,
+                                  height: 46,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) =>
+                                      const SizedBox(width: 46, height: 46),
+                                )
+                              : Image.network(
+                                  ApiConstants.mediaUrl(logoUrl),
+                                  width: 46,
+                                  height: 46,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) =>
+                                      const SizedBox(width: 46, height: 46),
+                                ),
                         ),
                       ),
                     Text(

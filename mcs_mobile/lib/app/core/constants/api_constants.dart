@@ -27,9 +27,19 @@ class ApiConstants {
   /// legacy. Avatar baru (upload lewat backend baru) berupa path relatif
   /// (mis. `uploads/avatars/xxx.jpg`) — disajikan dari origin API baru.
   static String getAvatarUrl(String? filename) {
-    if (filename == null || filename.isEmpty) return '';
-    if (filename.contains('/')) return mediaUrl(filename);
-    return '$webBaseUrl$avatarPath$filename';
+    if (filename == null || filename.isEmpty || filename == 'avatar.png') {
+      return '';
+    }
+    final value = filename.trim();
+    if (value.startsWith('uploads/') || value.startsWith('/uploads/')) {
+      return mediaUrl(value);
+    }
+    if (value.contains('/')) return uploadUrl(value);
+    return uploadUrl('assets/img/profile/$value');
+  }
+
+  static String uploadUrl(String relativePath) {
+    return mediaUrl('/uploads/$relativePath');
   }
 
   /// `baseUrl` tanpa akhiran `/api` — sama seperti hubungan
@@ -54,7 +64,12 @@ class ApiConstants {
       return value;
     }
     final origin = apiOrigin;
-    final cleanPath = value.replaceFirst(RegExp(r'^/+'), '');
+    final cleanPath = value
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((segment) => segment.isNotEmpty)
+        .map(Uri.encodeComponent)
+        .join('/');
     return '$origin/$cleanPath';
   }
 

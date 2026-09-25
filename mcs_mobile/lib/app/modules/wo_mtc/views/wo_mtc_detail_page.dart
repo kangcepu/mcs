@@ -1745,9 +1745,7 @@ class WoMtcDetailPage extends StatelessWidget {
     final pic = part.pic.trim();
     final isDone = part.maintenanceStatus.toUpperCase() == 'DONE';
     final thumbnails = <wo_model.PartImage>[
-      ...part.executionMedia
-          .where((media) => media.mediaType == 'image')
-          .map((media) => media.asPartImage()),
+      ...part.executionMedia.map((media) => media.asPartImage()),
       ...part.detailPart,
       ...part.tampakDekat,
       ...part.tampakJauh,
@@ -1842,20 +1840,43 @@ class WoMtcDetailPage extends StatelessWidget {
                           scrollDirection: Axis.horizontal,
                           itemCount: thumbnails.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 6),
-                          itemBuilder: (_, imageIndex) => GestureDetector(
-                            onTap: () =>
-                                _showImagePreview(thumbnails[imageIndex].url),
-                            child: ClipRRect(
-                                borderRadius: BorderRadius.circular(7),
-                                child: Image.network(
-                                  thumbnails[imageIndex].url,
-                                  width: 42,
-                                  height: 42,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      const SizedBox(width: 42, height: 42),
-                                )),
-                          ),
+                          itemBuilder: (_, imageIndex) {
+                            final thumb = thumbnails[imageIndex];
+                            final isVideo =
+                                MediaPickerHelper.isVideo(thumb.url);
+                            return GestureDetector(
+                              onTap: () => isVideo
+                                  ? Get.to(() => VideoPlayerPage(
+                                        title: thumb.name.isEmpty
+                                            ? 'Video'
+                                            : thumb.name,
+                                        networkUrl: thumb.url,
+                                      ))
+                                  : _showImagePreview(thumb.url),
+                              child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(7),
+                                  child: isVideo
+                                      ? Container(
+                                          width: 42,
+                                          height: 42,
+                                          color: Colors.black87,
+                                          child: const Icon(
+                                            Icons.play_circle_fill,
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                        )
+                                      : Image.network(
+                                          thumb.url,
+                                          width: 42,
+                                          height: 42,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              const SizedBox(
+                                                  width: 42, height: 42),
+                                        )),
+                            );
+                          },
                         ))),
               ]),
             ],
@@ -2383,11 +2404,15 @@ class WoMtcDetailPage extends StatelessWidget {
                     leading: CircleAvatar(
                       radius: 16,
                       backgroundImage:
-                          approval.avatar != null && approval.avatar!.isNotEmpty
+                          ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
                               ? NetworkImage(
                                   ApiConstants.getAvatarUrl(approval.avatar))
                               : null,
-                      child: approval.avatar == null || approval.avatar!.isEmpty
+                      onBackgroundImageError:
+                          ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
+                              ? (_, __) {}
+                              : null,
+                      child: ApiConstants.getAvatarUrl(approval.avatar).isEmpty
                           ? Text(approval.fullname[0])
                           : null,
                     ),
@@ -2879,11 +2904,16 @@ class WoMtcDetailPage extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 12),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundImage: approval.avatar != null &&
-                        approval.avatar!.isNotEmpty
-                    ? NetworkImage(ApiConstants.getAvatarUrl(approval.avatar))
-                    : null,
-                child: approval.avatar == null || approval.avatar!.isEmpty
+                backgroundImage:
+                    ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
+                        ? NetworkImage(
+                            ApiConstants.getAvatarUrl(approval.avatar))
+                        : null,
+                onBackgroundImageError:
+                    ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
+                        ? (_, __) {}
+                        : null,
+                child: ApiConstants.getAvatarUrl(approval.avatar).isEmpty
                     ? Text(approval.fullname.substring(0, 1))
                     : null,
               ),

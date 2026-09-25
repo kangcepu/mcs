@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../controllers/report_wo_recap_controller.dart';
+import '../../../data/models/wo_constants.dart';
 
 const Color _bg = Color(0xFFF6F8FB);
 const Color _border = Color(0xFFE5E7EB);
@@ -23,27 +24,6 @@ const List<String> _monthNames = [
   'Nov',
   'Des',
 ];
-
-const Map<String, String> _statusLabels = {
-  'WAIT_KA_DIV': 'Menunggu Ka. Divisi',
-  'WAIT_KA_DIV_ITIS': 'Menunggu Ka. ITIS',
-  'WAIT_KA_DIV_MTC': 'Menunggu Ka. MTC',
-  'WAIT_KA_DIV_HRGA': 'Menunggu Ka. HRGA',
-  'WAIT_KA_DEPT_MESO': 'Menunggu Ka. Dept MESO',
-  'WAIT_EXECUTOR_ADMIN': 'Menunggu Admin Eksekutor',
-  'IN_PROGRESS_EXECUTOR': 'Dikerjakan',
-  'WAITING_PARTS': 'Menunggu Part',
-  'PARTS_RECEIVED': 'Part Diterima',
-  'COMPLETE_EXECUTOR': 'Selesai Eksekutor',
-  'NEED_CLOSED': 'Perlu Ditutup',
-  'COMPLETE': 'Selesai',
-  'CLOSED': 'Ditutup',
-  'VOID': 'Void',
-  'REJECT': 'Ditolak',
-  'DECLINE': 'Ditolak',
-  'FROM_MAINTENANCE': 'Dari Maintenance',
-  'FORWARD_TO_MESO': 'Diteruskan ke MESO',
-};
 
 const Map<String, Color> _moduleColors = {
   'meso': Color(0xFF7C3AED),
@@ -68,11 +48,7 @@ String _titleCase(String value) => value
     .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
     .join(' ');
 
-String _statusLabel(String raw) {
-  final key = raw.trim().toUpperCase();
-  if (key.isEmpty) return '-';
-  return _statusLabels[key] ?? _titleCase(key.replaceAll('_', ' '));
-}
+String _statusLabel(String raw) => WoStatusLabels.of(raw);
 
 String _formatDate(String raw) {
   final value = raw.trim();

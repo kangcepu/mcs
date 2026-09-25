@@ -1115,5 +1115,5 @@ mesoRouter.post('/meso/part_execution_media', partExecutionMediaUpload.single('m
     [woNumber, customDetailId || null, partMesin || null, mediaType, req.file.originalname, relativePath, String(user.fullname ?? '')],
   );
 
-  legacyOk(res, { id: result.insertId, url: `/uploads/${relativePath}`, name: req.file.originalname }, 'Media uploaded', 201);
+  legacyOk(res, { id: result.insertId, url: `/uploads/${relativePath}`, name: req.file.originalname, media_type: mediaType }, 'Media uploaded', 201);
 }));

@@ -552,7 +552,7 @@ class _AssetDetailDialog extends StatelessWidget {
     if (filename == null || filename.isEmpty) {
       return '';
     }
-    return '${ApiConstants.webBaseUrl}/assets/docs/masterAsset/$filename';
+    return ApiConstants.uploadUrl('assets/docs/masterAsset/$filename');
   }
 
   String _buildSoImageUrl(String? filename) {
@@ -735,7 +735,7 @@ class _AttachmentDialogState extends State<_AttachmentDialog> {
     final beforeUrl = widget.asset.filename == null ||
             widget.asset.filename!.isEmpty
         ? ''
-        : '${ApiConstants.webBaseUrl}/assets/docs/masterAsset/${widget.asset.filename}';
+        : ApiConstants.uploadUrl('assets/docs/masterAsset/${widget.asset.filename}');
 
     final afterUrl = selectedImage != null
         ? selectedImage!.path

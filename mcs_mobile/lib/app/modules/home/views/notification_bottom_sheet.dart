@@ -4,6 +4,7 @@ import '../../../core/utils/app_date_format_helper.dart';
 import '../controllers/notification_controller.dart';
 import '../../../core/utils/company_label_helper.dart';
 import '../../../data/models/notification_model.dart';
+import '../../../data/models/wo_constants.dart';
 
 class NotificationBottomSheet extends GetView<NotificationController> {
   const NotificationBottomSheet({super.key});
@@ -299,7 +300,7 @@ class NotificationBottomSheet extends GetView<NotificationController> {
       default:
         bgColor = const Color(0xFFF5F5F5);
         textColor = const Color(0xFF616161);
-        statusText = status.replaceAll('_', ' ');
+        statusText = WoStatusLabels.of(status);
     }
 
     return Container(
