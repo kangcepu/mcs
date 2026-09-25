@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/wo-execution";
 import { ApiError } from "@/types/api";
 import { dash } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 type Draft = {
   done: boolean;
@@ -35,7 +36,7 @@ function photoUrls(p: PreventivePartRow): string[] {
   for (const g of groups) {
     for (const im of g ?? []) {
       const u = (im as Record<string, unknown>).url ?? (im as Record<string, unknown>).path;
-      if (typeof u === "string" && u) out.push(u);
+      if (typeof u === "string" && u) out.push(toAbsoluteUploadUrl(u));
     }
   }
   return out;

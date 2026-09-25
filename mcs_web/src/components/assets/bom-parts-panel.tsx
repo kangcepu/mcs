@@ -23,6 +23,7 @@ import {
 import type { BomPart } from "@/lib/api/equipment";
 import { ApiError } from "@/types/api";
 import { dash, pick } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 type ModalKind = null | "sub" | "use" | "restock" | "history" | "photos";
 
@@ -708,7 +709,7 @@ function PhotosModal({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={p.url}
+                src={toAbsoluteUploadUrl(p.url)}
                 alt={p.original_filename ?? p.filename}
                 className="h-32 w-full object-cover"
               />

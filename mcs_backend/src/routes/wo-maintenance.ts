@@ -242,10 +242,61 @@ function partKey(customDetailId: number, partMesin: string): string {
 
 interface PreventivePartDefinition { custom_detail_id: number; part_mesin: string; bagian_mesin: string | null }
 
+function scheduleFamily(value: unknown): string {
+  const v = String(value ?? '').toLowerCase().trim();
+  if (!v) return '';
+  if (['day', 'daily', 'harian'].includes(v)) return 'daily';
+  if (v.includes('minggu') || v.includes('week')) return 'weekly';
+  if (v.includes('bulan') || v.includes('month')) return 'monthly';
+  if (v.includes('tahun') || v.includes('year') || v.includes('annual')) return 'yearly';
+  return '';
+}
+
+function normalizePartKey(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 async function getPreventivePartDefinitions(woNumber: string, assetCode: string): Promise<PreventivePartDefinition[]> {
-  const scheduleRows = await rows<Record<string, unknown>>('SELECT id, part_mesin FROM tb_wo_mtc_operational_detail WHERE wo_number=? ORDER BY id ASC', [woNumber]);
+  const scheduleRows = await rows<Record<string, unknown>>('SELECT id, job_title, part_mesin, type_schedule FROM tb_wo_mtc_operational_detail WHERE wo_number=? ORDER BY id ASC', [woNumber]);
   if (scheduleRows.length) {
-    return scheduleRows.map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? ''), bagian_mesin: null }));
+    const anyPart = scheduleRows.some((r) => String(r.part_mesin ?? '').trim() !== '');
+    if (!anyPart && assetCode) {
+      const header = await getHeader(woNumber);
+      let effective = scheduleFamily(header?.option_schedule);
+      if (!effective) {
+        const counts = new Map<string, number>();
+        for (const r of scheduleRows) {
+          const family = scheduleFamily(r.type_schedule);
+          if (family) counts.set(family, (counts.get(family) ?? 0) + 1);
+        }
+        effective = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+      }
+      if (effective) {
+        const customRows = await rows<Record<string, unknown>>(
+          "SELECT id, part_mesin, bagian_mesin, durasi_pengecekan FROM asset_custom_details WHERE asset_code=? AND part_mesin IS NOT NULL AND TRIM(part_mesin)<>'' ORDER BY row_order ASC, id ASC",
+          [assetCode],
+        );
+        const synthetic = customRows
+          .filter((r) => scheduleFamily(r.durasi_pengecekan) === effective)
+          .map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin).trim(), bagian_mesin: r.bagian_mesin ? String(r.bagian_mesin) : null }));
+        if (synthetic.length) return synthetic;
+      }
+    }
+
+    const seen = new Set<string>();
+    const result: PreventivePartDefinition[] = [];
+    for (const r of scheduleRows) {
+      let part = String(r.part_mesin ?? '').trim();
+      if (part) {
+        const key = normalizePartKey(part);
+        if (seen.has(key)) continue;
+        seen.add(key);
+      } else {
+        part = String(r.job_title ?? '').replace(/^\s*pengecekan\s+/i, '').trim();
+      }
+      result.push({ custom_detail_id: Number(r.id), part_mesin: part, bagian_mesin: null });
+    }
+    return result;
   }
   if (!assetCode) return [];
   const customRows = await rows<Record<string, unknown>>(

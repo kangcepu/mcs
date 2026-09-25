@@ -14,6 +14,7 @@ import {
 import type { AssetAttachment } from "@/lib/api/asset-media";
 import { ApiError } from "@/types/api";
 import { arrayMove } from "@/lib/utils";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 export function GalleryTab({
   assetCode,
@@ -161,7 +162,7 @@ export function GalleryTab({
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {visible.map((a, i) => {
-            const url = a.url as string;
+            const url = toAbsoluteUploadUrl(a.url as string);
             const name = a.name || a.filename || `Lampiran ${i + 1}`;
             const isImage = a.type === "image";
             return (
