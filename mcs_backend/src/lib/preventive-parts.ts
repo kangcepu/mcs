@@ -11,7 +11,7 @@ function isPreventiveType(typeWo: unknown): boolean {
 interface ImageRef { name: string; path: string; url: string }
 interface CustomDetailInfo { bagian_mesin: string; kondisi: string; pic: string; tampak_jauh: ImageRef[]; tampak_dekat: ImageRef[]; detail_part: ImageRef[] }
 
-async function buildCustomDetailMap(assetCode: string): Promise<Map<string, CustomDetailInfo>> {
+export async function buildCustomDetailMap(assetCode: string): Promise<Map<string, CustomDetailInfo>> {
   const map = new Map<string, CustomDetailInfo>();
   if (!assetCode) return map;
   const details = await rows<Record<string, unknown>>('SELECT id, bagian, bagian_mesin, part_mesin, kondisi, pic FROM asset_custom_details WHERE asset_code=?', [assetCode]);

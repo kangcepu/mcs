@@ -1,3 +1,4 @@
+import { buildCustomDetailMap } from '../lib/preventive-parts.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -173,13 +174,19 @@ async function getMtcPartExecution(woNumber: string, assetCode: string) {
     mediaByKey.set(key, list);
   }
 
+  const customDetails = await buildCustomDetailMap(assetCode);
+
   return definitions.map((def) => {
     const key = partKey(def.custom_detail_id, def.part_mesin);
     const savedRow = savedByKey.get(key);
+    const reference = customDetails.get(def.part_mesin.toLowerCase().trim());
     return {
       custom_detail_id: def.custom_detail_id,
       part_mesin: def.part_mesin,
-      bagian_mesin: def.bagian_mesin,
+      bagian_mesin: def.bagian_mesin ?? (reference?.bagian_mesin || null),
+      tampak_jauh: reference?.tampak_jauh ?? [],
+      tampak_dekat: reference?.tampak_dekat ?? [],
+      detail_part: reference?.detail_part ?? [],
       maintenance_status: savedRow?.maintenance_status ?? 'PENDING',
       request_qty: Number(savedRow?.request_qty ?? 0),
       request_part: savedRow?.request_part ?? def.part_mesin,
