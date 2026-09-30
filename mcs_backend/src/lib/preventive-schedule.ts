@@ -1,7 +1,7 @@
 import { hasColumn, one, pool, rows, transaction } from '../db.js';
 import { resolveCompanyCode } from './employee-api.js';
 import { nowInJakarta } from './daily-control.js';
-import type { PoolConnection } from 'mysql2/promise';
+import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 
 type LogicalType = 'harian' | 'mingguan' | 'bulanan' | '3 bulanan' | '6 bulanan' | 'tahunan' | '';
 
@@ -331,15 +331,20 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
         const hasCategoryCol = await hasColumn('tb_wo_mtc', 'category_maintenance');
         const hasAutoGenerateCol = await hasColumn('tb_wo_mtc', 'auto_generate');
         const cols = ['wo_number', 'date', 'company', 'shift', 'type_wo', 'id_division', 'id_equipment', 'job_title', 'running_hours', 'job_requirement', 'priority', 'attachment', 'creator', 'created_at', 'status', 'job_executor', 'pic'];
+        // WO preventive MESO (trade MKL/OTO/SPL/ELC) langsung IN_PROGRESS_EXECUTOR,
+        // sama kayak createWoOperationalGrouped (WO Preventive MTC) —
+        // eksekutor bisa langsung isi checklist-nya sendiri, gak perlu
+        // nunggu EXECUTOR_ADMIN approve dulu (sebelumnya start di
+        // WAIT_EXECUTOR_ADMIN, beda sendiri dari modul Maintenance).
         const vals: unknown[] = [finalWoNumber, todayDateOnly(), resolveCompanyCode(header.CompanyName ?? ''), first.shift, first.type_wo || 'PREVENTIVE', first.id_division, assetId,
           buildTitle(assetCode, dueItems.length, 'PREVENTIVE', 'PREVENTIVE MESO'), null, `AUTO FROM SCHEDULE: ${dueItems.length} ITEM`, 'NORMAL', '#', user.fullname, null,
-          'WAIT_EXECUTOR_ADMIN', executorCodes.join(','), executorCodes.join(',')];
+          'IN_PROGRESS_EXECUTOR', executorCodes.join(','), executorCodes.join(',')];
         let sql = `INSERT INTO tb_wo_mtc (${cols.join(',')}) VALUES (${cols.map((c) => c === 'created_at' ? 'NOW()' : '?').join(',')})`;
         const bound = vals.filter((_v, i) => cols[i] !== 'created_at');
         if (hasCategoryCol && mesoCategory) { sql = sql.replace(') VALUES', ',category_maintenance) VALUES').replace(/\)$/, ',?)'); bound.push(mesoCategory); }
         if (hasAutoGenerateCol) { sql = sql.replace(') VALUES', ",auto_generate) VALUES").replace(/\)$/, ",'yes')"); }
         await connection.execute(sql, bound as never);
-        for (const code of executorCodes) await insertJobExecutorAndQueueEmail(connection, finalWoNumber, code, 'WAITING');
+        for (const code of executorCodes) await insertJobExecutorAndQueueEmail(connection, finalWoNumber, code, 'IN_PROGRESS');
       }
 
       let inserted = 0;
@@ -356,8 +361,13 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
       }
       if (inserted === 0) throw new Error('NO_ROWS_INSERTED');
 
-      const totalRow = await one<{ total: number }>('SELECT COUNT(*) AS total FROM tb_wo_meso_detail WHERE wo_number=?', [finalWoNumber]);
-      const total = Number(totalRow?.total ?? inserted);
+      // Pakai koneksi transaksi ini juga buat hitung total (bukan helper `one()`
+      // yang narik koneksi baru dari pool) — baris yang baru di-insert di atas
+      // belum ke-commit, jadi koneksi lain gak bakal lihat baris itu dan
+      // hitungannya selalu 0. Itu sebabnya job_title WO ini sempat selalu
+      // kesimpen "(0 ITEM)" walau detail-nya sudah beneran ke-insert.
+      const [totalRows] = await connection.query<Array<{ total: number }> & RowDataPacket[]>('SELECT COUNT(*) AS total FROM tb_wo_meso_detail WHERE wo_number=?', [finalWoNumber]);
+      const total = Number(totalRows[0]?.total ?? inserted);
       await connection.execute('UPDATE tb_wo_mtc SET job_title=?, job_requirement=? WHERE wo_number=?', [buildTitle(assetCode, total, 'PREVENTIVE', 'PREVENTIVE MESO'), `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber]);
 
       return [{ wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted }];
@@ -431,8 +441,11 @@ async function createWoOperationalGrouped(dataAsset: ScheduleWithDetails, forceD
       if (inserted === 0) throw new Error('NO_ROWS_INSERTED');
 
       if (!creatingNew) {
-        const totalRow = await one<{ total: number }>('SELECT COUNT(*) AS total FROM tb_wo_mtc_operational_detail WHERE wo_number=?', [finalWoNumber]);
-        const total = Number(totalRow?.total ?? inserted);
+        // Sama kayak di createWoMesoGrouped — pakai koneksi transaksi ini,
+        // bukan `one()` (koneksi pool terpisah yang gak lihat baris yang
+        // belum commit).
+        const [totalRows] = await connection.query<Array<{ total: number }> & RowDataPacket[]>('SELECT COUNT(*) AS total FROM tb_wo_mtc_operational_detail WHERE wo_number=?', [finalWoNumber]);
+        const total = Number(totalRows[0]?.total ?? inserted);
         await connection.execute('UPDATE tb_wo_mtc_operational SET job_title=?, job_requirement=? WHERE wo_number=?', [buildTitle(assetCode, total, 'MAINTENANCE', 'MAINTENANCE SCHEDULE'), `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber]);
       }
 
@@ -510,8 +523,11 @@ async function createWoPreventiveGrouped(dataAsset: ScheduleWithDetails, forceDu
       }
 
       if (inserted > 0) {
-        const totalRow = await one<{ total: number }>('SELECT COUNT(*) AS total FROM tb_wo_preventive_detail WHERE wo_number=?', [finalWoNumber]);
-        const total = Number(totalRow?.total ?? inserted);
+        // Sama kayak di createWoMesoGrouped — pakai koneksi transaksi ini,
+        // bukan `one()` (koneksi pool terpisah yang gak lihat baris yang
+        // belum commit).
+        const [totalRows] = await connection.query<Array<{ total: number }> & RowDataPacket[]>('SELECT COUNT(*) AS total FROM tb_wo_preventive_detail WHERE wo_number=?', [finalWoNumber]);
+        const total = Number(totalRows[0]?.total ?? inserted);
         const title = buildTitle(assetCode, total, 'PREVENTIVE', 'PREVENTIVE MAINTENANCE');
         const requirement = `AUTO FROM SCHEDULE: ${total} ITEM`;
         await connection.execute('UPDATE tb_wo_preventive SET job_title=?, job_requirement=? WHERE wo_number=?', [title, requirement, finalWoNumber]);

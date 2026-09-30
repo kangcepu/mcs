@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { execute, one, rows, transaction } from '../db.js';
 import { searchMaterialItemsUcRu, searchUsageItemGsu } from './erp.js';
+import { resolveCompanyCode } from './employee-api.js';
 import { HttpError } from '../http.js';
 import type { PoolConnection } from 'mysql2/promise';
 
@@ -635,7 +636,9 @@ export interface ErpPartResult {
 }
 
 export async function searchErpParts(company: string, term: string): Promise<ErpPartResult[]> {
-  const normalizedCompany = company.toUpperCase().trim();
+  // `company` bisa jadi nama panjang WO lama ("Ganda Saribu Utama") — perlu
+  // dinormalisasi ke kode biar prioritas company di sort-nya kena.
+  const normalizedCompany = resolveCompanyCode(company) || company.toUpperCase().trim();
   const [gsu, ucRu] = await Promise.all([
     searchUsageItemGsu(term).catch(() => []),
     searchMaterialItemsUcRu(term).catch(() => []),

@@ -148,7 +148,10 @@ class WoGaListController extends GetxController
       final prefs = await SharedPreferences.getInstance();
 
       final woItPerm = prefs.getInt('wo_ga') ?? 0;
-      canViewWo.value = woItPerm == 1;
+      final crossAccessPerm = prefs.getInt('wo_cross_access') ?? 0;
+      final crossAccessGaPerm = prefs.getInt('wo_cross_access_ga') ?? 0;
+      canViewWo.value =
+          woItPerm == 1 || crossAccessPerm == 1 || crossAccessGaPerm == 1;
 
       final createWoPerm = prefs.getInt('scanning_create_wo') ?? 0;
       canCreateWo.value = createWoPerm == 1;

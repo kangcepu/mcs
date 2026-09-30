@@ -148,7 +148,12 @@ class WoProductionListController extends GetxController
       final prefs = await SharedPreferences.getInstance();
 
       final woProductionPerm = prefs.getInt('wo_preventive') ?? 0;
-      canViewWo.value = woProductionPerm == 1;
+      final crossAccessPerm = prefs.getInt('wo_cross_access') ?? 0;
+      final crossAccessProductionPerm =
+          prefs.getInt('wo_cross_access_production') ?? 0;
+      canViewWo.value = woProductionPerm == 1 ||
+          crossAccessPerm == 1 ||
+          crossAccessProductionPerm == 1;
 
       final createWoPerm = prefs.getInt('scanning_create_wo') ?? 0;
       canCreateWo.value = createWoPerm == 1;

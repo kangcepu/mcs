@@ -14,7 +14,8 @@ export const permissionFields = [
   'report_asset_mutation', 'scanning_create_wo', 'scanning_edit', 'schedule', 'work_calendar', 'daily_control',
   'daily_control_all', 'mcs_mobile_upload', 'template_crystal_report', 'user_management', 'user_alias_edit',
   'material_part_selection', 'void', 'wo_ga', 'wo_it', 'wo_mtc', 'wo_mtc_all', 'wo_operational', 'wo_executor', 'wo_void',
-  'wo_cross_access', 'wo_complete', 'wo_preventive', 'preventive_alarm', 'preventive_alarm_sound', 'write_off', 'wo_category_general',
+  'wo_cross_access', 'wo_cross_access_meso', 'wo_cross_access_maintenance', 'wo_cross_access_ga', 'wo_cross_access_production',
+  'wo_cross_access_is', 'wo_complete', 'wo_preventive', 'preventive_alarm', 'preventive_alarm_sound', 'write_off', 'wo_category_general',
   'wo_category_electrical', 'wo_category_mould', 'mtc_area_gsu_wnb', 'mtc_area_gsu_inject', 'mtc_area_ru_sawmill',
   'mtc_area_ru_production', 'report_so',
 ] as const;

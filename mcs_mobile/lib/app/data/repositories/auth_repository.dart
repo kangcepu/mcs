@@ -91,6 +91,16 @@ class AuthRepository {
                     'wo_mtc_all', parsePermission(perms['wo_mtc_all']));
                 await prefs.setInt('wo_cross_access',
                     parsePermission(perms['wo_cross_access']));
+                await prefs.setInt('wo_cross_access_meso',
+                    parsePermission(perms['wo_cross_access_meso']));
+                await prefs.setInt('wo_cross_access_maintenance',
+                    parsePermission(perms['wo_cross_access_maintenance']));
+                await prefs.setInt('wo_cross_access_ga',
+                    parsePermission(perms['wo_cross_access_ga']));
+                await prefs.setInt('wo_cross_access_production',
+                    parsePermission(perms['wo_cross_access_production']));
+                await prefs.setInt('wo_cross_access_is',
+                    parsePermission(perms['wo_cross_access_is']));
                 await prefs.setInt('wo_ga', parsePermission(perms['wo_ga']));
                 await prefs.setInt(
                     'wo_operational', parsePermission(perms['wo_operational']));
@@ -259,6 +269,16 @@ class AuthRepository {
                 'wo_mtc_all', parsePermission(perms['wo_mtc_all']));
             await prefs.setInt(
                 'wo_cross_access', parsePermission(perms['wo_cross_access']));
+            await prefs.setInt('wo_cross_access_meso',
+                parsePermission(perms['wo_cross_access_meso']));
+            await prefs.setInt('wo_cross_access_maintenance',
+                parsePermission(perms['wo_cross_access_maintenance']));
+            await prefs.setInt('wo_cross_access_ga',
+                parsePermission(perms['wo_cross_access_ga']));
+            await prefs.setInt('wo_cross_access_production',
+                parsePermission(perms['wo_cross_access_production']));
+            await prefs.setInt('wo_cross_access_is',
+                parsePermission(perms['wo_cross_access_is']));
             await prefs.setInt('wo_ga', parsePermission(perms['wo_ga']));
             await prefs.setInt(
                 'wo_operational', parsePermission(perms['wo_operational']));

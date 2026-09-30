@@ -1,4 +1,5 @@
 import { one, rows } from '../db.js';
+import { companyFilterVariants, resolveCompanyCode } from './employee-api.js';
 
 export type WoDomain = 'meso' | 'is' | 'operational' | 'preventive' | 'ga';
 
@@ -100,7 +101,7 @@ export async function buildWhere(domain: WoDomain, filters: ReportFilters): Prom
     else { where.push('wo.type_wo = ?'); params.push(filters.typeWo); }
   }
 
-  if (filters.company) { where.push('wo.company = ?'); params.push(filters.company); }
+  if (filters.company) { const variants = companyFilterVariants(filters.company); where.push(`wo.company IN (${variants.map(() => '?').join(',')})`); params.push(...variants); }
 
   if (effectiveExecutor && cfg.hasJobExecutorFilter) {
     if (domain === 'meso') {
@@ -185,7 +186,7 @@ export async function fetchWoRows(domain: WoDomain, filters: ReportFilters): Pro
       status: wo.status,
       date: wo.date,
       created_at: wo.created_at,
-      company: wo.company,
+      company: resolveCompanyCode(String(wo.company ?? '')) || wo.company,
       asset_name: assetMap.get(Number(wo.id_equipment)) ?? null,
       executor: wo.job_executor,
       execute_at: executeAt,

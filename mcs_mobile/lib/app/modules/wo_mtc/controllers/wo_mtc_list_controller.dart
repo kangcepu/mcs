@@ -164,8 +164,10 @@ class WoMtcListController extends GetxController
       final woMtcPerm = prefs.getInt('wo_mtc') ?? 0;
       final woMtcAllPerm = prefs.getInt('wo_mtc_all') ?? 0;
       final crossAccessPerm = prefs.getInt('wo_cross_access') ?? 0;
+      final crossAccessMesoPerm = prefs.getInt('wo_cross_access_meso') ?? 0;
       final hasNativePermission = woMtcPerm == 1 || woMtcAllPerm == 1;
-      canViewWo.value = hasNativePermission || crossAccessPerm == 1;
+      canViewWo.value =
+          hasNativePermission || crossAccessPerm == 1 || crossAccessMesoPerm == 1;
 
       final createWoPerm = prefs.getInt('scanning_create_wo') ?? 0;
       canCreateWo.value = hasNativePermission && createWoPerm == 1;

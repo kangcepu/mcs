@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -62,7 +63,8 @@ export async function getMtcDivisionId(): Promise<string> {
 }
 
 export function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string): { sql: string; params: unknown[] } {
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  if (String(user.username ?? '').toUpperCase() === 'SUPERUSER') return { sql: '', params: [] };
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1;
   if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
   const creatorAliases = [...new Set([String(user.fullname ?? '').trim(), String(user.username ?? '').trim()].filter(Boolean))];
@@ -87,7 +89,7 @@ const AREA_FLAG_MAP: Record<string, string> = {
 };
 
 function getAllowedAssetAreas(user: User): string[] {
-  if (Number(user.wo_cross_access ?? 0) === 1) return [];
+  if (Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1) return [];
   const areas: string[] = [];
   for (const [field, area] of Object.entries(AREA_FLAG_MAP)) if (Number(user[field] ?? 0) === 1) areas.push(area);
   return areas;
@@ -547,7 +549,7 @@ function callMaterialService(pathSuffix: string, method: 'GET' | 'POST', query: 
 maintenanceRouter.use('/maintenance', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1;
   const nativeAccess = Number(user.wo_operational ?? 0) === 1;
   if (crossAccess && !nativeAccess) throw new HttpError(403, 'Cross WO Access is read-only');
   next();
@@ -579,7 +581,7 @@ async function buildListQuery(user: User, mtcDivisionId: string, params0: { crea
   }
   if (params0.dateFrom) { where += ' AND w.date >= ?'; params.push(params0.dateFrom); }
   if (params0.dateTo) { where += ' AND w.date <= ?'; params.push(params0.dateTo); }
-  if (params0.company) { where += ' AND w.company = ?'; params.push(params0.company); }
+  if (params0.company) { const variants = companyFilterVariants(params0.company); where += ` AND w.company IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
   if (params0.applyCategoryScope) {
     const categories = getUserCategories(user);
     if (categories.length) {
@@ -709,7 +711,7 @@ maintenanceRouter.get('/maintenance/dashboard', asyncHandler(async (req, res) =>
   const company = String(req.query.company ?? 'ALL');
   const startDate = req.query.start_date ? String(req.query.start_date) : '';
   const endDate = req.query.end_date ? String(req.query.end_date) : '';
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1;
   const areas = getAllowedAssetAreas(user);
   const categories = getUserCategories(user);
 
@@ -721,7 +723,7 @@ maintenanceRouter.get('/maintenance/dashboard', asyncHandler(async (req, res) =>
       sql += ` AND w.${dateColumn} >= ?`; params.push(effectiveStart);
       if (endDate) { sql += ` AND w.${dateColumn} <= ?`; params.push(endDate); }
     }
-    if (company !== 'ALL') { sql += ' AND w.company = ?'; params.push(company); }
+    if (company !== 'ALL') { const variants = companyFilterVariants(company); sql += ` AND w.company IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
     if (!crossAccess && user.id_division) { sql += ' AND w.id_division = ?'; params.push(user.id_division); }
     const areaScope = assetAreaScopeSql(areas, 'a');
     if (areaScope.sql) { sql += ` AND ${areaScope.sql}`; params.push(...areaScope.params); }

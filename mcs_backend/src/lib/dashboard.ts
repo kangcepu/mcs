@@ -1,4 +1,5 @@
 import { one, rows } from '../db.js';
+import { companyFilterVariants, resolveCompanyCode } from './employee-api.js';
 import type { User } from '../types.js';
 
 interface ModuleCfg {
@@ -174,7 +175,7 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     const scope = scopeSql(user, cfg);
     let extraSql = '';
     const extraParams: unknown[] = [];
-    if (company !== '') { extraSql += ' AND w.company = ?'; extraParams.push(company); }
+    if (company !== '') { const variants = companyFilterVariants(company); extraSql += ` AND w.company IN (${variants.map(() => '?').join(',')})`; extraParams.push(...variants); }
     if (key === 'meso') extraSql += ' AND NOT EXISTS (SELECT 1 FROM tb_wo_preventive p WHERE p.wo_number = w.wo_number)';
 
     const [statusRows, prevRow, companyRows, assetRows, createdRows, closedRows, agingRow] = await Promise.all([
@@ -235,7 +236,10 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     prevTotal += Number(prevRow?.pt ?? 0);
     prevClosed += Number(prevRow?.pc ?? 0);
 
-    for (const r of companyRows) companyAgg.set(r.co, (companyAgg.get(r.co) ?? 0) + Number(r.c));
+    // WO lama nyimpen nama company panjang ("Ganda Saribu Utama") sementara
+    // yang baru nyimpen kode singkat ("GSU") — tanpa normalisasi ini,
+    // widget "WO per Company" ngitung dua-duanya sebagai company beda.
+    for (const r of companyRows) { const co = resolveCompanyCode(r.co) || r.co; companyAgg.set(co, (companyAgg.get(co) ?? 0) + Number(r.c)); }
     for (const r of assetRows) { const id = String(r.eq); assetAgg.set(id, (assetAgg.get(id) ?? 0) + Number(r.c)); }
     for (const r of createdRows) { const d = String(r.d); createdByDay.set(d, (createdByDay.get(d) ?? 0) + Number(r.c)); }
     for (const r of closedRows) { const d = String(r.d ?? ''); if (!d) continue; closedByDay.set(d, (closedByDay.get(d) ?? 0) + Number(r.c)); }

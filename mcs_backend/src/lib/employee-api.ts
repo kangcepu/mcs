@@ -53,6 +53,24 @@ export function resolveCompanyCode(value: string): string {
   return upper;
 }
 
+/**
+ * WO lama nyimpen nama company panjang ("Ganda Saribu Utama"), yang baru
+ * nyimpen kode singkat ("GSU") — exact-match filter/GROUP BY ke kolom
+ * `company` mentah bakal kepisah jadi dua padahal company-nya sama. Dipakai
+ * buat filter SQL `WHERE company IN (...)`: kasih kode ATAU nama panjang,
+ * balik semua variasi mentah yang mewakili company yang sama.
+ */
+const COMPANY_LONG_NAMES: Record<string, string> = { UC: 'Utama Corporation', RU: 'Ratimdo Utama', GSU: 'Ganda Saribu Utama' };
+export function companyFilterVariants(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const code = resolveCompanyCode(trimmed);
+  const longName = COMPANY_LONG_NAMES[code];
+  const variants = new Set([trimmed, code]);
+  if (longName) variants.add(longName);
+  return [...variants];
+}
+
 function requestJson(path: string): Promise<{ success?: boolean; data?: Employee[] } | null> {
   return new Promise((resolve) => {
     const baseUrl = config.employeeApi.baseUrl.replace(/\/+$/, '');

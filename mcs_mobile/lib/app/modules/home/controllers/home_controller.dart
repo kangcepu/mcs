@@ -792,6 +792,13 @@ class HomeController extends GetxController
     final woMtcAll = prefs.getInt('wo_mtc_all') ?? 0;
     final woOperational = prefs.getInt('wo_operational') ?? 0;
     final woCrossAccess = prefs.getInt('wo_cross_access') ?? 0;
+    final woCrossAccessMeso = prefs.getInt('wo_cross_access_meso') ?? 0;
+    final woCrossAccessMaintenance =
+        prefs.getInt('wo_cross_access_maintenance') ?? 0;
+    final woCrossAccessGa = prefs.getInt('wo_cross_access_ga') ?? 0;
+    final woCrossAccessIs = prefs.getInt('wo_cross_access_is') ?? 0;
+    final woCrossAccessProduction =
+        prefs.getInt('wo_cross_access_production') ?? 0;
     final woPreventive = prefs.getInt('wo_preventive') ?? 0;
     final woVoid = prefs.getInt('wo_void') ?? 0;
     final dailyControl = prefs.getInt('daily_control') ?? 0;
@@ -815,19 +822,26 @@ class HomeController extends GetxController
 
       switch (item.permissionKey) {
         case 'wo_it':
-          hasPermission = woIt == 1;
+          hasPermission = woIt == 1 || woCrossAccess == 1 || woCrossAccessIs == 1;
           break;
         case 'wo_ga':
-          hasPermission = woGa == 1;
+          hasPermission = woGa == 1 || woCrossAccess == 1 || woCrossAccessGa == 1;
           break;
         case 'wo_mtc':
-          hasPermission = woMtc == 1 || woMtcAll == 1 || woCrossAccess == 1;
+          hasPermission = woMtc == 1 ||
+              woMtcAll == 1 ||
+              woCrossAccess == 1 ||
+              woCrossAccessMeso == 1;
           break;
         case 'wo_operational':
-          hasPermission = woOperational == 1 || woCrossAccess == 1;
+          hasPermission = woOperational == 1 ||
+              woCrossAccess == 1 ||
+              woCrossAccessMaintenance == 1;
           break;
         case 'wo_preventive':
-          hasPermission = woPreventive == 1;
+          hasPermission = woPreventive == 1 ||
+              woCrossAccess == 1 ||
+              woCrossAccessProduction == 1;
           break;
         case 'wo_void':
           hasPermission = woVoid == 1;
@@ -880,22 +894,30 @@ class HomeController extends GetxController
 
       switch (item.permissionKey) {
         case 'wo_it':
-          hasPermission = permissions.woIt == 1;
+          hasPermission = permissions.woIt == 1 ||
+              permissions.woCrossAccess == 1 ||
+              permissions.woCrossAccessIs == 1;
           break;
         case 'wo_ga':
-          hasPermission = permissions.woGa == 1;
+          hasPermission = permissions.woGa == 1 ||
+              permissions.woCrossAccess == 1 ||
+              permissions.woCrossAccessGa == 1;
           break;
         case 'wo_mtc':
           hasPermission = permissions.woMtc == 1 ||
               permissions.woMtcAll == 1 ||
-              permissions.woCrossAccess == 1;
+              permissions.woCrossAccess == 1 ||
+              permissions.woCrossAccessMeso == 1;
           break;
         case 'wo_operational':
-          hasPermission =
-              permissions.woOperational == 1 || permissions.woCrossAccess == 1;
+          hasPermission = permissions.woOperational == 1 ||
+              permissions.woCrossAccess == 1 ||
+              permissions.woCrossAccessMaintenance == 1;
           break;
         case 'wo_preventive':
-          hasPermission = permissions.woPreventive == 1;
+          hasPermission = permissions.woPreventive == 1 ||
+              permissions.woCrossAccess == 1 ||
+              permissions.woCrossAccessProduction == 1;
           break;
         case 'wo_void':
           hasPermission = permissions.woVoid == 1;

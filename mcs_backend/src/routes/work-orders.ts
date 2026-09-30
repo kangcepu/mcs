@@ -4,7 +4,7 @@ import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
-import { resolveCompanyCode } from '../lib/employee-api.js';
+import { companyFilterVariants, resolveCompanyCode } from '../lib/employee-api.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
 import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
@@ -29,7 +29,17 @@ const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);
 // dipakai buat naro WO yang udah kelar di bawah daftar gabungan ini, bukan
 // nyampur rata sama WO aktif cuma berdasar tanggal.
 const FINISHED_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT']);
-const permissive = (user: User, permission: string): boolean => String(user.username).toUpperCase() === 'SUPERUSER' || Number(user[permission] ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
+// `wo_cross_access` ("All WO") tetap bypass semua modul; masing-masing modul
+// juga punya versi khusus-modulnya sendiri (`wo_cross_access_meso`, dst) biar
+// bisa dikasih ke user yang cuma perlu lintas-divisi di 1 modul, bukan semua.
+const CROSS_ACCESS_FIELD: Record<Domain, string> = {
+  is: 'wo_cross_access_is', ga: 'wo_cross_access_ga', meso: 'wo_cross_access_meso',
+  maintenance: 'wo_cross_access_maintenance', production: 'wo_cross_access_production',
+};
+const permissive = (user: User, key: Domain): boolean => String(user.username).toUpperCase() === 'SUPERUSER'
+  || Number(user[domains[key].permission] ?? 0) === 1
+  || Number(user.wo_cross_access ?? 0) === 1
+  || Number(user[CROSS_ACCESS_FIELD[key]] ?? 0) === 1;
 const executorFor = (domain: Domain, user: User): string => domains[domain].executor || String(user.division_code ?? user.id_division ?? '');
 const executorCodeToDomain: Record<string, Domain> = { GA: 'ga', HRGA: 'ga', IT: 'is', ITS: 'is', MTC: 'maintenance', MESO: 'meso' };
 const resolveTargetDomain = (value: string): Domain => domainOf(value in domains ? value : (executorCodeToDomain[value.toUpperCase()] ?? value));
@@ -137,7 +147,11 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
     if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR w.job_requirement LIKE ? OR a.AssetName LIKE ? OR a.AssetCode LIKE ?)'; params.push(...Array(5).fill(`%${q}%`)); }
     if (status) { where += ' AND w.status = ?'; params.push(status); }
     if (typeWo) { const variants = TYPE_WO_VARIANTS[typeWo] ?? [typeWo]; where += ` AND w.type_wo IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
-    if (company) { where += ' AND w.company LIKE ?'; params.push(`%${company}%`); }
+    if (company) {
+      const variants = companyFilterVariants(company);
+      where += ` AND (${variants.map(() => 'w.company LIKE ?').join(' OR ')})`;
+      params.push(...variants.map((v) => `%${v}%`));
+    }
     if (assetId) { where += ' AND w.id_equipment = ?'; params.push(assetId); }
     if (dateFrom) { where += ' AND w.date >= ?'; params.push(dateFrom); }
     if (dateTo) { where += ' AND w.date <= ?'; params.push(dateTo); }
@@ -150,7 +164,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
     return { where, params };
   };
 
-  const allowedDomains = selected.filter((key) => permissive(user, domains[key].permission));
+  const allowedDomains = selected.filter((key) => permissive(user, key));
   // Setiap modul punya tabelnya sendiri (bukan satu tabel WO gabungan), jadi
   // gabungan lintas-modul dikerjakan di JS: ambil sejumlah baris terurut per
   // tabel yang cukup buat nutup halaman yang diminta, gabung, urutkan ulang,
@@ -227,7 +241,7 @@ workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req
 }));
 
 workOrderRouter.post('/work-orders/create', authenticate, asyncHandler(async (req, res) => {
-  const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const user = (req as AuthRequest).user!; if (!permissive(user, d.permission)) throw new HttpError(403, 'You do not have permission to create this work order');
+  const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const user = (req as AuthRequest).user!; if (!permissive(user, domain)) throw new HttpError(403, 'You do not have permission to create this work order');
   const b = req.body; if (!b.job_title) throw new HttpError(400, 'job_title is required'); const idEquipment = await resolveAssetId(b); if (!idEquipment) throw new HttpError(400, 'asset_code is required'); const isPreventive = /preventive/i.test(String(b.type_wo ?? '')); const executor = executorFor(domain, user); const wo = await transaction(async (connection) => { const number = b.wo_number ?? await nextNumber(connection, domain, String(user.division_code ?? user.id_division)); const status = domain === 'maintenance' && isPreventive ? 'IN_PROGRESS_EXECUTOR' : (b.status ?? 'WAIT_KA_DIV'); const values = [number, b.date ?? new Date().toISOString().slice(0, 10), b.company ?? user.company_name ?? '', b.shift ?? '', b.type_wo ?? 'CORRECTIVE', b.priority ?? 'NORMAL', b.id_division ?? user.id_division, idEquipment, b.job_title, b.running_hours ?? null, b.job_requirement ?? '', executor, status, executor, user.fullname]; await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, values); await connection.execute('INSERT INTO tb_job_executor (job_executor,wo_number,status,created_at) VALUES (?,?,?,NOW())', [executor, number, isPreventive ? 'IN_PROGRESS' : 'WAITING']); return number; }); created(res, { wo_number: wo, module: domain }, 'Work order created');
 }));
 workOrderRouter.post('/work-orders/update', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const item = await header(domain, wo) as Record<string, unknown> | null; if (!item) throw new HttpError(404, 'Work order not found'); if (terminal.has(String(item.status).toUpperCase())) throw new HttpError(409, 'Terminal work order cannot be edited');
@@ -242,7 +256,7 @@ workOrderRouter.post('/work-orders/close', authenticate, asyncHandler(async (req
 workOrderRouter.post('/work-orders/void', authenticate, asyncHandler(async (req, res) => transition(req as AuthRequest, res, 'void')));
 async function transition(req: AuthRequest, res: import('express').Response, action: 'approve'|'reject'|'close'|'void'): Promise<void> { const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const wo = String(req.body.wo_number ?? ''); const comment = String(req.body.comment ?? req.body.reason ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const item = await header(domain, wo) as Record<string, unknown> | null; if (!item) throw new HttpError(404, 'Work order not found'); if (terminal.has(String(item.status).toUpperCase())) throw new HttpError(409, 'Work order is already terminal'); const target = action === 'approve' ? 'IN_PROGRESS_EXECUTOR' : action === 'reject' ? 'REJECT' : action === 'close' ? 'CLOSED' : 'VOID'; await transaction(async (connection) => { await approval(connection, d.approval, wo, req.user!, comment); await connection.execute(`UPDATE \`${d.table}\` SET status=?, pic=?, updated_at=NOW()${action === 'close' ? ', closedDate=NOW()' : ''}${action === 'void' ? ', reason=?' : ''} WHERE wo_number=?`, action === 'void' ? [target, '-', comment, wo] : [target, action === 'approve' ? executorFor(domain, req.user!) : '-', wo]); }); ok(res, { wo_number: wo, status: target }, `Work order ${action}d`); }
 
-workOrderRouter.post('/work-orders/planner', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const rawExecutors = Array.isArray(req.body.job_executor) ? req.body.job_executor : (Array.isArray(req.body.executors) ? req.body.executors : []); const executors = rawExecutors.map((e: unknown) => typeof e === 'object' && e !== null ? String((e as Record<string, unknown>).job_executor ?? '') : String(e)).filter(Boolean); const startedPlanner = req.body.started_planner ?? null; const finishedPlanner = req.body.finished_planner ?? null; const estimatePlanner = req.body.estimate_planner ?? null; await transaction(async (connection) => { if (executors.length) { await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [wo]); for (const executor of executors) await connection.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,?,?,NOW())', [wo, executor, 'IN_PROGRESS']); } await connection.execute(`UPDATE \`${domains[domain].table}\` SET status='IN_PROGRESS_EXECUTOR', started_planner=?, finished_planner=?, estimate_planner=?, updated_at=NOW() WHERE wo_number=?`, [startedPlanner, finishedPlanner, estimatePlanner, wo]); }); ok(res, { wo_number: wo, job_executor: executors.join(',') }, 'Planner assignment saved'); }));
+workOrderRouter.post('/work-orders/planner', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const rawExecutors = Array.isArray(req.body.job_executor) ? req.body.job_executor : (Array.isArray(req.body.executors) ? req.body.executors : []); const executors = rawExecutors.map((e: unknown) => typeof e === 'object' && e !== null ? String((e as Record<string, unknown>).job_executor ?? '') : String(e)).filter(Boolean); const startedPlanner = req.body.started_planner ?? null; const finishedPlanner = req.body.finished_planner ?? null; const estimatePlanner = req.body.estimate_planner ?? null; await transaction(async (connection) => { if (executors.length) { await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [wo]); for (const executor of executors) await connection.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,?,?,NOW())', [wo, executor, 'IN_PROGRESS']); } const executorSql = executors.length ? ', job_executor=?' : ''; const executorParams = executors.length ? [executors.join(',')] : []; await connection.execute(`UPDATE \`${domains[domain].table}\` SET status='IN_PROGRESS_EXECUTOR', started_planner=?, finished_planner=?, estimate_planner=?, updated_at=NOW()${executorSql} WHERE wo_number=?`, [startedPlanner, finishedPlanner, estimatePlanner, ...executorParams, wo]); }); ok(res, { wo_number: wo, job_executor: executors.join(',') }, 'Planner assignment saved'); }));
 workOrderRouter.post('/work-orders/sub', authenticate, asyncHandler(async (req, res) => { const source = domainOf(String(req.body.module ?? 'maintenance')); const target = resolveTargetDomain(String(req.body.target_domain ?? req.body.sub_to ?? req.body.subto ?? '')); const sourceWoNumber = String(req.body.wo_number ?? ''); const original = await header(source, sourceWoNumber) as Record<string, unknown> | null; if (!original) throw new HttpError(404, 'Source work order not found'); const user = (req as AuthRequest).user!; const d = domains[target]; const executor = executorFor(target, user); const number = await transaction(async (connection) => { const n = await nextNumber(connection, target, String(user.division_code ?? user.id_division)); await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, [n, new Date().toISOString().slice(0,10), original.company ?? '', original.shift ?? '', original.type_wo ?? 'CORRECTIVE', original.priority ?? 'NORMAL', original.id_division, original.id_equipment, original.job_title, original.running_hours ?? null, original.job_requirement ?? '', executor, 'WAIT_KA_DIV', executor, user.fullname] as never); return n; }); created(res, { wo_number: sourceWoNumber, sub_wo_number: number, sub_to: executor, module: target }, 'Sub work order created'); }));
 
 workOrderRouter.get('/work-orders/assets', authenticate, asyncHandler(async (req, res) => {
@@ -308,8 +322,8 @@ workOrderRouter.get('/work-orders/materials', authenticate, asyncHandler(async (
   });
 }));
 
-const canMesoParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_mtc ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
-const canMaintenanceParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_operational ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
+const canMesoParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_mtc ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_meso ?? 0) === 1;
+const canMaintenanceParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_operational ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1;
 
 workOrderRouter.get('/work-orders/meso-parts', authenticate, asyncHandler(async (req, res) => {
   const wo = String(req.query.wo_number ?? '').trim();

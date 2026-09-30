@@ -30,7 +30,10 @@ class WoMtcCreateController extends GetxController {
   final selectedDivision = Rx<Map<String, dynamic>?>(null);
   final selectedAsset = Rx<Map<String, dynamic>?>(null);
   final selectedTypeWo = Rx<WoType?>(null);
-  final selectedPriority = Rx<WoPriority?>(null);
+  // Default WoPriority.normal biar field-nya gak pernah kosong nunggu master
+  // data kelar dimuat — sebelumnya null dari awal, jadi Priority sempat
+  // kelihatan blank kalau user buka Create WO pas datanya belum sempat ke-load.
+  final selectedPriority = Rx<WoPriority?>(WoPriority.normal);
 
   final divisions = <Map<String, dynamic>>[].obs;
   final assets = <Map<String, dynamic>>[].obs;

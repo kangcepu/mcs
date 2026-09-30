@@ -111,6 +111,11 @@ class Permissions {
   final int woMtc;
   final int woMtcAll;
   final int woCrossAccess;
+  final int woCrossAccessMeso;
+  final int woCrossAccessMaintenance;
+  final int woCrossAccessGa;
+  final int woCrossAccessProduction;
+  final int woCrossAccessIs;
   final int woGa;
   final int woOperational;
   final int woPreventive;
@@ -137,6 +142,11 @@ class Permissions {
     required this.woMtc,
     required this.woMtcAll,
     required this.woCrossAccess,
+    required this.woCrossAccessMeso,
+    required this.woCrossAccessMaintenance,
+    required this.woCrossAccessGa,
+    required this.woCrossAccessProduction,
+    required this.woCrossAccessIs,
     required this.woGa,
     required this.woOperational,
     required this.woPreventive,
@@ -165,6 +175,13 @@ class Permissions {
       woMtc: _parsePermission(json['wo_mtc']),
       woMtcAll: _parsePermission(json['wo_mtc_all']),
       woCrossAccess: _parsePermission(json['wo_cross_access']),
+      woCrossAccessMeso: _parsePermission(json['wo_cross_access_meso']),
+      woCrossAccessMaintenance:
+          _parsePermission(json['wo_cross_access_maintenance']),
+      woCrossAccessGa: _parsePermission(json['wo_cross_access_ga']),
+      woCrossAccessProduction:
+          _parsePermission(json['wo_cross_access_production']),
+      woCrossAccessIs: _parsePermission(json['wo_cross_access_is']),
       woGa: _parsePermission(json['wo_ga']),
       woOperational: _parsePermission(json['wo_operational']),
       woPreventive: _parsePermission(json['wo_preventive']),
@@ -201,6 +218,11 @@ class Permissions {
       'wo_mtc': woMtc,
       'wo_mtc_all': woMtcAll,
       'wo_cross_access': woCrossAccess,
+      'wo_cross_access_meso': woCrossAccessMeso,
+      'wo_cross_access_maintenance': woCrossAccessMaintenance,
+      'wo_cross_access_ga': woCrossAccessGa,
+      'wo_cross_access_production': woCrossAccessProduction,
+      'wo_cross_access_is': woCrossAccessIs,
       'wo_ga': woGa,
       'wo_operational': woOperational,
       'wo_preventive': woPreventive,

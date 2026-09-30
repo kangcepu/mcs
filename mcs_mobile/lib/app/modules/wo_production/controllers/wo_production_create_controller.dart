@@ -27,7 +27,10 @@ class WoProductionCreateController extends GetxController {
   final selectedDivision = Rx<Map<String, dynamic>?>(null);
   final selectedAsset = Rx<Map<String, dynamic>?>(null);
   final selectedTypeWo = ''.obs;
-  final selectedPriority = ''.obs;
+  // Default 'NORMAL' biar field-nya gak pernah kosong nunggu master data
+  // kelar dimuat — sebelumnya kosong dari awal, jadi Priority sempat kelihatan
+  // blank kalau user buka Create WO pas datanya belum sempat ke-load.
+  final selectedPriority = 'NORMAL'.obs;
   final selectedShift = 'REGULAR'.obs;
 
   final divisions = <Map<String, dynamic>>[].obs;

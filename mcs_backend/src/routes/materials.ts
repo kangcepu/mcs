@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, requirePermission } from '../auth.js';
 import { execute, one } from '../db.js';
+import { resolveCompanyCode } from '../lib/employee-api.js';
 import { asyncHandler, HttpError, ok } from '../http.js';
 import {
   closedMaterialUsage,
@@ -211,7 +212,10 @@ materialRouter.post('/material-usage/set-usage', authenticate, canManage, asyncH
   await updateOpen({ wo_number: wo, job_executor: exec, request_code: rc, NestedRows: nested });
 
   const usage = await one<{ company: string }>('SELECT company FROM tb_material_usage WHERE request_code=? ORDER BY id DESC LIMIT 1', [rc]);
-  const isGsu = String(usage?.company ?? '').trim().toUpperCase() === 'GSU';
+  // Sebagian WO/Material Usage lama nyimpen nama company panjang ("Ganda
+  // Saribu Utama"), bukan kode singkat "GSU" — tanpa normalisasi ini,
+  // pause-sync ERP di bawah gak pernah kepicu buat data lama itu.
+  const isGsu = resolveCompanyCode(String(usage?.company ?? '')) === 'GSU';
   if (isGsu) await markErpSyncPaused(rc, 'Sinkronisasi Ascend dipause sementara; Material Usage tersimpan di MCS.');
 
   ok(res, { request_code: rc, erp_sync: isGsu ? 'PAUSED' : null }, isGsu

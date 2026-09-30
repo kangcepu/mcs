@@ -1,4 +1,5 @@
 import { execute, one, rows, transaction } from '../db.js';
+import { resolveCompanyCode } from './employee-api.js';
 import { HttpError } from '../http.js';
 import type { User } from '../types.js';
 
@@ -47,9 +48,8 @@ function classifyWoNumberModule(woNumber: string): string {
 }
 
 function shortCompany(value: unknown): string {
-  const map: Record<string, string> = { 'Ganda Saribu Utama': 'GSU', 'Utama Corporation': 'UC', 'Ratimdo Utama': 'RU' };
   const company = String(value ?? '').trim();
-  return map[company] ?? company;
+  return resolveCompanyCode(company) || company;
 }
 
 function approvalJobs(user: User): WoJob[] {

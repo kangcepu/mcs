@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { companyFilterVariants } from '../lib/employee-api.js';
 import { getObjectStream, saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -52,7 +53,13 @@ async function insertApproval(woNumber: string, person: ReturnType<typeof person
 }
 
 export function visibilityScope(user: User, tableAlias: string): { sql: string; params: unknown[] } {
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  // SUPERUSER selalu bypass — konsisten sama `requirePermission()`/`permissive()`
+  // yang udah lebih dulu treat username ini spesial di tempat lain.
+  if (String(user.username ?? '').toUpperCase() === 'SUPERUSER') return { sql: '', params: [] };
+  // `wo_cross_access` ("All WO") tetap bypass semua modul; `wo_cross_access_meso`
+  // versi barunya yang cuma bypass modul MESO doang — biar bisa kasih akses
+  // lintas-divisi buat 1 modul tanpa harus kasih akses ke 5 modul sekaligus.
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_meso ?? 0) === 1;
   if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
@@ -289,7 +296,7 @@ async function decodeBase64Attachments(input: unknown, prefix: string): Promise<
 mesoRouter.use('/meso', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_meso ?? 0) === 1;
   const nativeAccess = Number(user.wo_mtc ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1;
   if (crossAccess && !nativeAccess) throw new HttpError(403, 'Cross WO Access is read-only');
   next();
@@ -413,7 +420,7 @@ mesoRouter.get('/meso/dashboard', asyncHandler(async (req, res) => {
   const company = String(req.query.company ?? 'ALL');
   const startDate = req.query.start_date ? String(req.query.start_date) : '';
   const endDate = req.query.end_date ? String(req.query.end_date) : '';
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_meso ?? 0) === 1;
 
   const buildWhere = (statuses: string[], dateColumn: string, closedDefault: boolean): { sql: string; params: unknown[] } => {
     let sql = `WHERE status IN (${statuses.map(() => '?').join(',')})`;
@@ -421,7 +428,7 @@ mesoRouter.get('/meso/dashboard', asyncHandler(async (req, res) => {
     const effectiveStart = startDate || (closedDefault ? new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10) : '');
     if (effectiveStart) { sql += ` AND ${dateColumn} >= ?`; params.push(effectiveStart); }
     if (endDate) { sql += ` AND ${dateColumn} <= ?`; params.push(endDate); }
-    if (company !== 'ALL') { sql += ' AND company = ?'; params.push(company); }
+    if (company !== 'ALL') { const variants = companyFilterVariants(company); sql += ` AND company IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
     if (!crossAccess && user.id_division) { sql += ' AND id_division = ?'; params.push(user.id_division); }
     return { sql, params };
   };

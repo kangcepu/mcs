@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, requirePermission } from '../auth.js';
 import { rows, one } from '../db.js';
 import { asyncHandler, HttpError, ok } from '../http.js';
+import { resolveCompanyCode } from '../lib/employee-api.js';
 import { escapeHtml, htmlToPdf, reportPdfShell } from '../lib/pdf.js';
 
 export const reportEquipmentRouter = Router();
@@ -126,7 +127,7 @@ async function buildHistory(assetId: number): Promise<Record<string, unknown>[]>
       status_label: mapStatus(status),
       created_at: wo.created_at,
       closed_at: closedAt,
-      company: wo.company ?? null,
+      company: wo.company ? (resolveCompanyCode(String(wo.company)) || wo.company) : null,
       labor: laborRows,
       material: materialByWo.get(woNumber) ?? [],
       total_labor_hours: totalHours,

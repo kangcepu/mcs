@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest, User } from '../types.js';
 
@@ -48,8 +49,9 @@ async function insertApprovalGa(woNumber: string, person: ReturnType<typeof pers
 }
 
 export function visibilityScope(user: User, tableAlias: string): { sql: string; params: unknown[] } {
+  if (String(user.username ?? '').toUpperCase() === 'SUPERUSER') return { sql: '', params: [] };
   const prefix = tableAlias ? `${tableAlias}.` : '';
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_ga ?? 0) === 1;
   if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
@@ -171,7 +173,7 @@ async function syncMaterialRequestFromMobile(woNumber: string, material: string,
 gaRouter.use('/ga', authenticate, (req, res, next) => {
   if (req.method === 'GET') return next();
   const user = (req as AuthRequest).user!;
-  const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  const crossAccess = Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_ga ?? 0) === 1;
   const nativeAccess = Number(user.wo_ga ?? 0) === 1;
   if (crossAccess && !nativeAccess) throw new HttpError(403, 'Cross WO Access is read-only');
   next();
@@ -267,7 +269,7 @@ gaRouter.get('/ga/dashboard', asyncHandler(async (req, res) => {
     const effectiveStart = startDate || (closedDefault ? new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10) : '');
     if (effectiveStart) { sql += ` AND ${dateColumn} >= ?`; params.push(effectiveStart); }
     if (endDate) { sql += ` AND ${dateColumn} <= ?`; params.push(endDate); }
-    if (company !== 'ALL') { sql += ' AND company = ?'; params.push(company); }
+    if (company !== 'ALL') { const variants = companyFilterVariants(company); sql += ` AND company IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
     const scope = visibilityScope(user, '');
     if (scope.sql) { sql += ` AND ${scope.sql}`; params.push(...scope.params); }
     return { sql, params };

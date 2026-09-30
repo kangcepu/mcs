@@ -1,5 +1,6 @@
 import { findUserById as findFullUserById } from '../auth.js';
 import { execute, one, rows } from '../db.js';
+import { resolveCompanyCode } from './employee-api.js';
 import { isFcmConfigured, sendToTokens } from './fcm.js';
 import type { User } from '../types.js';
 
@@ -987,7 +988,10 @@ async function resolveDivisionIdByCode(code: string): Promise<number | null> {
 async function resolveCompanyIdByName(companyName: string): Promise<string | null> {
   const trimmed = companyName.trim();
   if (!trimmed) return null;
-  const row = await one<{ id_company: string }>('SELECT id_company FROM tb_company WHERE company_name=? LIMIT 1', [trimmed]);
+  // `tb_company.company_name` cuma nyimpen kode singkat (GSU/RU/UC) —
+  // sebagian WO masih nyimpen nama company panjang ("Ganda Saribu Utama"),
+  // exact-match ke situ bakal gagal & bikin id_company null.
+  const row = await one<{ id_company: string }>('SELECT id_company FROM tb_company WHERE company_name=? LIMIT 1', [resolveCompanyCode(trimmed) || trimmed]);
   return row ? String(row.id_company) : null;
 }
 

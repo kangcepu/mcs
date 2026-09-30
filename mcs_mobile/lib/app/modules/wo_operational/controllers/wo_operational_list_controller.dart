@@ -213,7 +213,10 @@ class WoOperationalListController extends GetxController
 
       final woPerm = prefs.getInt('wo_operational') ?? 0;
       final crossAccessPerm = prefs.getInt('wo_cross_access') ?? 0;
-      canViewWo.value = woPerm == 1 || crossAccessPerm == 1;
+      final crossAccessMaintenancePerm =
+          prefs.getInt('wo_cross_access_maintenance') ?? 0;
+      canViewWo.value =
+          woPerm == 1 || crossAccessPerm == 1 || crossAccessMaintenancePerm == 1;
 
       final createWoPerm = prefs.getInt('scanning_create_wo') ?? 0;
       canCreateWo.value = woPerm == 1 && createWoPerm == 1;
