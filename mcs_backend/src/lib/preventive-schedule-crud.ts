@@ -44,7 +44,7 @@ function detailFields(scheduleId: number, d: ScheduleDetailInput): Record<string
     job_requirement: d.job_requirement ?? '',
     running_hours: d.running_hours ?? '0',
     type_schedule: storageTypeForSave(d.type_schedule ?? 'harian'),
-    choose_day: d.choose_day ?? null,
+    choose_day: normalizeChooseDay(d),
     type_wo: d.type_wo ?? 'PREV MAINTENANCE',
     is_pause: d.is_pause ?? 'started',
     last_update: new Date().toISOString().slice(0, 19).replace('T', ' '),
@@ -96,16 +96,30 @@ async function missingCustomDetailParts(assetCode: string, details: ScheduleDeta
   return missing;
 }
 
-function validTrigger(d: ScheduleDetailInput): boolean {
+/**
+ * choose_day yang kosong/tidak valid TIDAK menolak penyimpanan (beda dari
+ * validasi lama di sini yang malah nolak seluruh save) — cukup dikosongkan,
+ * biar schedule tetap bisa dibuat walau frekuensi lain (mingguan/bulanan/dst)
+ * belum diisi harinya; generator WO (`normalizeScheduleDetailChooseDayForType`
+ * di preventive-schedule.ts) menurunkan hari eksekusi dari `start_date` secara
+ * dinamis tiap siklus, tanpa perlu nilai ini terisi dari awal.
+ *
+ * PENTING: kolom `choose_day` di DB adalah ENUM nama hari
+ * ('monday'..'sunday') doang — BUKAN bisa diisi angka tanggal (1-31). MySQL
+ * nginterpretasi string angka yang di-insert ke kolom ENUM sebagai INDEX
+ * posisi (mis. '1' -> elemen pertama -> tersimpan jadi 'monday', bukan '1'
+ * literal), dan angka di luar jangkauan diam-diam jadi ''. Makanya utk
+ * frekuensi bulanan/3 bulan/6 bulan/tahunan, defaultnya WAJIB '' juga —
+ * jangan coba simpan angka hari, itu bakal kesimpen jadi hari yang salah.
+ */
+function normalizeChooseDay(d: ScheduleDetailInput): string {
   const type = String(d.type_schedule ?? '').toLowerCase().trim();
   const day = String(d.choose_day ?? '').trim().toLowerCase();
   if (['week', '1 minggu', 'mingguan'].includes(type)) {
-    return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(day);
+    const valid = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    return valid.includes(day) ? day : '';
   }
-  if (['month', 'monthly', '1 bulan', 'bulanan', '3 bulan', '6 bulan', '1 tahun', 'yearly'].includes(type)) {
-    return /^\d{1,2}$/.test(day) && Number(day) >= 1 && Number(day) <= 31;
-  }
-  return true;
+  return '';
 }
 
 async function hasScheduleDivisionUser(divisionId: number): Promise<boolean> {
@@ -220,7 +234,6 @@ export async function save(id: number, payload: Record<string, unknown>, actor: 
 
   for (const detail of details) {
     if (String(detail.part_mesin ?? '').trim() === '') return { ok: false, message: 'Every schedule detail requires part_mesin' };
-    if (!validTrigger(detail)) return { ok: false, message: 'Schedule trigger is invalid: weekly needs weekday; monthly/3-month/6-month/yearly needs date' };
   }
 
   const missing = await missingCustomDetailParts(assetCode, details);

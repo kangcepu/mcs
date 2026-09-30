@@ -77,6 +77,21 @@ export function completeWo(
   );
 }
 
+/**
+ * POST /v2/{module}/force_complete — butuh permission `wo_complete`. Dorong
+ * WO langsung ke status siap-tutup walau bukan eksekutor yang normal
+ * nyelesain, buat kasus eksekutor lupa complete WO-nya sendiri.
+ */
+export function forceCompleteWo(
+  module: string,
+  body: { wo_number: string; comment?: string },
+) {
+  return apiV2.post<{ wo_number: string; status: string }>(
+    `/${module}/force_complete`,
+    body,
+  );
+}
+
 /* ---------------- Preventive part checklist (module = maintenance) ---------------- */
 
 export interface PreventivePartRow {

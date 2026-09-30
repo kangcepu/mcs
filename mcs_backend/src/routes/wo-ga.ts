@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticate } from '../auth.js';
+import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
@@ -47,7 +47,7 @@ async function insertApprovalGa(woNumber: string, person: ReturnType<typeof pers
   );
 }
 
-function visibilityScope(user: User, tableAlias: string): { sql: string; params: unknown[] } {
+export function visibilityScope(user: User, tableAlias: string): { sql: string; params: unknown[] } {
   const prefix = tableAlias ? `${tableAlias}.` : '';
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
   if (crossAccess) return { sql: '', params: [] };
@@ -661,6 +661,31 @@ gaRouter.post('/ga/complete', asyncHandler(async (req, res) => {
   });
 
   legacyOk(res, { wo_number: woNumber, status: 'NEED_CLOSED' }, 'WO completed');
+}));
+
+/**
+ * Buat user dengan permission `wo_complete` — dorong WO langsung ke
+ * NEED_CLOSED walau bukan eksekutor yang biasa nyelesain, buat kasus
+ * eksekutor lupa nge-complete WO-nya sendiri. Endpoint baru, terpisah dari
+ * `/ga/complete` yang sudah ada — tidak mengubah alur yang sudah jalan.
+ */
+gaRouter.post('/ga/force_complete', requirePermission('wo_complete'), asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? 'Force complete (admin)');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  if (['CLOSED', 'VOID', 'NEED_CLOSED'].includes(String(header.status))) throw new HttpError(409, 'Work Order sudah selesai atau sudah menunggu ditutup');
+  const person = personPayload(user);
+
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval_ga (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_ga SET status='NEED_CLOSED', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+  });
+
+  legacyOk(res, { wo_number: woNumber, status: 'NEED_CLOSED' }, 'WO marked as complete');
 }));
 
 gaRouter.post('/ga/closed', asyncHandler(async (req, res) => {

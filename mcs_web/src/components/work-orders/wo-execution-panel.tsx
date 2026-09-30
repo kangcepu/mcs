@@ -10,6 +10,7 @@ import {
   PackagePlus,
   Pencil,
   Send,
+  ShieldCheck,
   Users,
   UserCog,
 } from "lucide-react";
@@ -29,12 +30,15 @@ export function WoExecutionPanel({
   woStatus,
   wo,
   canManage = false,
+  canForceComplete = false,
 }: {
   module: string;
   woNumber: string;
   woStatus: string;
   wo?: Record<string, unknown>;
   canManage?: boolean;
+  /** Permission `wo_complete` — bisa nandain WO selesai walau bukan eksekutor, buat kasus eksekutor lupa complete. */
+  canForceComplete?: boolean;
 }) {
   const toast = useToast();
   const caps = woExecCaps(module);
@@ -45,6 +49,7 @@ export function WoExecutionPanel({
     | "labor"
     | "material"
     | "complete"
+    | "force_complete"
     | "forward"
     | "edit"
     | "planner"
@@ -55,13 +60,15 @@ export function WoExecutionPanel({
   const canForward = module === "maintenance";
   const canManageNow = canManage && !isFinal;
   const canSub = canManageNow && module !== "production";
+  const canForceCompleteNow = canForceComplete && !isFinal;
   const anyCap =
     caps.job ||
     caps.labor ||
     caps.material ||
     caps.complete ||
     canForward ||
-    canManageNow;
+    canManageNow ||
+    canForceCompleteNow;
   if (isFinal || !anyCap) return null;
 
   const close = () => setOpen(null);
@@ -90,6 +97,12 @@ export function WoExecutionPanel({
         <Button variant="secondary" onClick={() => setOpen("complete")}>
           <CheckCircle2 className="h-4 w-4" />
           Selesaikan
+        </Button>
+      ) : null}
+      {canForceCompleteNow ? (
+        <Button variant="secondary" onClick={() => setOpen("force_complete")}>
+          <ShieldCheck className="h-4 w-4" />
+          Tandai Selesai (Admin)
         </Button>
       ) : null}
       {canForward ? (
@@ -183,6 +196,24 @@ export function WoExecutionPanel({
             try {
               await exec.complete.mutateAsync({ wo_number: woNumber, comment });
               toast.success("WO diselesaikan", "Status menjadi NEED_CLOSED.");
+              close();
+            } catch (e) {
+              toast.error("Gagal", e instanceof ApiError ? e.message : undefined);
+            }
+          }}
+        />
+      ) : null}
+
+      {open === "force_complete" ? (
+        <CompleteModal
+          onClose={close}
+          pending={exec.forceComplete.isPending}
+          title="Tandai Selesai (Admin)"
+          description="Menandai WO ini selesai dikerjakan walau bukan eksekutor yang mengisi — buat kasus eksekutor lupa complete WO-nya sendiri."
+          onSubmit={async (comment) => {
+            try {
+              const result = await exec.forceComplete.mutateAsync({ wo_number: woNumber, comment });
+              toast.success("WO ditandai selesai", `Status menjadi ${result.data?.status ?? "siap ditutup"}.`);
               close();
             } catch (e) {
               toast.error("Gagal", e instanceof ApiError ? e.message : undefined);
@@ -886,18 +917,22 @@ function CompleteModal({
   onClose,
   onSubmit,
   pending,
+  title = "Selesaikan Work Order",
+  description = "Menandai pekerjaan selesai. Status WO menjadi NEED_CLOSED.",
 }: {
   onClose: () => void;
   onSubmit: (comment: string) => void;
   pending: boolean;
+  title?: string;
+  description?: string;
 }) {
   const [comment, setComment] = useState("");
   return (
     <Modal
       open
       onClose={onClose}
-      title="Selesaikan Work Order"
-      description="Menandai pekerjaan selesai. Status WO menjadi NEED_CLOSED."
+      title={title}
+      description={description}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticate } from '../auth.js';
+import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
@@ -54,14 +54,14 @@ async function insertApprovalOperational(woNumber: string, person: ReturnType<ty
 }
 
 let mtcDivisionIdCache: string | null = null;
-async function getMtcDivisionId(): Promise<string> {
+export async function getMtcDivisionId(): Promise<string> {
   if (mtcDivisionIdCache) return mtcDivisionIdCache;
   const row = await one<{ id_division: string }>("SELECT id_division FROM tb_division WHERE division_code='MTC' LIMIT 1", []);
   mtcDivisionIdCache = String(row?.id_division ?? '15');
   return mtcDivisionIdCache;
 }
 
-function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string): { sql: string; params: unknown[] } {
+export function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string): { sql: string; params: unknown[] } {
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
   if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
@@ -908,6 +908,30 @@ maintenanceRouter.post('/maintenance/approve', asyncHandler(async (req, res) => 
   });
 
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
+}));
+
+/**
+ * Buat user dengan permission `wo_complete` — dorong WO langsung ke
+ * COMPLETE_EXECUTOR (siap ditutup lewat `/maintenance/close`) walau bukan
+ * eksekutor/posisi yang biasa nyelesain, buat kasus eksekutor lupa
+ * nge-complete WO-nya sendiri. Endpoint baru, tidak mengubah alur
+ * approve/add_job_explanation yang sudah jalan buat siapapun.
+ */
+maintenanceRouter.post('/maintenance/force_complete', requirePermission('wo_complete'), asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const woNumber = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? 'Force complete (admin)');
+  if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  await rejectIfFinal(woNumber);
+  const person = personPayload(user);
+
+  await transaction(async (connection) => {
+    await connection.execute('INSERT INTO tb_approval_operational (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+      [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
+    await connection.execute("UPDATE tb_wo_mtc_operational SET status='COMPLETE_EXECUTOR', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+  });
+
+  legacyOk(res, { wo_number: woNumber, status: 'COMPLETE_EXECUTOR' }, 'WO marked as complete');
 }));
 
 maintenanceRouter.post('/maintenance/close', asyncHandler(async (req, res) => {

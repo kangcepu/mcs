@@ -153,6 +153,8 @@ export default function WorkOrderDetailPage({
       ]
     : BASE_TABS;
 
+  const canForceComplete = useCan("wo_complete");
+
   const canAct = useCan([
     "wo_mtc",
     "wo_it",
@@ -224,6 +226,7 @@ export default function WorkOrderDetailPage({
               woStatus={woStatus}
               wo={wo as Record<string, unknown>}
               canManage={canAct}
+              canForceComplete={canForceComplete}
             />
           ) : null}
           {wo && showApprove ? (

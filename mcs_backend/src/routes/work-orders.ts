@@ -7,6 +7,11 @@ import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { resolveCompanyCode } from '../lib/employee-api.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
+import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
+import { visibilityScope as isVisibilityScope } from './wo-is.js';
+import { visibilityScope as gaVisibilityScope } from './wo-ga.js';
+import { visibilityScope as maintenanceVisibilityScope, getMtcDivisionId } from './wo-maintenance.js';
+import { visibilityScope as productionVisibilityScope } from './wo-production.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const workOrderRouter = Router();
@@ -107,9 +112,28 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   const dateTo = String(req.query.date_to ?? '').trim();
   const page = Math.max(1, Number(req.query.page ?? 1));
   const perPage = Math.min(200, Math.max(1, Number(req.query.per_page ?? req.query.limit ?? 50)));
+  const mtcDivisionId = await getMtcDivisionId();
+
+  // Visibilitas per user (divisi/executor/wo_cross_access) — sama persis
+  // fungsi yang sudah dipakai endpoint list per-modul (mobile). Sebelum ini,
+  // endpoint gabungan buat web sama sekali gak nyaring baris berdasar
+  // user, cuma modul-nya doang (`permissive` di bawah) — jadi user apapun
+  // yang punya permission modul itu lihat SEMUA WO modul itu se-perusahaan,
+  // gak peduli divisi/trade eksekutornya. Itu penyebab list-nya kecampur.
+  const domainScope = (key: Domain): { sql: string; params: unknown[] } => {
+    switch (key) {
+      case 'meso': return mesoVisibilityScope(user, 'w');
+      case 'is': return isVisibilityScope(user, 'w');
+      case 'ga': return gaVisibilityScope(user, 'w');
+      case 'maintenance': return maintenanceVisibilityScope(user, 'w', mtcDivisionId);
+      case 'production': return productionVisibilityScope(user, 'w', mtcDivisionId);
+    }
+  };
 
   const buildWhere = (key: Domain): { where: string; params: unknown[] } => {
     let where = 'WHERE 1=1'; const params: unknown[] = [];
+    const scope = domainScope(key);
+    if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
     if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR w.job_requirement LIKE ? OR a.AssetName LIKE ? OR a.AssetCode LIKE ?)'; params.push(...Array(5).fill(`%${q}%`)); }
     if (status) { where += ' AND w.status = ?'; params.push(status); }
     if (typeWo) { const variants = TYPE_WO_VARIANTS[typeWo] ?? [typeWo]; where += ` AND w.type_wo IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addWoLabor,
   completeWo,
+  forceCompleteWo,
   forwardWoToMeso,
   getPreventiveParts,
   requestPart,
@@ -82,6 +83,11 @@ export function useWoExecution(module: string, woNumber: string) {
     complete: useMutation({
       mutationFn: (body: { wo_number: string; comment?: string }) =>
         completeWo(module, body),
+      onSuccess: invalidate,
+    }),
+    forceComplete: useMutation({
+      mutationFn: (body: { wo_number: string; comment?: string }) =>
+        forceCompleteWo(module, body),
       onSuccess: invalidate,
     }),
     updateHeader: useMutation({
