@@ -683,6 +683,13 @@ class DailyControlController extends GetxController
     with WidgetsBindingObserver, RealtimeRefresh {
   final DailyControlRepository _repository = DailyControlRepository();
   static const Duration _realtimeInterval = Duration(seconds: 8);
+  static const List<String> _allDivisionFilters = [
+    'MTC',
+    'MESO',
+    'ITS',
+    'GA',
+    'PRODUKSI',
+  ];
 
   final selectedDate = DateTime.now().obs;
   final activities = <DailyControlActivity>[].obs;
@@ -744,7 +751,7 @@ class DailyControlController extends GetxController
   void onInit() {
     super.onInit();
     WidgetsBinding.instance.addObserver(this);
-    availableDivisionFilters.assignAll(const ['MTC', 'MESO', 'ITS']);
+    availableDivisionFilters.assignAll(_allDivisionFilters);
     availableMtcCategoryFilters.assignAll(const ['ALL']);
     availableMtcAreaFilters.assignAll(const ['ALL']);
     unawaited(_restoreUnreadActivityCount());
@@ -981,6 +988,9 @@ class DailyControlController extends GetxController
       if (divisionFilter == 'ITS') {
         return _isItsActivity(activity);
       }
+      if (divisionFilter == 'GA' || divisionFilter == 'PRODUKSI') {
+        return _activityModuleKey(activity) == divisionFilter;
+      }
       if (divisionFilter == 'MESO') {
         if (!_isMesoActivity(activity)) {
           return false;
@@ -1189,6 +1199,10 @@ class DailyControlController extends GetxController
         : selectedDivisionFilter.value;
   }
 
+  bool get isGaOrProductionFilter =>
+      selectedDivisionFilter.value == 'GA' ||
+      selectedDivisionFilter.value == 'PRODUKSI';
+
   bool get showMtcAreaFilter {
     return selectedDivisionFilter.value == 'MTC' &&
         availableMtcAreaFilters.isNotEmpty;
@@ -1288,7 +1302,7 @@ class DailyControlController extends GetxController
 
   Future<void> _refreshScheduledPreventiveTotal() async {
     final divisionFilter = selectedDivisionFilter.value.trim().toUpperCase();
-    if (divisionFilter.isEmpty) {
+    if (divisionFilter.isEmpty || isGaOrProductionFilter) {
       scheduledPreventiveTotal.value = 0;
       return;
     }
@@ -1475,6 +1489,23 @@ class DailyControlController extends GetxController
         code.contains('ITIS') ||
         name.contains('IT INFORMATION SYSTEM') ||
         name == 'IT';
+  }
+
+  String _activityModuleKey(DailyControlActivity activity) {
+    switch (activity.sourceTable.trim().toLowerCase()) {
+      case 'tb_wo_ga':
+        return 'GA';
+      case 'tb_wo_preventive':
+        return 'PRODUKSI';
+      case 'tb_wo_mtc':
+      case 'tb_wo_mtc_operational':
+      case 'tb_wo_it':
+        return '';
+    }
+    final wo = activity.woNumber.trim().toUpperCase();
+    if (wo.startsWith('WOGA')) return 'GA';
+    if (wo.startsWith('PREV')) return 'PRODUKSI';
+    return '';
   }
 
   bool _isMesoActivity(DailyControlActivity activity) {
@@ -1829,7 +1860,7 @@ class DailyControlController extends GetxController
         activities.clear();
         clearFeedUserFilter();
         scheduledPreventiveTotal.value = 0;
-        availableDivisionFilters.assignAll(const ['MTC', 'MESO', 'ITS']);
+        availableDivisionFilters.assignAll(_allDivisionFilters);
         // Jangan clear unreadActivities atau reset badge
         // karena mungkin ada unread di tanggal lain
       }
@@ -1838,7 +1869,7 @@ class DailyControlController extends GetxController
         activities.clear();
         clearFeedUserFilter();
         scheduledPreventiveTotal.value = 0;
-        availableDivisionFilters.assignAll(const ['MTC', 'MESO', 'ITS']);
+        availableDivisionFilters.assignAll(_allDivisionFilters);
         // Jangan clear unreadActivities - biarkan badge tetap tampil
         Get.snackbar(
           'Daily Control',
@@ -1862,7 +1893,7 @@ class DailyControlController extends GetxController
 
     switch (type) {
       case 'ALL':
-        availableDivisionFilters.assignAll(const ['MTC', 'MESO', 'ITS']);
+        availableDivisionFilters.assignAll(_allDivisionFilters);
         break;
       case 'MTC':
         availableDivisionFilters.assignAll(const ['MTC']);

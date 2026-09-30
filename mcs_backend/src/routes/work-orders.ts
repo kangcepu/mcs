@@ -20,6 +20,10 @@ const domains: Record<Domain, { table: string; approval: string; prefix: string;
 };
 const domainOf = (value: string): Domain => { if (!(value in domains)) throw new HttpError(404, 'Unknown work order domain'); return value as Domain; };
 const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);
+// Sama kayak LIST_EXCLUDED_STATUSES di wo-meso/is/ga/maintenance/production.ts —
+// dipakai buat naro WO yang udah kelar di bawah daftar gabungan ini, bukan
+// nyampur rata sama WO aktif cuma berdasar tanggal.
+const FINISHED_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT']);
 const permissive = (user: User, permission: string): boolean => String(user.username).toUpperCase() === 'SUPERUSER' || Number(user[permission] ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
 const executorFor = (domain: Domain, user: User): string => domains[domain].executor || String(user.division_code ?? user.id_division ?? '');
 const executorCodeToDomain: Record<string, Domain> = { GA: 'ga', HRGA: 'ga', IT: 'is', ITS: 'is', MTC: 'maintenance', MESO: 'meso' };
@@ -128,6 +132,8 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   // tabel yang cukup buat nutup halaman yang diminta, gabung, urutkan ulang,
   // baru dipotong sesuai halaman.
   const perDomainLimit = page * perPage;
+  const finishedList = [...FINISHED_STATUSES];
+  const finishedPlaceholders = finishedList.map(() => '?').join(',');
   const [rowSets, countSets] = await Promise.all([
     Promise.all(allowedDomains.map((key) => {
       const { where, params } = buildWhere(key);
@@ -135,7 +141,15 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
       // keisi created_at (bug terpisah, sudah diperbaiki di
       // preventive-schedule.ts untuk WO baru) — fallback ke `date` biar WO
       // lama itu tetap kesortir & tampil, bukan ketendang ke akhir daftar.
-      return rows(`SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where} ORDER BY COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`, [...params, perDomainLimit]);
+      // WO yang udah final (CLOSED/VOID/dst, lihat FINISHED_STATUSES) diurut
+      // ke bawah DI QUERY INI JUGA (bukan cuma pas merge di JS) — kalau enggak,
+      // WO final yang kebetulan paling baru bisa habisin jatah LIMIT per modul
+      // duluan dan WO aktif yang lebih lama jadi gak pernah ke-fetch sama sekali.
+      return rows(
+        `SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
+         ORDER BY (CASE WHEN UPPER(TRIM(w.status)) IN (${finishedPlaceholders}) THEN 1 ELSE 0 END) ASC, COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`,
+        [...params, ...finishedList, perDomainLimit],
+      );
     })),
     Promise.all(allowedDomains.map((key) => {
       const { where, params } = buildWhere(key);
@@ -144,7 +158,12 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   ]);
 
   const totalCount = countSets.reduce((sum, c) => sum + Number(c?.total ?? 0), 0);
-  const merged = rowSets.flat().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const isFinished = (row: Record<string, unknown>): number => (FINISHED_STATUSES.has(String(row.status ?? '').toUpperCase().trim()) ? 1 : 0);
+  const merged = rowSets.flat().sort((a, b) => {
+    const finishedDiff = isFinished(a) - isFinished(b);
+    if (finishedDiff !== 0) return finishedDiff;
+    return String(b.created_at).localeCompare(String(a.created_at));
+  });
   const start = (page - 1) * perPage;
   // Sebagian WO lama nyimpen nama company panjang ("Ganda Saribu Utama")
   // alih-alih kode singkat ("GSU") — normalisasi di sini biar konsisten

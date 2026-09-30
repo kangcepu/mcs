@@ -78,6 +78,22 @@ function actorFromToken(req: Request): Actor {
         fullname: String(payload.fullname ?? ''),
       };
     } catch {
+      // Token gagal diverifikasi (expired/invalid) — request tetap ditolak
+      // 401 seperti biasa, tapi buat kebutuhan audit "siapa yang kena 401"
+      // kita masih coba baca payload-nya TANPA verifikasi tanda tangan,
+      // cuma buat isi kolom actor di log, bukan buat otorisasi apapun.
+      try {
+        const decoded = jwt.decode(raw) as Record<string, unknown> | null;
+        if (decoded) {
+          return {
+            id: Number.isFinite(Number(decoded.id_user)) ? Number(decoded.id_user) : null,
+            username: String(decoded.username ?? ''),
+            fullname: String(decoded.fullname ?? ''),
+          };
+        }
+      } catch {
+        // ignore, token benar-benar tidak bisa dibaca
+      }
       return { id: null, username: '', fullname: '' };
     }
   }

@@ -53,6 +53,7 @@ class ApprovalPage extends StatelessWidget {
                 items: controller.itemsOf('wo_approvals'),
                 emptyText: 'Belum ada WO yang menunggu approve.',
                 processing: controller.isProcessing.value,
+                processingItemKey: controller.processingItemKey.value,
                 onAction: controller.handleAction,
                 onOpenDetail: controller.openRelatedDetail,
                 isLoading: controller.isSectionLoading('wo_approvals'),
@@ -69,6 +70,7 @@ class ApprovalPage extends StatelessWidget {
                 items: controller.itemsOf('wo_closings'),
                 emptyText: 'Belum ada WO yang menunggu closed.',
                 processing: controller.isProcessing.value,
+                processingItemKey: controller.processingItemKey.value,
                 onAction: controller.handleAction,
                 onOpenDetail: controller.openRelatedDetail,
                 isLoading: controller.isSectionLoading('wo_closings'),
@@ -85,6 +87,7 @@ class ApprovalPage extends StatelessWidget {
                 items: controller.itemsOf('materials'),
                 emptyText: 'Belum ada WO yang menunggu part.',
                 processing: controller.isProcessing.value,
+                processingItemKey: controller.processingItemKey.value,
                 onAction: null,
                 onOpenDetail: controller.openRelatedDetail,
                 isLoading: controller.isSectionLoading('materials'),
@@ -101,6 +104,7 @@ class ApprovalPage extends StatelessWidget {
                 items: controller.itemsOf('mutations'),
                 emptyText: 'Belum ada mutasi yang menunggu approve.',
                 processing: controller.isProcessing.value,
+                processingItemKey: controller.processingItemKey.value,
                 onAction: controller.handleAction,
                 onOpenDetail: null,
                 isLoading: controller.isSectionLoading('mutations'),
@@ -243,6 +247,7 @@ class _SectionCard extends StatefulWidget {
   final List<ApprovalItem> items;
   final String emptyText;
   final bool processing;
+  final String processingItemKey;
   final Future<void> Function(ApprovalItem item)? onAction;
   final Future<void> Function(ApprovalItem item)? onOpenDetail;
   final bool isLoading;
@@ -258,6 +263,7 @@ class _SectionCard extends StatefulWidget {
     required this.items,
     required this.emptyText,
     required this.processing,
+    required this.processingItemKey,
     required this.onAction,
     required this.onOpenDetail,
     required this.isLoading,
@@ -459,6 +465,7 @@ class _SectionCardState extends State<_SectionCard>
                                 return _ApprovalItemCard(
                                   item: widget.items[index],
                                   processing: widget.processing,
+                                  processingItemKey: widget.processingItemKey,
                                   onAction: widget.onAction,
                                   onOpenDetail: widget.onOpenDetail,
                                   accentColor: widget.accentColor,
@@ -492,6 +499,7 @@ class _SectionCardState extends State<_SectionCard>
 class _ApprovalItemCard extends StatelessWidget {
   final ApprovalItem item;
   final bool processing;
+  final String processingItemKey;
   final Future<void> Function(ApprovalItem item)? onAction;
   final Future<void> Function(ApprovalItem item)? onOpenDetail;
   final Color accentColor;
@@ -499,6 +507,7 @@ class _ApprovalItemCard extends StatelessWidget {
   const _ApprovalItemCard({
     required this.item,
     required this.processing,
+    required this.processingItemKey,
     required this.onAction,
     required this.onOpenDetail,
     required this.accentColor,
@@ -564,6 +573,8 @@ class _ApprovalItemCard extends StatelessWidget {
                           ? item.actionLabel
                           : 'Proses',
                       processing: processing,
+                      isActive: processingItemKey ==
+                          '${item.actionType}|${item.woNumber.isNotEmpty ? item.woNumber : item.docNo}',
                       color: accentColor,
                       onPressed: () => onAction!(item),
                     ),
@@ -666,12 +677,14 @@ class _ApprovalItemCard extends StatelessWidget {
 class _ActionButton extends StatelessWidget {
   final String label;
   final bool processing;
+  final bool isActive;
   final Color color;
   final VoidCallback onPressed;
 
   const _ActionButton({
     required this.label,
     required this.processing,
+    required this.isActive,
     required this.color,
     required this.onPressed,
   });
@@ -684,19 +697,29 @@ class _ActionButton extends StatelessWidget {
         elevation: 0,
         backgroundColor: color,
         foregroundColor: Colors.white,
+        disabledBackgroundColor: color.withValues(alpha: isActive ? 1 : 0.4),
         minimumSize: const Size(0, 36),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
+      child: isActive
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
     );
   }
 }

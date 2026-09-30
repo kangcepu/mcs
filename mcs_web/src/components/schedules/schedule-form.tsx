@@ -179,6 +179,7 @@ export function ScheduleFormModal({
   const towo = watch("towo");
   const isMeso = towo === "wo_mtc";
   const [assetName, setAssetName] = useState("");
+  const [assetId, setAssetId] = useState("");
 
   // Cek aset yang dipilih sudah punya schedule (mirror validasi backend).
   const dupCheck = useQuery({
@@ -240,6 +241,7 @@ export function ScheduleFormModal({
     const h = initial?.header ?? {};
     const d = initial?.details ?? [];
     setAssetName(pick(h, ["AssetName", "asset_name", "name"]));
+    setAssetId(pick(h, ["AssetID", "asset_id"]));
     const rawTowo = pick(h, ["towo", "target_wo"]);
     const firstExec = pick((d[0] as Record<string, unknown>) ?? {}, ["executor"]);
     reset({
@@ -278,6 +280,8 @@ export function ScheduleFormModal({
       values.towo === "wo_mtc" ? (values.mtc_executors ?? []) : [];
     const body: Record<string, unknown> = {
       ...values,
+      asset_id: assetId,
+      company_name: values.company,
       details: values.details.map(detailToBackend),
       ...(execList.length
         ? {
@@ -346,14 +350,16 @@ export function ScheduleFormModal({
               <AssetPicker
                 selectedName={assetName}
                 selectedCode={assetCode}
-                onSelect={(code, name, company) => {
+                onSelect={(code, name, company, _photoUrl, _photoUrls, id) => {
                   setValue("asset_code", code, { shouldValidate: true });
                   setAssetName(name);
+                  setAssetId(id ?? "");
                   if (company) setValue("company", company);
                 }}
                 onClear={() => {
                   setValue("asset_code", "", { shouldValidate: true });
                   setAssetName("");
+                  setAssetId("");
                 }}
               />
             )}

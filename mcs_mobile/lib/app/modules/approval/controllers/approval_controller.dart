@@ -11,6 +11,7 @@ class ApprovalController extends GetxController with RealtimeRefresh {
 
   final isLoading = false.obs;
   final isProcessing = false.obs;
+  final processingItemKey = ''.obs;
   final selectedCategory = ''.obs;
   final loadingSections = <String, bool>{}.obs;
   final loadedSections = <String, bool>{}.obs;
@@ -113,17 +114,87 @@ class ApprovalController extends GetxController with RealtimeRefresh {
     }
   }
 
+  String itemKey(ApprovalItem item) =>
+      '${item.actionType}|${item.woNumber.isNotEmpty ? item.woNumber : item.docNo}';
+
+  RxList<ApprovalItem>? _listFor(String actionType) {
+    switch (actionType) {
+      case 'approve_wo':
+        return woApprovals;
+      case 'close_wo':
+        return woClosings;
+      case 'approve_mutation':
+        return mutations;
+      default:
+        return null;
+    }
+  }
+
+  void _adjustSummary(String actionType, String moduleKey, int delta) {
+    final current = summary.value;
+    final categories = Map<String, int>.from(current.categories);
+    final category = _mapModuleToCategory(moduleKey);
+    if (category.isNotEmpty) {
+      categories[category] = (categories[category] ?? 0) + delta;
+      if (categories[category]! < 0) categories[category] = 0;
+    }
+    switch (actionType) {
+      case 'approve_wo':
+        summary.value = ApprovalSummary(
+          woApprovals: (current.woApprovals + delta).clamp(0, 1 << 30),
+          woClosings: current.woClosings,
+          mutations: current.mutations,
+          materials: current.materials,
+          categories: categories,
+        );
+        break;
+      case 'close_wo':
+        summary.value = ApprovalSummary(
+          woApprovals: current.woApprovals,
+          woClosings: (current.woClosings + delta).clamp(0, 1 << 30),
+          mutations: current.mutations,
+          materials: current.materials,
+          categories: categories,
+        );
+        break;
+      case 'approve_mutation':
+        summary.value = ApprovalSummary(
+          woApprovals: current.woApprovals,
+          woClosings: current.woClosings,
+          mutations: (current.mutations + delta).clamp(0, 1 << 30),
+          materials: current.materials,
+          categories: categories,
+        );
+        break;
+    }
+  }
+
   Future<void> handleAction(ApprovalItem item) async {
     if (isProcessing.value) {
       return;
     }
 
+    final list = _listFor(item.actionType);
+    if (list == null) {
+      _showSnackbar(
+        title: 'Approval',
+        message: 'Aksi belum tersedia untuk item ini.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
+
+    // Optimistic update: remove the item and decrement counters immediately
+    // so the tap feels instant, then reconcile silently with the server.
+    final index = list.indexWhere(
+      (row) => row.woNumber == item.woNumber && row.docNo == item.docNo,
+    );
+    if (index != -1) list.removeAt(index);
+    _adjustSummary(item.actionType, item.moduleKey, -1);
+
     try {
       isProcessing.value = true;
-      final sectionsToReload = loadedSections.entries
-          .where((entry) => entry.value == true)
-          .map((entry) => entry.key)
-          .toList();
+      processingItemKey.value = itemKey(item);
 
       if (item.actionType == 'approve_wo') {
         await _repository.approveWo(
@@ -137,13 +208,6 @@ class ApprovalController extends GetxController with RealtimeRefresh {
         );
       } else if (item.actionType == 'approve_mutation') {
         await _repository.approveMutation(docNo: item.docNo);
-      } else {
-        _showSnackbar(
-          title: 'Approval',
-          message: 'Aksi belum tersedia untuk item ini.',
-          backgroundColor: Colors.orange,
-        );
-        return;
       }
 
       _showSnackbar(
@@ -153,8 +217,14 @@ class ApprovalController extends GetxController with RealtimeRefresh {
             : 'Aksi berhasil diproses.',
         backgroundColor: Colors.green,
       );
-      await refreshAll(keepSectionsLoaded: sectionsToReload);
     } catch (e) {
+      // Revert the optimistic change since the action failed server-side.
+      if (index != -1) {
+        list.insert(index.clamp(0, list.length), item);
+      } else {
+        list.add(item);
+      }
+      _adjustSummary(item.actionType, item.moduleKey, 1);
       _showSnackbar(
         title: 'Approval',
         message: e.toString().replaceFirst('Exception: ', ''),
@@ -162,7 +232,11 @@ class ApprovalController extends GetxController with RealtimeRefresh {
       );
     } finally {
       isProcessing.value = false;
+      processingItemKey.value = '';
     }
+    // Reconcile with the server after isProcessing clears so _silentRefresh
+    // (which no-ops while a processing flag is set) actually runs.
+    await _silentRefresh();
   }
 
   Future<void> openRelatedDetail(ApprovalItem item) async {
@@ -346,10 +420,11 @@ class ApprovalController extends GetxController with RealtimeRefresh {
     ];
   }
 
+  // Must mirror backend's moduleToCat in approval-center.ts getCategoryCounts,
+  // otherwise the category strip counts disagree with what the filter shows.
   String _mapModuleToCategory(String moduleKey) {
     switch (moduleKey.trim().toLowerCase()) {
       case 'wo_operational':
-      case 'wo_preventive':
         return 'MTC';
       case 'wo_mtc':
         return 'MESO';
@@ -357,7 +432,7 @@ class ApprovalController extends GetxController with RealtimeRefresh {
         return 'IS';
       case 'wo_ga':
         return 'GA';
-      case 'wo_production':
+      case 'wo_preventive':
         return 'PRO';
       default:
         return '';

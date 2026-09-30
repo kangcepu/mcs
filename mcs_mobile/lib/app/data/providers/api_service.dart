@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
+import 'package:get/get.dart' hide Response;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/api_constants.dart';
+import '../../core/routes/app_routes.dart';
+import '../../core/services/realtime_service.dart';
 
 class ApiService {
   late final Dio _dio;
   static final ApiService _instance = ApiService._internal();
+  static bool _handlingSessionExpiry = false;
 
   factory ApiService() {
     return _instance;
@@ -76,6 +82,11 @@ class ApiService {
             // ignore: avoid_print
             print('MESSAGE: ${e.message}');
           }
+          final hadAuthHeader =
+              e.requestOptions.headers['Authorization'] != null;
+          if (e.response?.statusCode == 401 && hadAuthHeader) {
+            unawaited(_handleSessionExpired());
+          }
           return handler.next(e);
         },
       ),
@@ -83,6 +94,28 @@ class ApiService {
   }
 
   Dio get dio => _dio;
+
+  static Future<void> _handleSessionExpired() async {
+    if (_handlingSessionExpiry) return;
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getString('token') ?? '').isEmpty) return;
+    _handlingSessionExpiry = true;
+    try {
+      RealtimeService.stopIfAvailable();
+      await prefs.remove('token');
+      await prefs.remove('user_data');
+      if (Get.currentRoute != AppRoutes.login) {
+        Get.offAllNamed(AppRoutes.login);
+        Get.snackbar(
+          'Sesi Berakhir',
+          'Silakan login kembali untuk melanjutkan.',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      }
+    } finally {
+      _handlingSessionExpiry = false;
+    }
+  }
 
   Future<Response> get(
     String path, {

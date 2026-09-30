@@ -181,9 +181,13 @@ export async function publicUserWithEmployee(user: User): Promise<Record<string,
 }
 
 export function signToken(user: User): string {
-  return jwt.sign({ id_user: user.id_user, username: user.username, fullname: user.fullname, id_divisi: user.id_division,
-    division_code: user.division_code ?? '', id_position: user.id_position, wo_cross_access: Number(user.wo_cross_access ?? 0), type: 'access_token' },
-  config.jwtSecret, { algorithm: 'HS256', expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] });
+  const payload = { id_user: user.id_user, username: user.username, fullname: user.fullname, id_divisi: user.id_division,
+    division_code: user.division_code ?? '', id_position: user.id_position, wo_cross_access: Number(user.wo_cross_access ?? 0), type: 'access_token' };
+  const neverExpires = !config.jwtExpiresIn || config.jwtExpiresIn === 'never';
+  const options: jwt.SignOptions = neverExpires
+    ? { algorithm: 'HS256' }
+    : { algorithm: 'HS256', expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] };
+  return jwt.sign(payload, config.jwtSecret, options);
 }
 
 export async function authenticate(req: AuthRequest, _res: Response, next: NextFunction): Promise<void> {

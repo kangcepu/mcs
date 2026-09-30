@@ -30,7 +30,7 @@ export function AssetPicker({
   selectedPhotoUrl?: string | null;
   /** Semua foto aset yang lagi dipilih (gallery), kalau ada. */
   selectedPhotoUrls?: string[];
-  onSelect: (code: string, name: string, company: string, photoUrl?: string | null, photoUrls?: string[]) => void;
+  onSelect: (code: string, name: string, company: string, photoUrl?: string | null, photoUrls?: string[], id?: string) => void;
   onClear: () => void;
   placeholder?: string;
   autoFocus?: boolean;
@@ -128,6 +128,7 @@ export function AssetPicker({
           ) : (
             rows.map((r, i) => {
               const code = String(pick(r, ["asset_code", "AssetCode", "AssetID"]));
+              const id = String(pick(r, ["AssetID", "asset_id", "id"]));
               const name = pick(r, ["asset_name", "name", "AssetName"]);
               const company = pick(r, ["company", "company_name", "CompanyName"]);
               const loc = pick(r, ["location", "location_name", "LocationAsset"]);
@@ -143,7 +144,7 @@ export function AssetPicker({
                   key={code || i}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    onSelect(code, name, company, photoUrl || null, photoUrls);
+                    onSelect(code, name, company, photoUrl || null, photoUrls, id);
                     setOpen(false);
                     setTerm("");
                   }}

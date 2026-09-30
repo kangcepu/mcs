@@ -12,7 +12,10 @@ export const config = {
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',
   maxUploadBytes: integer('MAX_UPLOAD_MB', 25) * 1024 * 1024,
   jwtSecret: process.env.JWT_SECRET ?? 'ratimdoKey',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '24h',
+  // Kosong / 'never' = token tidak pernah kedaluwarsa sampai user logout
+  // sendiri (atau akunnya dinonaktifkan) — diminta biar notifikasi & data
+  // realtime tidak putus gara-gara sesi habis sementara user masih login.
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? 'never',
   db: {
     host: process.env.DB_HOST ?? 'localhost',
     port: integer('DB_PORT', 3306),

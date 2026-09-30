@@ -8,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/app_date_format_helper.dart';
 import '../../../core/utils/company_label_helper.dart';
 import '../../../core/widgets/empty_state_widget.dart';
+import '../../../core/utils/date_label.dart';
 
 class WoProductionListPage extends StatelessWidget {
   const WoProductionListPage({Key? key}) : super(key: key);
@@ -217,25 +218,22 @@ class WoProductionListPage extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.hourglass_bottom_rounded,
-                            color: controller.showOldestUnfinishedOnly.value
-                                ? AppColors.primary
-                                : AppColors.grey,
-                            size: 18,
-                          ),
-                          const SizedBox(height: 4),
                           Text(
-                            controller.oldestUnfinishedDateLabel,
-                            maxLines: 1,
+                            twoLineDateLabel(
+                              controller.oldestUnfinishedDateLabel,
+                            ),
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                               height: 1.2,
-                              color: controller.hasOldestUnfinishedWo
-                                  ? AppColors.textSecondary
-                                  : AppColors.grey,
+                              color: controller.showOldestUnfinishedOnly.value
+                                  ? AppColors.primary
+                                  : controller.hasOldestUnfinishedWo
+                                      ? AppColors.textSecondary
+                                      : AppColors.grey,
                             ),
                           ),
                         ],

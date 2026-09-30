@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiV2 } from "@/lib/api-client";
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -422,19 +424,43 @@ function PlannerModal({
 }) {
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
-  const [executors, setExecutors] = useState("");
+  const [executors, setExecutors] = useState<string[]>([]);
   const [started, setStarted] = useState(today);
   const [finished, setFinished] = useState(today);
   const [estimate, setEstimate] = useState("");
   const [comment, setComment] = useState("");
 
+  // Kode eksekutor harus divisi yang benar-benar ada (dari tb_division), bukan
+  // teks bebas — sebelumnya field ini free-text dan typo seperti "OTOMOTIF"
+  // (harusnya kode "OTO") kesimpen apa adanya, bikin update pekerjaan gagal
+  // dengan "Executor not found" karena tidak ada baris tb_job_executor yang cocok.
+  const divisionsQuery = useQuery({
+    queryKey: ["planner-divisions"],
+    queryFn: async ({ signal }) => {
+      const res = await apiV2.get<Array<{ division_code?: string; division_name?: string }>>(
+        "/master/divisions",
+        { signal },
+      );
+      return res.data ?? [];
+    },
+    staleTime: 30 * 60_000,
+  });
+  const executorOptions = [
+    { value: "MESO", label: "Tim MESO (MESO)" },
+    ...(divisionsQuery.data ?? [])
+      .map((d) => ({ value: String(d.division_code ?? "").trim(), label: `${d.division_name ?? ""} (${d.division_code ?? ""})` }))
+      .filter((o) => o.value),
+  ];
+
+  const toggleExecutor = (code: string) => {
+    setExecutors((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  };
+
   const submit = () => {
-    const list = executors
-      .split(",")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean);
-    if (list.length === 0) {
-      toast.error("Isi minimal satu kode eksekutor");
+    if (executors.length === 0) {
+      toast.error("Pilih minimal satu kode eksekutor");
       return;
     }
     if (!started || !finished) {
@@ -442,7 +468,7 @@ function PlannerModal({
       return;
     }
     onSubmit({
-      job_executor: list,
+      job_executor: executors,
       started_planner: started,
       finished_planner: finished,
       estimate_planner: estimate.trim() || undefined,
@@ -471,14 +497,28 @@ function PlannerModal({
         <Field
           label="Kode Eksekutor"
           required
-          hint="Pisahkan dengan koma, mis. MKL, ELC"
+          hint="Pilih satu atau lebih divisi/tim pelaksana."
         >
-          <Input
-            value={executors}
-            onChange={(e) => setExecutors(e.target.value)}
-            placeholder="MKL, ELC"
-            autoFocus
-          />
+          <div className="flex max-h-40 flex-wrap gap-3 overflow-y-auto rounded-lg border border-slate-200 p-3">
+            {divisionsQuery.isLoading ? (
+              <span className="text-sm text-slate-400">Memuat divisi…</span>
+            ) : (
+              executorOptions.map((o) => (
+                <label
+                  key={o.value}
+                  className="flex items-center gap-2 text-sm text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded"
+                    checked={executors.includes(o.value)}
+                    onChange={() => toggleExecutor(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))
+            )}
+          </div>
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Mulai (rencana)" required>

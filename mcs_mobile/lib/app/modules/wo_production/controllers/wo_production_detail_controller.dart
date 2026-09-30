@@ -293,7 +293,9 @@ class WoProductionDetailController extends GetxController
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.green,
           colorText: Colors.white);
-      await refresh();
+      // Closed WOs leave the pending-closing list, so signal the caller
+      // (e.g. Approval Center) to refresh instead of leaving a stale count.
+      Get.back(result: true);
     } catch (e) {
       Get.snackbar('Error', e.toString().replaceAll('Exception: ', ''),
           snackPosition: SnackPosition.BOTTOM,

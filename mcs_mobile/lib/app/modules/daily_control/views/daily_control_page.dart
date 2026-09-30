@@ -120,7 +120,8 @@ class DailyControlPage extends StatelessWidget {
               children: [
                 _buildDateFilterCard(controller),
                 const SizedBox(height: 16),
-                if (controller.selectedDivisionFilter.value.isNotEmpty) ...[
+                if (controller.selectedDivisionFilter.value.isNotEmpty &&
+                    !controller.isGaOrProductionFilter) ...[
                   _buildSubmissionSummaryCard(controller),
                   const SizedBox(height: 16),
                 ],
@@ -173,8 +174,9 @@ class DailyControlPage extends StatelessWidget {
                               ),
                             ),
                             _buildMaintenanceTypeFilterChip(
-                              label:
-                                  'PREV:${controller.preventiveDoneCount}/${controller.scheduledPreventiveTotal.value}',
+                              label: controller.isGaOrProductionFilter
+                                  ? 'PREV:${controller.preventiveDoneCount}'
+                                  : 'PREV:${controller.preventiveDoneCount}/${controller.scheduledPreventiveTotal.value}',
                               selected: controller
                                   .isMaintenanceKindSelected('preventive'),
                               onTap: () => controller
@@ -1050,7 +1052,9 @@ class DailyControlPage extends StatelessWidget {
                       .map((entry) {
                     final key = entry.value;
                     final index = entry.key;
-                    final label = key == 'ITS' ? 'IS' : key;
+                    final label = key == 'ITS'
+                        ? 'IS'
+                        : (key == 'PRODUKSI' ? 'Produksi' : key);
                     return Padding(
                       padding: EdgeInsets.only(left: index == 0 ? 0 : 6),
                       child: _buildFilterChip(

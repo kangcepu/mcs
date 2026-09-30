@@ -50,8 +50,8 @@ async function insertApprovalIt(woNumber: string, person: ReturnType<typeof pers
 function visibilityScope(user: User, tableAlias: string): { sql: string; params: unknown[] } {
   const prefix = tableAlias ? `${tableAlias}.` : '';
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
-  if (crossAccess || !position) return { sql: '', params: [] };
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
     return { sql: `${prefix}job_executor LIKE ?`, params: [`%${user.division_code ?? ''}%`] };
   }
@@ -61,7 +61,7 @@ function visibilityScope(user: User, tableAlias: string): { sql: string; params:
   if (position === 'DIVHEAD' || position === 'DEPTHEAD') {
     return { sql: `(${prefix}job_executor LIKE ? OR ${prefix}id_division = ?)`, params: [`%${user.division_code ?? ''}%`, user.id_division] };
   }
-  return { sql: '', params: [] };
+  return { sql: '1=0', params: [] };
 }
 
 async function generateWoNumber(divisionCode: string): Promise<string> {

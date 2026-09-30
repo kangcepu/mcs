@@ -63,20 +63,20 @@ async function getMtcDivisionId(): Promise<string> {
 
 function visibilityScope(user: User, tableAlias: string, mtcDivisionId: string): { sql: string; params: unknown[] } {
   const crossAccess = Number(user.wo_cross_access ?? 0) === 1;
+  if (crossAccess) return { sql: '', params: [] };
   const position = String(user.id_position ?? '').toUpperCase();
-  if (crossAccess || !position) return { sql: '', params: [] };
   const creatorAliases = [...new Set([String(user.fullname ?? '').trim(), String(user.username ?? '').trim()].filter(Boolean))];
   const creatorSql = creatorAliases.length ? ` OR ${tableAlias}.creator IN (${creatorAliases.map(() => '?').join(',')})` : '';
   if (position === 'EXECUTOR_ADMIN' || position === 'EXECUTOR_HEAD') {
     const code = String(user.division_code ?? '').trim();
-    if (!code) return { sql: '', params: [] };
+    if (!code) return { sql: '1=0', params: [] };
     return { sql: `(${tableAlias}.job_executor LIKE ?${creatorSql})`, params: [`%${code}%`, ...creatorAliases] };
   }
   if (position === 'ADMIN_DIVISI' || position === 'DIVHEAD') {
     if (String(user.id_division ?? '') === mtcDivisionId) return { sql: '', params: [] };
     return { sql: `(${tableAlias}.id_division = ?${creatorSql})`, params: [user.id_division, ...creatorAliases] };
   }
-  return { sql: '', params: [] };
+  return { sql: '1=0', params: [] };
 }
 
 const AREA_FLAG_MAP: Record<string, string> = {
@@ -603,7 +603,7 @@ maintenanceRouter.get('/maintenance/list', asyncHandler(async (req, res) => {
     dateFrom: req.query.date_from ? String(req.query.date_from) : undefined,
     dateTo: req.query.date_to ? String(req.query.date_to) : undefined,
     company: req.query.company ? String(req.query.company) : undefined,
-    applyCategoryScope: ['1', 'true'].includes(String(req.query.apply_category_scope ?? '')),
+    applyCategoryScope: true,
   });
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_wo_mtc_operational w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}`, params);
