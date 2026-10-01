@@ -75,7 +75,7 @@ const humanizeStatus = (v: string): string => titleCase(v.replace(/_/g, ' '));
  * migrasi dari legacy). Filter dropdown cuma punya 3 nilai kanonik, jadi
  * exact-match gak akan ketemu apa-apa buat sebagian besar data.
  */
-function normalizeTypeWo(raw: string): string {
+export function normalizeTypeWo(raw: string): string {
   const v = String(raw ?? '').trim().toUpperCase();
   if (!v) return '';
   if (v.includes('PREVENTIVE') || v.startsWith('PREV')) return 'PREVENTIVE MAINTENANCE';

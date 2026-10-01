@@ -74,15 +74,20 @@ export function TrendChart({
             </text>
           </g>
         ))}
-        <path d={area("created")} fill={`url(#g-${gid})`} />
-        <path d={path("created")} fill="none" stroke={CHART_COLORS[0]} strokeWidth={2} />
-        <path
-          d={path("closed")}
-          fill="none"
-          stroke={CHART_COLORS[1]}
-          strokeWidth={2}
-          strokeDasharray="4 3"
-        />
+        {/* `key` dibikin dari data biar grup ini remount tiap data berubah
+            (range filter ganti / realtime push) — path SVG gak bisa di-tween
+            CSS langsung, jadi animasinya lewat fade+slide masuk tiap re-render. */}
+        <g key={data.map((d) => `${d.date}:${d.created}:${d.closed}`).join("|")} className="animate-fade-in">
+          <path d={area("created")} fill={`url(#g-${gid})`} />
+          <path d={path("created")} fill="none" stroke={CHART_COLORS[0]} strokeWidth={2} />
+          <path
+            d={path("closed")}
+            fill="none"
+            stroke={CHART_COLORS[1]}
+            strokeWidth={2}
+            strokeDasharray="4 3"
+          />
+        </g>
         {data.map((d, i) =>
           i % labelEvery === 0 || i === n - 1 ? (
             <text
@@ -168,6 +173,7 @@ export function Donut({
                   strokeDasharray={`${dash} ${c - dash}`}
                   strokeDashoffset={-offset}
                   strokeLinecap="butt"
+                  style={{ transition: "stroke-dasharray 500ms ease, stroke-dashoffset 500ms ease" }}
                 />
               );
               offset += dash;
@@ -234,7 +240,7 @@ export function BarList({
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full"
+                className="h-full rounded-full transition-[width] duration-500 ease-out"
                 style={{ width: `${(it.value / max) * 100}%`, background: color }}
               />
             </div>

@@ -8,11 +8,15 @@ import {
   BadgeCheck,
   CheckCircle2,
   Clock,
+  FolderKanban,
   Loader2,
   RefreshCw,
+  ShieldCheck,
   TriangleAlert,
+  Wrench,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LoadingSkeleton } from "@/components/ui/states";
 import { MiniTable } from "@/components/ui/detail";
@@ -49,7 +53,7 @@ const BUCKET_COLORS = {
 
 export default function DashboardPage() {
   const { data: user } = useMe();
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useState(7);
   const q = useDashboard(range);
   const d = q.data?.data;
 
@@ -106,8 +110,8 @@ export default function DashboardPage() {
       ) : (
         <div
           className={
-            "space-y-4 transition-opacity " +
-            (q.isFetching ? "opacity-60" : "opacity-100")
+            "animate-fade-in space-y-4 transition-opacity duration-300 ease-out " +
+            (q.isFetching ? "opacity-70" : "opacity-100")
           }
         >
           {/* KPI */}
@@ -115,7 +119,7 @@ export default function DashboardPage() {
             <Kpi
               icon={<Clock className="h-5 w-5" />}
               label={`Total WO (${range}h)`}
-              value={formatNumber(d.totals.total)}
+              value={d.totals.total}
               pct={d.delta.total_pct}
               href="/work-orders"
               tone="brand"
@@ -123,7 +127,7 @@ export default function DashboardPage() {
             <Kpi
               icon={<Loader2 className="h-5 w-5" />}
               label="Sedang Berjalan"
-              value={formatNumber(d.totals.open + d.totals.in_progress)}
+              value={d.totals.open + d.totals.in_progress}
               sub={`${formatNumber(d.totals.open)} antre · ${formatNumber(
                 d.totals.in_progress,
               )} dikerjakan`}
@@ -133,16 +137,51 @@ export default function DashboardPage() {
             <Kpi
               icon={<CheckCircle2 className="h-5 w-5" />}
               label="Ditutup"
-              value={formatNumber(d.totals.closed)}
+              value={d.totals.closed}
               pct={d.delta.closed_pct}
               tone="green"
             />
             <Kpi
               icon={<BadgeCheck className="h-5 w-5" />}
               label="Menunggu Approval"
-              value={approval.isLoading ? "…" : formatNumber(approvalCount)}
+              value={approval.isLoading ? "…" : approvalCount}
               href="/approval-center"
               tone="amber"
+            />
+          </div>
+
+          {/* Kualitas Pekerjaan: Preventive vs Corrective vs Project — makin
+              proaktif (preventive) makin bagus, makin sedikit corrective
+              (reaktif/breakdown) makin bagus, project makin banyak makin bagus. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Kpi
+              icon={<ShieldCheck className="h-5 w-5" />}
+              label="Rasio Preventive"
+              value={
+                d.by_type.preventive_ratio === null
+                  ? "-"
+                  : `${d.by_type.preventive_ratio}%`
+              }
+              sub={`${formatNumber(d.by_type.preventive)} preventive vs ${formatNumber(
+                d.by_type.corrective,
+              )} corrective`}
+              pct={d.by_type.preventive_ratio_delta_pts}
+              pctSuffix=" poin vs periode sebelumnya"
+              tone="green"
+            />
+            <Kpi
+              icon={<Wrench className="h-5 w-5" />}
+              label="WO Corrective"
+              value={d.by_type.corrective}
+              sub="Makin sedikit makin baik — kerja reaktif/breakdown"
+              tone="amber"
+            />
+            <Kpi
+              icon={<FolderKanban className="h-5 w-5" />}
+              label="WO Project"
+              value={d.by_type.project}
+              pct={d.by_type.project_pct}
+              tone="violet"
             />
           </div>
 
@@ -366,14 +405,20 @@ function Kpi({
   value,
   sub,
   pct,
+  pctSuffix = "% vs periode sebelumnya",
+  invert = false,
   href,
   tone,
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: number | string;
   sub?: string;
   pct?: number | null;
+  /** Teks setelah angka delta, default "% vs periode sebelumnya". */
+  pctSuffix?: string;
+  /** Balik warna hijau/merah — dipakai buat metrik yang "turun = bagus" (mis. Corrective). */
+  invert?: boolean;
   href?: string;
   tone: "brand" | "amber" | "green" | "violet";
 }) {
@@ -393,14 +438,17 @@ function Kpi({
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium text-slate-500">{label}</p>
-        <p className="text-xl font-bold text-slate-900">{value}</p>
+        <p className="text-xl font-bold text-slate-900">
+          {typeof value === "number" ? <AnimatedNumber value={value} /> : value}
+        </p>
         {sub ? (
           <p className="truncate text-[11px] text-slate-400">{sub}</p>
-        ) : pct !== null && pct !== undefined ? (
+        ) : null}
+        {pct !== null && pct !== undefined ? (
           <p
             className={
               "inline-flex items-center gap-0.5 text-[11px] font-medium " +
-              (pct >= 0 ? "text-emerald-600" : "text-rose-600")
+              ((pct >= 0) !== invert ? "text-emerald-600" : "text-rose-600")
             }
           >
             {pct >= 0 ? (
@@ -408,7 +456,8 @@ function Kpi({
             ) : (
               <ArrowDownRight className="h-3 w-3" />
             )}
-            {Math.abs(pct)}% vs periode sebelumnya
+            {Math.abs(pct)}
+            {pctSuffix}
           </p>
         ) : null}
       </div>

@@ -1,5 +1,6 @@
 import { one, rows } from '../db.js';
 import { companyFilterVariants, resolveCompanyCode } from './employee-api.js';
+import { normalizeTypeWo } from '../routes/work-orders.js';
 import type { User } from '../types.js';
 
 interface ModuleCfg {
@@ -127,6 +128,11 @@ function emptyPayload(range: number, fromStr: string, toStr: string): Record<str
     delta: { total_prev: 0, closed_prev: 0, total_pct: null, closed_pct: null },
     by_module: [], by_status: [], by_company: [], top_assets: [], trend,
     aging: AGING_LABELS.map((bucket) => ({ bucket, count: 0 })),
+    by_type: {
+      preventive: 0, corrective: 0, project: 0, other: 0,
+      preventive_ratio: null, preventive_ratio_prev: null, preventive_ratio_delta_pts: null,
+      project_prev: 0, project_pct: null,
+    },
   };
 }
 
@@ -164,6 +170,8 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
   let prevTotal = 0;
   let prevClosed = 0;
   const byModule: Record<string, unknown>[] = [];
+  const typeAgg = { preventive: 0, corrective: 0, project: 0, other: 0 };
+  const prevTypeAgg = { preventive: 0, corrective: 0, project: 0, other: 0 };
   const statusAgg = new Map<string, { label: string; count: number }>();
   const companyAgg = new Map<string, number>();
   const assetAgg = new Map<string, number>();
@@ -178,7 +186,7 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     if (company !== '') { const variants = companyFilterVariants(company); extraSql += ` AND w.company IN (${variants.map(() => '?').join(',')})`; extraParams.push(...variants); }
     if (key === 'meso') extraSql += ' AND NOT EXISTS (SELECT 1 FROM tb_wo_preventive p WHERE p.wo_number = w.wo_number)';
 
-    const [statusRows, prevRow, companyRows, assetRows, createdRows, closedRows, agingRow] = await Promise.all([
+    const [statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow] = await Promise.all([
       rows<{ s: string; c: number }>(
         `SELECT w.status AS s, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.status`,
         [fromStr, toX, ...extraParams, ...scope.params],
@@ -188,6 +196,14 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
                 SUM(CASE WHEN w.status='CLOSED' AND w.date >= ? AND w.date < ? THEN 1 ELSE 0 END) AS pc
          FROM \`${cfg.table}\` w WHERE 1=1${scope.sql}`,
         [prevFromStr, prevToX, prevFromStr, prevToX, ...scope.params],
+      ),
+      rows<{ t: string | null; c: number }>(
+        `SELECT w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.type_wo`,
+        [fromStr, toX, ...extraParams, ...scope.params],
+      ),
+      rows<{ t: string | null; c: number }>(
+        `SELECT w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.type_wo`,
+        [prevFromStr, prevToX, ...extraParams, ...scope.params],
       ),
       rows<{ co: string; c: number }>(
         `SELECT w.company AS co, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${scope.sql} AND w.company IS NOT NULL AND w.company <> '' GROUP BY w.company`,
@@ -216,10 +232,18 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       ),
     ]);
 
-    return { key, cfg, statusRows, prevRow, companyRows, assetRows, createdRows, closedRows, agingRow };
+    return { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow };
   }));
 
-  for (const { key, cfg, statusRows, prevRow, companyRows, assetRows, createdRows, closedRows, agingRow } of perModule) {
+  const bucketOf = (raw: string | null): 'preventive' | 'corrective' | 'project' | 'other' => {
+    const norm = normalizeTypeWo(String(raw ?? ''));
+    if (norm === 'PREVENTIVE MAINTENANCE') return 'preventive';
+    if (norm === 'CORRECTIVE MAINTENANCE') return 'corrective';
+    if (norm === 'PROJECT') return 'project';
+    return 'other';
+  };
+
+  for (const { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow } of perModule) {
     const modTotals = { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 };
     for (const r of statusRows) {
       const c = Number(r.c);
@@ -235,6 +259,9 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
 
     prevTotal += Number(prevRow?.pt ?? 0);
     prevClosed += Number(prevRow?.pc ?? 0);
+
+    for (const r of typeRows) typeAgg[bucketOf(r.t)] += Number(r.c);
+    for (const r of prevTypeRows) prevTypeAgg[bucketOf(r.t)] += Number(r.c);
 
     // WO lama nyimpen nama company panjang ("Ganda Saribu Utama") sementara
     // yang baru nyimpen kode singkat ("GSU") — tanpa normalisasi ini,
@@ -283,11 +310,33 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
   const totalPct = prevTotal > 0 ? Math.round(((totals.total - prevTotal) / prevTotal) * 1000) / 10 : null;
   const closedPct = prevClosed > 0 ? Math.round(((totals.closed - prevClosed) / prevClosed) * 1000) / 10 : null;
 
+  // "Rasio Preventive" = preventive / (preventive+corrective) — satu angka yang
+  // langsung nunjukin tim lebih proaktif (PM) atau reaktif (CM), dibanding cuma
+  // 3 angka mentah yang gak jelas arah baik/buruknya kalau dilihat terpisah.
+  // Project sengaja gak ikut di rasio ini (itu kerjaan pengembangan, bukan
+  // soal reaktif-vs-proaktif), ditampilkan sendiri sebagai jumlah + tren.
+  const pmBaseNow = typeAgg.preventive + typeAgg.corrective;
+  const pmBasePrev = prevTypeAgg.preventive + prevTypeAgg.corrective;
+  const preventiveRatio = pmBaseNow > 0 ? Math.round((typeAgg.preventive / pmBaseNow) * 1000) / 10 : null;
+  const preventiveRatioPrev = pmBasePrev > 0 ? Math.round((prevTypeAgg.preventive / pmBasePrev) * 1000) / 10 : null;
+  const preventiveRatioDeltaPts = preventiveRatio !== null && preventiveRatioPrev !== null
+    ? Math.round((preventiveRatio - preventiveRatioPrev) * 10) / 10 : null;
+  const projectPct = prevTypeAgg.project > 0
+    ? Math.round(((typeAgg.project - prevTypeAgg.project) / prevTypeAgg.project) * 1000) / 10 : null;
+
   return {
     range_days: range, from: fromStr, to: toStr, generated_at: new Date().toISOString(),
     totals,
     delta: { total_prev: prevTotal, closed_prev: prevClosed, total_pct: totalPct, closed_pct: closedPct },
     by_module: byModule, by_status: byStatus, by_company: byCompany, top_assets: topAssets, trend,
+    by_type: {
+      ...typeAgg,
+      preventive_ratio: preventiveRatio,
+      preventive_ratio_prev: preventiveRatioPrev,
+      preventive_ratio_delta_pts: preventiveRatioDeltaPts,
+      project_prev: prevTypeAgg.project,
+      project_pct: projectPct,
+    },
     aging: [
       { bucket: AGING_LABELS[0], count: aging.b0 },
       { bucket: AGING_LABELS[1], count: aging.b1 },

@@ -418,7 +418,10 @@ masterRouter.get('/master/wotypes', authenticate, asyncHandler(async (_req, res)
      UNION SELECT DISTINCT type_wo FROM tb_wo_ga WHERE type_wo IS NOT NULL AND TRIM(type_wo) <> ''
      ORDER BY value`,
   );
-  legacyOk(res, values);
+  // Mobile (master_repository.dart -> semua *_create_controller.dart) baca
+  // `code`/`label`, bukan `value` — sebelumnya endpoint ini cuma balikin
+  // {value}, jadi tiap item ke-parse jadi code kosong di sisi mobile.
+  legacyOk(res, values.map((v) => ({ code: v.value, label: v.value })));
 }));
 
 masterRouter.get('/master/priorities', authenticate, asyncHandler(async (_req, res) => {
@@ -429,7 +432,10 @@ masterRouter.get('/master/priorities', authenticate, asyncHandler(async (_req, r
      UNION SELECT DISTINCT priority FROM tb_wo_ga WHERE priority IS NOT NULL AND TRIM(priority) <> ''
      ORDER BY value`,
   );
-  legacyOk(res, values);
+  // Mobile baca `code`/`label`, bukan `value` — sebelumnya endpoint ini cuma
+  // balikin {value}, jadi tiap item Priority ke-parse jadi code kosong di
+  // sisi mobile (dropdown-nya kelihatan blank walau datanya "ada").
+  legacyOk(res, values.map((v) => ({ code: v.value, label: v.value })));
 }));
 
 masterRouter.get('/master/permission-catalog', authenticate, asyncHandler(async (req, res) => {

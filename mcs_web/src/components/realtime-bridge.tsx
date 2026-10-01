@@ -25,6 +25,14 @@ const KEYS_BY_TOPIC: Record<string, string[]> = {
 };
 
 const BATCH_MS = 500;
+/**
+ * "dashboard" query-nya paling berat (banyak GROUP BY/COUNT paralel lintas 5
+ * tabel WO) — kalau diikutkan batch cepat yang sama kayak key lain, dashboard
+ * bisa ke-refetch berkali-kali per detik pas lagi ramai mutasi WO. Dikasih
+ * jalur throttle sendiri yang lebih longgar biar tetap "live" tapi gak
+ * membebani server.
+ */
+const DASHBOARD_MIN_INTERVAL_MS = 5_000;
 
 export function RealtimeBridge() {
   const queryClient = useQueryClient();
@@ -34,16 +42,41 @@ export function RealtimeBridge() {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let all = false;
 
+    let dashboardDirty = false;
+    let dashboardTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastDashboardFlushAt = 0;
+
+    const flushDashboard = () => {
+      dashboardTimer = null;
+      if (!dashboardDirty) return;
+      dashboardDirty = false;
+      lastDashboardFlushAt = Date.now();
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "dashboard",
+      });
+    };
+
+    const scheduleDashboard = () => {
+      dashboardDirty = true;
+      if (dashboardTimer) return;
+      const elapsed = Date.now() - lastDashboardFlushAt;
+      const wait = Math.max(0, DASHBOARD_MIN_INTERVAL_MS - elapsed);
+      dashboardTimer = setTimeout(flushDashboard, wait);
+    };
+
     const flush = () => {
       timer = null;
       if (all) {
         all = false;
         pending.clear();
         void queryClient.invalidateQueries();
+        flushDashboard();
+        lastDashboardFlushAt = Date.now();
         return;
       }
       const keys = new Set(pending);
       pending.clear();
+      if (keys.delete("dashboard")) scheduleDashboard();
       if (keys.size === 0) return;
       void queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && keys.has(query.queryKey[0]),
@@ -80,6 +113,7 @@ export function RealtimeBridge() {
       stop();
       document.removeEventListener("visibilitychange", onVisible);
       if (timer) clearTimeout(timer);
+      if (dashboardTimer) clearTimeout(dashboardTimer);
     };
   }, [queryClient]);
 

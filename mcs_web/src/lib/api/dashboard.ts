@@ -37,6 +37,18 @@ export interface DashboardData {
   }[];
   trend: { date: string; created: number; closed: number }[];
   aging: { bucket: string; count: number }[];
+  by_type: {
+    preventive: number;
+    corrective: number;
+    project: number;
+    other: number;
+    /** % preventive dari (preventive+corrective) — makin tinggi makin proaktif. */
+    preventive_ratio: number | null;
+    preventive_ratio_prev: number | null;
+    preventive_ratio_delta_pts: number | null;
+    project_prev: number;
+    project_pct: number | null;
+  };
 }
 
 /** GET /v2/dashboard — semua agregat dalam satu panggilan. */
