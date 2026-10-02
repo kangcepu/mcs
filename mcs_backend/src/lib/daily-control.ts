@@ -611,16 +611,6 @@ export async function getReaderNames(dailyControlId: number): Promise<string[]> 
   return names;
 }
 
-async function countUnreadForActivity(dailyControlId: number, userId: number): Promise<number> {
-  const row = await one<{ total: number }>(
-    `SELECT COUNT(*) total FROM tb_daily_control_comment c
-     LEFT JOIN tb_daily_control_read r ON r.daily_control_id=c.daily_control_id AND r.id_user=?
-     WHERE c.daily_control_id=? AND c.id_user<>? AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)`,
-    [userId, dailyControlId, userId],
-  );
-  return Number(row?.total ?? 0);
-}
-
 export async function getVisibleDailyControlIds(scope: DivisionScope, sourceType: string | null): Promise<number[]> {
   let where = 'WHERE 1=1';
   const params: unknown[] = [];
@@ -646,13 +636,17 @@ export async function getTotalUnreadActivityCountForUser(userId: number, scope: 
 export async function getUnreadActivitiesForUser(userId: number, scope: DivisionScope, sourceType: string | null, limit: number): Promise<Record<string, unknown>[]> {
   const ids = await getVisibleDailyControlIds(scope, sourceType);
   if (!ids.length) return [];
-  const unreadRows = await rows<{ daily_control_id: number }>(
-    `SELECT c.daily_control_id FROM tb_daily_control_comment c
+  // COUNT(*) langsung diambil di sini (dulu query ini cuma ambil daily_control_id
+  // buat nentuin mana yang unread, lalu count-nya di-query ULANG per baris di
+  // loop bawah) — jadi gak perlu query count terpisah lagi per aktivitas.
+  const unreadRows = await rows<{ daily_control_id: number; total: number }>(
+    `SELECT c.daily_control_id, COUNT(*) total FROM tb_daily_control_comment c
      LEFT JOIN tb_daily_control_read r ON r.daily_control_id=c.daily_control_id AND r.id_user=?
      WHERE c.daily_control_id IN (${ids.map(() => '?').join(',')}) AND c.id_user<>? AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
      GROUP BY c.daily_control_id`,
     [userId, ...ids, userId],
   );
+  const unreadCountByDcId = new Map(unreadRows.map((r) => [Number(r.daily_control_id), Number(r.total)]));
   const unreadIds = unreadRows.map((r) => r.daily_control_id);
   if (!unreadIds.length) return [];
 
@@ -664,21 +658,33 @@ export async function getUnreadActivitiesForUser(userId: number, scope: Division
     [...unreadIds, limit],
   );
 
+  // Pesan unread terbaru per aktivitas — dulu di-query satu-satu per baris
+  // (N query), sekarang 1 query pakai ROW_NUMBER() buat ambil baris
+  // ter-terbaru per daily_control_id sekaligus (sama persis semantiknya
+  // dengan "ORDER BY created_at DESC LIMIT 1" per baris yang lama).
+  const baseIds = baseRows.map((r) => Number(r.id));
+  const latestRows = baseIds.length
+    ? await rows<{ daily_control_id: number; message: string; created_at: string; fullname: string }>(
+        `SELECT daily_control_id, message, created_at, fullname FROM (
+           SELECT c.daily_control_id, c.message, c.created_at, c.fullname,
+             ROW_NUMBER() OVER (PARTITION BY c.daily_control_id ORDER BY c.created_at DESC) AS rn
+           FROM tb_daily_control_comment c
+           LEFT JOIN tb_daily_control_read r ON r.daily_control_id=c.daily_control_id AND r.id_user=?
+           WHERE c.daily_control_id IN (${baseIds.map(() => '?').join(',')}) AND c.id_user<>? AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
+         ) t WHERE rn=1`,
+        [userId, ...baseIds, userId],
+      )
+    : [];
+  const latestByDcId = new Map(latestRows.map((r) => [Number(r.daily_control_id), r]));
+
   return Promise.all(baseRows.map(async (row) => {
     const actor = await resolveActor(row.id_user, row.fullname);
-    const unreadCount = await countUnreadForActivity(Number(row.id), userId);
-    const latest = await one<{ message: string; created_at: string; fullname: string }>(
-      `SELECT c.message, c.created_at, c.fullname FROM tb_daily_control_comment c
-       LEFT JOIN tb_daily_control_read r ON r.daily_control_id=c.daily_control_id AND r.id_user=?
-       WHERE c.daily_control_id=? AND c.id_user<>? AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
-       ORDER BY c.created_at DESC LIMIT 1`,
-      [userId, row.id, userId],
-    );
+    const latest = latestByDcId.get(Number(row.id));
     return {
       ...row,
       user_alias: actor.userAlias,
       display_name: actor.displayName,
-      unread_count: unreadCount,
+      unread_count: unreadCountByDcId.get(Number(row.id)) ?? 0,
       latest_unread_message: latest?.message ?? null,
       latest_unread_at: latest?.created_at ?? null,
       latest_unread_sender: latest?.fullname ?? null,

@@ -39,6 +39,30 @@ export async function transaction<T>(fn: (connection: PoolConnection) => Promise
   }
 }
 
+/**
+ * MySQL advisory lock (`GET_LOCK`) buat nyerialkan operasi check-then-act
+ * yang gak bisa diamanin lewat row lock biasa (mis. "cek baris ada belum,
+ * kalau belum INSERT" — gak ada baris buat di-lock selama baris itu belum
+ * ada). Dua panggilan nyaris bersamaan dgn `lockName` yang sama bakal
+ * antre (bukan dua-duanya lolos check bareng), beda dari `GET_LOCK(name, 0)`
+ * yang dipakai cron (itu sengaja skip kalau udah ada yang jalan).
+ */
+export async function withNamedLock<T>(lockName: string, fn: () => Promise<T>, timeoutSeconds = 10): Promise<T> {
+  const connection = await pool.getConnection();
+  try {
+    const [lockRows] = await connection.query('SELECT GET_LOCK(?, ?) AS acquired', [lockName, timeoutSeconds]);
+    const acquired = Number((lockRows as { acquired: number }[])[0]?.acquired ?? 0) === 1;
+    if (!acquired) throw new Error(`Failed to acquire lock: ${lockName}`);
+    try {
+      return await fn();
+    } finally {
+      await connection.query('SELECT RELEASE_LOCK(?)', [lockName]);
+    }
+  } finally {
+    connection.release();
+  }
+}
+
 export async function tableExists(name: string): Promise<boolean> {
   return Boolean(await one('SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?', [name]));
 }

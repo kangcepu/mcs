@@ -234,7 +234,7 @@ async function saveUser(id: number, input: Record<string, unknown>): Promise<num
     : null;
   const companyCode = resolveCompanyCode(String(company?.company_name ?? ''));
   if (companyCode !== '') {
-    const employeeResult = await findEmployeeForUserResult(companyCode, String(data.username), String(data.email ?? ''));
+    const employeeResult = await findEmployeeForUserResult(companyCode, String(data.username), String(data.email ?? ''), String(data.fullname ?? ''));
     const emp = employeeResult.employee;
     if (employeeResult.status === 'found' && emp) {
       const empFullname = String(emp.FullName ?? '').trim();

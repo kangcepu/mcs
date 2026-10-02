@@ -79,6 +79,8 @@ class HomeController extends GetxController
   final dailyControlUnreadCount = 0.obs;
   final moduleCounts = <String, int>{}.obs;
   final isLoadingStats = false.obs;
+  final Rxn<Map<String, dynamic>> dashboardSummary = Rxn<Map<String, dynamic>>();
+  final isLoadingDashboard = false.obs;
   StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
   Timer? _updateCheckDebounce;
 
@@ -216,6 +218,7 @@ class HomeController extends GetxController
     loadUserData();
     loadWoStats();
     loadModuleCounts();
+    loadDashboardSummary();
     refreshDailyControlUnreadCount();
     if (Get.isRegistered<RealtimeService>()) {
       RealtimeService.to.ensureStarted();
@@ -260,6 +263,7 @@ class HomeController extends GetxController
       loadUserData(refreshProfile: true);
       refreshDailyControlUnreadCount();
       loadModuleCounts();
+      loadDashboardSummary();
       _scheduleUpdateCheck();
     }
   }
@@ -989,8 +993,21 @@ class HomeController extends GetxController
     await Future.wait<void>([
       loadWoStats(silent: true),
       loadModuleCounts(),
+      loadDashboardSummary(),
       refreshDailyControlUnreadCount(),
     ]);
+  }
+
+  Future<void> loadDashboardSummary() async {
+    try {
+      isLoadingDashboard.value = true;
+      dashboardSummary.value =
+          await _dashboardRepository.getDashboardSummary(range: 7);
+    } catch (e) {
+      debugPrint('Error loading dashboard summary: $e');
+    } finally {
+      isLoadingDashboard.value = false;
+    }
   }
 
   Future<void> loadWoStats({bool silent = false}) async {

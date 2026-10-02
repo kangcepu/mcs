@@ -121,7 +121,11 @@ function emptyPayload(range: number, fromStr: string, toStr: string): Record<str
   const trend: Record<string, unknown>[] = [];
   const from = new Date(fromStr);
   const to = new Date(toStr);
-  for (let d = from; d <= to; d = addDays(d, 1)) trend.push({ date: isoDate(d), created: 0, closed: 0 });
+  for (let d = from; d <= to; d = addDays(d, 1)) trend.push({ date: isoDate(d), created: 0, closed: 0, closed_corrective: 0 });
+  const preventiveDaily: Record<string, unknown>[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    preventiveDaily.push({ date: isoDate(d), closed: 0, in_progress: 0, open: 0, total: 0, closed_pct: 0, in_progress_pct: 0, open_pct: 0 });
+  }
   return {
     range_days: range, from: fromStr, to: toStr, generated_at: new Date().toISOString(),
     totals: { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 },
@@ -131,8 +135,11 @@ function emptyPayload(range: number, fromStr: string, toStr: string): Record<str
     by_type: {
       preventive: 0, corrective: 0, project: 0, other: 0,
       preventive_ratio: null, preventive_ratio_prev: null, preventive_ratio_delta_pts: null,
+      corrective_prev: 0, corrective_pct: null,
       project_prev: 0, project_pct: null,
+      ratio_trend: [],
     },
+    preventive_daily: preventiveDaily,
   };
 }
 
@@ -177,7 +184,11 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
   const assetAgg = new Map<string, number>();
   const createdByDay = new Map<string, number>();
   const closedByDay = new Map<string, number>();
+  const preventiveByDay = new Map<string, number>();
+  const correctiveByDay = new Map<string, number>();
+  const closedCorrectiveByDay = new Map<string, number>();
   const aging = { b0: 0, b1: 0, b2: 0, b3: 0 };
+  const preventiveDailyAgg = new Map<string, { open: number; in_progress: number; closed: number }>();
 
   const perModule = await Promise.all(selected.map(async ([key, cfg]) => {
     const scope = scopeSql(user, cfg);
@@ -186,7 +197,7 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     if (company !== '') { const variants = companyFilterVariants(company); extraSql += ` AND w.company IN (${variants.map(() => '?').join(',')})`; extraParams.push(...variants); }
     if (key === 'meso') extraSql += ' AND NOT EXISTS (SELECT 1 FROM tb_wo_preventive p WHERE p.wo_number = w.wo_number)';
 
-    const [statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow] = await Promise.all([
+    const [statusRows, prevRow, typeRows, prevTypeRows, typeByDayRows, companyRows, assetRows, createdRows, closedRows, closedTypeByDayRows, agingRow, preventiveStatusByDayRows] = await Promise.all([
       rows<{ s: string; c: number }>(
         `SELECT w.status AS s, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.status`,
         [fromStr, toX, ...extraParams, ...scope.params],
@@ -194,8 +205,8 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       one<{ pt: number | null; pc: number | null }>(
         `SELECT SUM(CASE WHEN w.date >= ? AND w.date < ? THEN 1 ELSE 0 END) AS pt,
                 SUM(CASE WHEN w.status='CLOSED' AND w.date >= ? AND w.date < ? THEN 1 ELSE 0 END) AS pc
-         FROM \`${cfg.table}\` w WHERE 1=1${scope.sql}`,
-        [prevFromStr, prevToX, prevFromStr, prevToX, ...scope.params],
+         FROM \`${cfg.table}\` w WHERE 1=1${extraSql}${scope.sql}`,
+        [prevFromStr, prevToX, prevFromStr, prevToX, ...extraParams, ...scope.params],
       ),
       rows<{ t: string | null; c: number }>(
         `SELECT w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.type_wo`,
@@ -205,21 +216,29 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
         `SELECT w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY w.type_wo`,
         [prevFromStr, prevToX, ...extraParams, ...scope.params],
       ),
+      rows<{ d: string; t: string | null; c: number }>(
+        `SELECT DATE(w.date) AS d, w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY DATE(w.date), w.type_wo`,
+        [fromStr, toX, ...extraParams, ...scope.params],
+      ),
       rows<{ co: string; c: number }>(
-        `SELECT w.company AS co, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${scope.sql} AND w.company IS NOT NULL AND w.company <> '' GROUP BY w.company`,
-        [fromStr, toX, ...scope.params],
+        `SELECT w.company AS co, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} AND w.company IS NOT NULL AND w.company <> '' GROUP BY w.company`,
+        [fromStr, toX, ...extraParams, ...scope.params],
       ),
       rows<{ eq: string; c: number }>(
-        `SELECT w.id_equipment AS eq, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${scope.sql} AND w.id_equipment IS NOT NULL AND w.id_equipment <> '' GROUP BY w.id_equipment`,
-        [fromStr, toX, ...scope.params],
+        `SELECT w.id_equipment AS eq, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} AND w.id_equipment IS NOT NULL AND w.id_equipment <> '' GROUP BY w.id_equipment`,
+        [fromStr, toX, ...extraParams, ...scope.params],
       ),
       rows<{ d: string; c: number }>(
         `SELECT DATE(w.date) AS d, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY DATE(w.date)`,
         [fromStr, toX, ...extraParams, ...scope.params],
       ),
       rows<{ d: string | null; c: number }>(
-        `SELECT DATE(w.updated_at) AS d, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.status='CLOSED' AND w.updated_at BETWEEN ? AND ?${scope.sql} GROUP BY DATE(w.updated_at)`,
-        [`${fromStr} 00:00:00`, `${toStr} 23:59:59`, ...scope.params],
+        `SELECT DATE(w.updated_at) AS d, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.status='CLOSED' AND w.updated_at BETWEEN ? AND ?${extraSql}${scope.sql} GROUP BY DATE(w.updated_at)`,
+        [`${fromStr} 00:00:00`, `${toStr} 23:59:59`, ...extraParams, ...scope.params],
+      ),
+      rows<{ d: string | null; t: string | null; c: number }>(
+        `SELECT DATE(w.updated_at) AS d, w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.status='CLOSED' AND w.updated_at BETWEEN ? AND ?${extraSql}${scope.sql} GROUP BY DATE(w.updated_at), w.type_wo`,
+        [`${fromStr} 00:00:00`, `${toStr} 23:59:59`, ...extraParams, ...scope.params],
       ),
       one<{ b0: number | null; b1: number | null; b2: number | null; b3: number | null }>(
         `SELECT
@@ -227,12 +246,19 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
           SUM(CASE WHEN DATEDIFF(CURDATE(), w.date) BETWEEN 4 AND 7 THEN 1 ELSE 0 END) AS b1,
           SUM(CASE WHEN DATEDIFF(CURDATE(), w.date) BETWEEN 8 AND 14 THEN 1 ELSE 0 END) AS b2,
           SUM(CASE WHEN DATEDIFF(CURDATE(), w.date) > 14 THEN 1 ELSE 0 END) AS b3
-         FROM \`${cfg.table}\` w WHERE w.status LIKE 'WAIT%'${scope.sql}`,
-        scope.params,
+         FROM \`${cfg.table}\` w WHERE w.status LIKE 'WAIT%'${extraSql}${scope.sql}`,
+        [...extraParams, ...scope.params],
+      ),
+      // Status WO Preventive per-hari (buat kartu "Preventive Harian") —
+      // status+type sekaligus biar gak nambah query lagi, difilter/diklasifikasi
+      // di JS (bucketOf/classify) sama kayak query lain di file ini.
+      rows<{ d: string; s: string; t: string | null; c: number }>(
+        `SELECT DATE(w.date) AS d, w.status AS s, w.type_wo AS t, COUNT(*) AS c FROM \`${cfg.table}\` w WHERE w.date >= ? AND w.date < ?${extraSql}${scope.sql} GROUP BY DATE(w.date), w.status, w.type_wo`,
+        [fromStr, toX, ...extraParams, ...scope.params],
       ),
     ]);
 
-    return { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow };
+    return { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, typeByDayRows, companyRows, assetRows, createdRows, closedRows, closedTypeByDayRows, agingRow, preventiveStatusByDayRows };
   }));
 
   const bucketOf = (raw: string | null): 'preventive' | 'corrective' | 'project' | 'other' => {
@@ -243,7 +269,7 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     return 'other';
   };
 
-  for (const { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, companyRows, assetRows, createdRows, closedRows, agingRow } of perModule) {
+  for (const { key, cfg, statusRows, prevRow, typeRows, prevTypeRows, typeByDayRows, companyRows, assetRows, createdRows, closedRows, closedTypeByDayRows, agingRow, preventiveStatusByDayRows } of perModule) {
     const modTotals = { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 };
     for (const r of statusRows) {
       const c = Number(r.c);
@@ -262,6 +288,23 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
 
     for (const r of typeRows) typeAgg[bucketOf(r.t)] += Number(r.c);
     for (const r of prevTypeRows) prevTypeAgg[bucketOf(r.t)] += Number(r.c);
+    for (const r of typeByDayRows) {
+      const bucket = bucketOf(r.t);
+      if (bucket === 'preventive') preventiveByDay.set(r.d, (preventiveByDay.get(r.d) ?? 0) + Number(r.c));
+      else if (bucket === 'corrective') correctiveByDay.set(r.d, (correctiveByDay.get(r.d) ?? 0) + Number(r.c));
+    }
+    for (const r of preventiveStatusByDayRows) {
+      if (bucketOf(r.t) !== 'preventive') continue;
+      const st = classify(String(r.s ?? '').toUpperCase().trim());
+      // "Ditolak/Void" preventive jarang & bukan "belum dikerjakan" dalam arti
+      // normal — digabung ke bucket "open" (Belum Dikerjakan) biar kartu ini
+      // tetap 3 kategori sederhana (Selesai/Dikerjakan/Belum Dikerjakan).
+      const entry = preventiveDailyAgg.get(r.d) ?? { open: 0, in_progress: 0, closed: 0 };
+      if (st === 'closed') entry.closed += Number(r.c);
+      else if (st === 'in_progress') entry.in_progress += Number(r.c);
+      else entry.open += Number(r.c);
+      preventiveDailyAgg.set(r.d, entry);
+    }
 
     // WO lama nyimpen nama company panjang ("Ganda Saribu Utama") sementara
     // yang baru nyimpen kode singkat ("GSU") — tanpa normalisasi ini,
@@ -270,6 +313,10 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     for (const r of assetRows) { const id = String(r.eq); assetAgg.set(id, (assetAgg.get(id) ?? 0) + Number(r.c)); }
     for (const r of createdRows) { const d = String(r.d); createdByDay.set(d, (createdByDay.get(d) ?? 0) + Number(r.c)); }
     for (const r of closedRows) { const d = String(r.d ?? ''); if (!d) continue; closedByDay.set(d, (closedByDay.get(d) ?? 0) + Number(r.c)); }
+    for (const r of closedTypeByDayRows) {
+      const d = String(r.d ?? ''); if (!d) continue;
+      if (bucketOf(r.t) === 'corrective') closedCorrectiveByDay.set(d, (closedCorrectiveByDay.get(d) ?? 0) + Number(r.c));
+    }
 
     aging.b0 += Number(agingRow?.b0 ?? 0);
     aging.b1 += Number(agingRow?.b1 ?? 0);
@@ -304,7 +351,49 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
   const trend: Record<string, unknown>[] = [];
   for (let d = from; d <= to; d = addDays(d, 1)) {
     const ds = isoDate(d);
-    trend.push({ date: ds, created: createdByDay.get(ds) ?? 0, closed: closedByDay.get(ds) ?? 0 });
+    trend.push({
+      date: ds,
+      created: createdByDay.get(ds) ?? 0,
+      closed: closedByDay.get(ds) ?? 0,
+      // Ditutup CLOSED yang khusus Corrective — angka agregat "closed" aja
+      // gak cukup buat lihat beban kerja reaktif/breakdown harian.
+      closed_corrective: closedCorrectiveByDay.get(ds) ?? 0,
+    });
+  }
+
+  // Sparkline rasio preventive: dihitung kumulatif per hari (bukan rasio
+  // harian mentah) karena jumlah WO per hari kecil & gampang bikin rasio
+  // harian melompat-lompat — kumulatif kasih tren yang lebih kebaca.
+  const ratioTrend: { date: string; ratio: number | null }[] = [];
+  let cumPreventive = 0;
+  let cumCorrective = 0;
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const ds = isoDate(d);
+    cumPreventive += preventiveByDay.get(ds) ?? 0;
+    cumCorrective += correctiveByDay.get(ds) ?? 0;
+    const base = cumPreventive + cumCorrective;
+    ratioTrend.push({ date: ds, ratio: base > 0 ? Math.round((cumPreventive / base) * 1000) / 10 : null });
+  }
+
+  // "Preventive Harian" — status WO Preventive per hari (Selesai/Dikerjakan/
+  // Belum Dikerjakan) + persentase, buat lihat konsistensi eksekusi harian,
+  // bukan cuma rasio keseluruhan periode.
+  const preventiveDaily: Record<string, unknown>[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const ds = isoDate(d);
+    const entry = preventiveDailyAgg.get(ds) ?? { open: 0, in_progress: 0, closed: 0 };
+    const total = entry.open + entry.in_progress + entry.closed;
+    const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
+    preventiveDaily.push({
+      date: ds,
+      closed: entry.closed,
+      in_progress: entry.in_progress,
+      open: entry.open,
+      total,
+      closed_pct: pct(entry.closed),
+      in_progress_pct: pct(entry.in_progress),
+      open_pct: pct(entry.open),
+    });
   }
 
   const totalPct = prevTotal > 0 ? Math.round(((totals.total - prevTotal) / prevTotal) * 1000) / 10 : null;
@@ -323,6 +412,8 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     ? Math.round((preventiveRatio - preventiveRatioPrev) * 10) / 10 : null;
   const projectPct = prevTypeAgg.project > 0
     ? Math.round(((typeAgg.project - prevTypeAgg.project) / prevTypeAgg.project) * 1000) / 10 : null;
+  const correctivePct = prevTypeAgg.corrective > 0
+    ? Math.round(((typeAgg.corrective - prevTypeAgg.corrective) / prevTypeAgg.corrective) * 1000) / 10 : null;
 
   return {
     range_days: range, from: fromStr, to: toStr, generated_at: new Date().toISOString(),
@@ -334,8 +425,11 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       preventive_ratio: preventiveRatio,
       preventive_ratio_prev: preventiveRatioPrev,
       preventive_ratio_delta_pts: preventiveRatioDeltaPts,
+      corrective_prev: prevTypeAgg.corrective,
+      corrective_pct: correctivePct,
       project_prev: prevTypeAgg.project,
       project_pct: projectPct,
+      ratio_trend: ratioTrend,
     },
     aging: [
       { bucket: AGING_LABELS[0], count: aging.b0 },
@@ -343,5 +437,6 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       { bucket: AGING_LABELS[2], count: aging.b2 },
       { bucket: AGING_LABELS[3], count: aging.b3 },
     ],
+    preventive_daily: preventiveDaily,
   };
 }

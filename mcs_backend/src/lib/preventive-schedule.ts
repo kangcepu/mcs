@@ -577,8 +577,15 @@ export async function runScheduledGeneration(): Promise<GeneratedWo[]> {
     try {
       const results: GeneratedWo[] = [];
       for (const item of await getAllSchedule()) {
-        const generated = await createWoNew(item, false);
-        results.push(...generated);
+        // Cron sekarang cuma jalan sekali sehari (bukan tiap jam lagi) — satu
+        // jadwal error gak boleh gagalin/nunda generate jadwal lain di
+        // belakangnya dalam antrian yang sama, karena baru kecoba lagi besok.
+        try {
+          const generated = await createWoNew(item, false);
+          results.push(...generated);
+        } catch (error) {
+          console.error(`Preventive schedule generation failed for schedule ${item.schedule.id} (${item.schedule.AssetCode}):`, error);
+        }
       }
       return results;
     } finally {

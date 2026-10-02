@@ -1,4 +1,5 @@
 import { getAssetAttachmentRows } from '../lib/asset-attachments.js';
+import { buildAssetWoHistory } from '../lib/asset-history.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
@@ -181,12 +182,14 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   if (!asset) throw new HttpError(404, 'Asset not found');
 
   const code = String((asset as Record<string, unknown>).AssetCode);
-  const [details, attachments, parts] = await Promise.all([
+  const assetId = Number((asset as Record<string, unknown>).AssetID ?? 0);
+  const [details, attachments, parts, history] = await Promise.all([
     rows('SELECT * FROM asset_custom_details WHERE asset_code = ? ORDER BY row_order, id', [code]),
     getAssetAttachmentRows(code),
     rows('SELECT * FROM tb_parts_bom WHERE AssetCode = ? AND deleted_at IS NULL ORDER BY no_urut, id', [code]),
+    assetId ? buildAssetWoHistory(assetId) : Promise.resolve([]),
   ]);
-  ok(res, { ...asset as object, custom_details: details, attachments, parts });
+  ok(res, { ...asset as object, custom_details: details, attachments, parts, history });
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {

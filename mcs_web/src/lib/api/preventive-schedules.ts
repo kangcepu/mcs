@@ -99,6 +99,19 @@ export function getScheduleCustomDetailRows(
   });
 }
 
+/**
+ * Trigger manual proses generate WO yang biasanya jalan via cron harian
+ * (00:01 WIB) — dipakai tombol "Jalankan Sekarang" di Master Data. Aman
+ * dipanggil berkali-kali: backend cuma proses jadwal yang beneran jatuh
+ * tempo (sama kayak cron), jadi gak bikin WO dobel.
+ */
+export function runPreventiveScheduleCronNow() {
+  return apiV2.post<{
+    generated_count: number;
+    generated_work_orders: Array<{ wo_number: string; asset_code: string; total_items: number }>;
+  }>("/preventive-schedules/run-cron", {});
+}
+
 export function getPreventiveCalendar(
   year: number,
   signal?: AbortSignal,

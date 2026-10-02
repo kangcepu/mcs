@@ -60,8 +60,6 @@ export default function AssetDetailPage({
   const asset = detail;
   const { setStatus } = useAssetMutations(code);
 
-  // Backend belum ngirim riwayat WO per-aset — tab History kosong buat
-  // sementara sampai endpoint-nya ada, bukan kesalahan tampilan.
   const history = detail?.history ?? [];
 
   const inactive = isAssetInactive(asset);
@@ -189,12 +187,12 @@ export default function AssetDetailPage({
                 entries={history.map((h) => ({
                   title: (
                     <span className="flex flex-wrap items-center gap-2">
-                      {dash(pick(h, ["action", "job_title"]))}
+                      {dash(pick(h, ["job_title"]))}
                       {h.status ? <StatusBadge status={h.status as string} /> : null}
                     </span>
                   ),
-                  meta: `${formatDate(h.at as string)}${
-                    h.module ? ` · ${h.module}` : ""
+                  meta: `${formatDate(h.created_at as string)}${
+                    h.wo_source ? ` · ${h.wo_source}` : ""
                   }`,
                   body: h.wo_number ? (
                     <span className="text-xs text-slate-500">WO {String(h.wo_number)}</span>

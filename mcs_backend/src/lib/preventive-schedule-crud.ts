@@ -263,7 +263,17 @@ export async function save(id: number, payload: Record<string, unknown>, actor: 
     await execute('DELETE FROM tbl_schedules_detail WHERE tbl_schedules_id=?', [finalId]);
   }
 
+  // Form web (schedule-form.tsx) cuma kirim divisi eksekutor MESO sebagai
+  // field TOP-LEVEL (`executor`/`category_maintenance`), bukan per-baris
+  // detail — tanpa fallback ini, tiap detail tersimpan executor=NULL, lalu
+  // generator WO (parseExecutorCodes di preventive-schedule.ts) diam-diam
+  // jatuh ke default 'MTC' dan WO-nya gak pernah muncul di antrian divisi
+  // yang benar (ketauan pas divisi itu gak punya schedule lama buat nutupin).
+  const fallbackExecutor = String(payload.executor ?? payload.category_maintenance ?? '').trim();
   for (const detail of details) {
+    if (!String(detail.executor ?? '').trim() && fallbackExecutor) {
+      detail.executor = fallbackExecutor;
+    }
     const fields = detailFields(finalId, detail);
     const keys = Object.keys(fields);
     await execute(`INSERT INTO tbl_schedules_detail (${keys.map((k) => `\`${k}\``).join(',')}) VALUES (${keys.map(() => '?').join(',')})`, keys.map((k) => fields[k]));

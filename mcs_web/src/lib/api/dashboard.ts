@@ -35,7 +35,7 @@ export interface DashboardData {
     asset_name: string;
     count: number;
   }[];
-  trend: { date: string; created: number; closed: number }[];
+  trend: { date: string; created: number; closed: number; closed_corrective: number }[];
   aging: { bucket: string; count: number }[];
   by_type: {
     preventive: number;
@@ -46,9 +46,22 @@ export interface DashboardData {
     preventive_ratio: number | null;
     preventive_ratio_prev: number | null;
     preventive_ratio_delta_pts: number | null;
+    corrective_prev: number;
+    corrective_pct: number | null;
     project_prev: number;
     project_pct: number | null;
+    ratio_trend: { date: string; ratio: number | null }[];
   };
+  preventive_daily: {
+    date: string;
+    closed: number;
+    in_progress: number;
+    open: number;
+    total: number;
+    closed_pct: number;
+    in_progress_pct: number;
+    open_pct: number;
+  }[];
 }
 
 /** GET /v2/dashboard — semua agregat dalam satu panggilan. */

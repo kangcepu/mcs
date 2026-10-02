@@ -68,7 +68,7 @@ export async function syncEmployeeStatusFromApi(user: User): Promise<User> {
   const companyCode = resolveCompanyCode(String(user.company_name ?? ''));
   if (username === '' || companyCode === '') return user;
 
-  const result = await findEmployeeForUserResult(companyCode, username, email);
+  const result = await findEmployeeForUserResult(companyCode, username, email, String(user.fullname ?? ''));
   const emp = result.employee;
 
   if (result.status === 'found' && emp && String(emp.EmployeeCode ?? '') !== '') {
@@ -104,7 +104,7 @@ export async function syncAllUsersEmployeeStatus(): Promise<{ checked: number; d
     const companyCode = resolveCompanyCode(String(user.company_name ?? ''));
     if (username === '' || companyCode === '') continue;
 
-    const result = await findEmployeeForUserResult(companyCode, username, email);
+    const result = await findEmployeeForUserResult(companyCode, username, email, String(user.fullname ?? ''));
     if (result.status === 'found' && result.employee) {
       const newFullname = String(result.employee.FullName ?? '');
       if (newFullname !== '' && newFullname !== String(user.fullname ?? '')) {
@@ -167,7 +167,7 @@ export async function publicUserWithEmployee(user: User): Promise<Record<string,
   const email = String(user.email ?? '').trim();
   if (companyCode === '' || username === '') return { ...base, phone: '' };
 
-  const result = await findEmployeeForUserResult(companyCode, username, email);
+  const result = await findEmployeeForUserResult(companyCode, username, email, String(user.fullname ?? ''));
   const emp = result.employee;
   if (!emp) return { ...base, phone: '' };
 

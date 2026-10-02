@@ -38,16 +38,20 @@ function getMentionTrigger(value: string) {
   };
 }
 
-/** Klasifikasi PRO / COR / PREV dari satu baris aktivitas (sama dgn V2 bridge). */
+/** Klasifikasi PRO (Project) / COR (Corrective) / PREV (Preventive) dari satu
+ * baris aktivitas — harus match persis definisi backend di
+ * `GET /daily-control/summary` (`classifyMaintenanceKind` di daily-control.ts:
+ * Preventive / Project / default Corrective). Sebelumnya "pro" di sini malah
+ * dideteksi dari source_table/"PRODUK" (modul Produksi) — bukan tipe WO
+ * Project — jadi WO type Project selalu kejebak default "cor" dan gak pernah
+ * muncul sebagai Project di sini. */
 function classifyActivity(row: Record<string, unknown>): "pro" | "cor" | "prev" {
   const type = String(pick(row, ["type_wo", "type"]) || "").toUpperCase();
   const kind = String(pick(row, ["maintenance_kind"]) || "").toUpperCase();
-  const src = String(pick(row, ["source_table"]) || "").toUpperCase();
   if (type.includes("PREV") || type.includes("PM") || kind.includes("PREVENTIVE"))
     return "prev";
-  if (type.includes("CORR") || type.includes("CM") || kind.includes("CORRECTIVE"))
-    return "cor";
-  if (src.includes("PREVENTIVE") || type.includes("PRODUK")) return "pro";
+  if (type.includes("PROJECT") || type.includes("PROYEK") || kind.includes("PROJECT"))
+    return "pro";
   return "cor";
 }
 

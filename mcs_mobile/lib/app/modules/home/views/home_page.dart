@@ -6,8 +6,21 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/utils/app_date_format_helper.dart';
+import '../../../core/widgets/mini_charts.dart';
 import '../controllers/home_controller.dart';
 import 'profile_page.dart';
+
+int _asInt(dynamic v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse('$v') ?? 0;
+}
+
+double? _asDoubleN(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse('$v');
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,8 +30,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final ScrollController _scrollController = ScrollController();
-  final GlobalKey _menuKey = GlobalKey();
   DateTime _now = DateTime.now();
   Timer? _clockTimer;
 
@@ -36,7 +47,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _clockTimer?.cancel();
-    _scrollController.dispose();
     super.dispose();
   }
 
@@ -52,19 +62,36 @@ class _HomePageState extends State<HomePage> {
       ),
       child: Scaffold(
         backgroundColor: const Color(0xFFF6F8FB),
+        // Ringkasan + kartu analisa tingginya tetap (konten pendek, gak
+        // perlu scroll buat baca), grid Menu ambil SISA ruang layar lewat
+        // Expanded+LayoutBuilder — jadi semua tile tetap kelihatan tanpa
+        // scroll, labelnya juga dibuat gede & tebal sesuai sisa ruang itu.
         body: Column(
           children: [
             _buildHeaderCard(controller, context),
             Expanded(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSummarySection(controller),
-                    const SizedBox(height: 1),
-                    _buildMenuSection(context, controller),
+                    const SizedBox(height: 8),
+                    _buildAnalysisSection(controller),
+                    const SizedBox(height: 8),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        'Menu',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Expanded(child: _buildMenuSection(context, controller)),
                   ],
                 ),
               ),
@@ -266,10 +293,10 @@ class _HomePageState extends State<HomePage> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -279,6 +306,7 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
@@ -286,17 +314,17 @@ class _HomePageState extends State<HomePage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.w800,
               color: color,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 3),
           Text(
             label,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
               color: Color(0xFF6B7280),
             ),
@@ -306,6 +334,150 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Kartu ringkasan analisa — padanan ringkas dashboard web (rasio
+  /// preventive, WO overdue, komposisi status, tren, umur WO) supaya
+  /// bisa analisa cepat tanpa buka daftar WO satu-satu.
+  Widget _buildAnalysisSection(HomeController controller) {
+    return Obx(() {
+      final data = controller.dashboardSummary.value;
+      if (data == null) {
+        if (!controller.isLoadingDashboard.value) return const SizedBox.shrink();
+        return Container(
+          height: 64,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          alignment: Alignment.center,
+          child: const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      }
+
+      final totals = Map<String, dynamic>.from(data['totals'] as Map? ?? {});
+      final byType = Map<String, dynamic>.from(data['by_type'] as Map? ?? {});
+      final agingList = (data['aging'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final trendList = (data['trend'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final preventiveDailyList = (data['preventive_daily'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      final open = _asInt(totals['open']);
+      final inProgress = _asInt(totals['in_progress']);
+      final overdue = agingList.length >= 4
+          ? _asInt(agingList[2]['count']) + _asInt(agingList[3]['count'])
+          : 0;
+      final ratio = _asDoubleN(byType['preventive_ratio']);
+      final fromLabel = '${data['from'] ?? ''}';
+      final toLabel = '${data['to'] ?? ''}';
+
+      return Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _analysisStat(
+                  'Rasio PM',
+                  ratio == null ? '-' : '${ratio.toStringAsFixed(0)}%',
+                  const Color(0xFF16A34A),
+                ),
+                const SizedBox(width: 14),
+                _analysisStat('WO Overdue', '$overdue', const Color(0xFFE11D48)),
+                const SizedBox(width: 14),
+                _analysisStat('Berjalan', '${open + inProgress}', const Color(0xFF7C3AED)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Tren Work Order',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+                ),
+                if (fromLabel.isNotEmpty)
+                  Text(
+                    '$fromLabel – $toLabel',
+                    style: const TextStyle(fontSize: 8.5, color: Color(0xFF94A3B8)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            TrendChartFull(
+              height: 68,
+              data: trendList
+                  .map((t) => TrendPoint(
+                        '${t['date']}',
+                        _asDoubleN(t['created']) ?? 0,
+                        _asDoubleN(t['closed']) ?? 0,
+                        _asDoubleN(t['closed_corrective']) ?? 0,
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Preventive Harian',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+            ),
+            const SizedBox(height: 4),
+            DailyStatusBars(
+              data: preventiveDailyList
+                  .map((p) => DailyStatusPoint(
+                        '${p['date']}',
+                        _asDoubleN(p['closed_pct']) ?? 0,
+                        _asDoubleN(p['in_progress_pct']) ?? 0,
+                        _asDoubleN(p['open_pct']) ?? 0,
+                        _asInt(p['total']),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 4),
+            const Row(
+              children: [
+                _TinyLegend(color: Color(0xFF16A34A), label: 'Selesai'),
+                SizedBox(width: 10),
+                _TinyLegend(color: Color(0xFF1B54E0), label: 'Dikerjakan'),
+                SizedBox(width: 10),
+                _TinyLegend(color: Color(0xFFF59E0B), label: 'Belum'),
+              ],
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  static Widget _analysisStat(String label, String value, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: color)),
+        const SizedBox(width: 3),
+        Text(label, style: const TextStyle(fontSize: 8.5, color: Color(0xFF64748B))),
+      ],
+    );
+  }
+
+  /// Grid menu — isi persis sisa ruang (Expanded dari pemanggil) lewat
+  /// LayoutBuilder, biar semua tile tetap kelihatan tanpa scroll. Ukuran
+  /// label/ikon ikut discale dari tinggi sel yang kebagian, bukan dipatok
+  /// kecil terus — biar judul menu tetap kebaca gede & tebal.
   Widget _buildMenuSection(BuildContext context, HomeController controller) {
     final items = controller.visibleMenuItems;
     if (items.isEmpty) {
@@ -314,42 +486,46 @@ class _HomePageState extends State<HomePage> {
 
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     final crossAxisCount = isTablet ? 5 : 4;
+    const spacing = 8.0;
 
-    return Column(
-      key: _menuKey,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            'Menu',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF111827),
-            ),
-          ),
-        ),
-        GridView.builder(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final rows = (items.length / crossAxisCount).ceil();
+        final cellWidth =
+            (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+        final cellHeight = (constraints.maxHeight - spacing * (rows - 1)) / rows;
+        final aspectRatio = (cellWidth / cellHeight).clamp(0.55, 1.4);
+
+        return GridView.builder(
           itemCount: items.length,
-          shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(top: 8, bottom: 12),
+          padding: EdgeInsets.zero,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 0.92,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: aspectRatio,
           ),
           itemBuilder: (context, index) {
-            return _buildModuleCard(items[index], controller);
+            return _buildModuleCard(items[index], controller, cellHeight: cellHeight);
           },
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildModuleCard(MenuItem item, HomeController controller) {
+  Widget _buildModuleCard(
+    MenuItem item,
+    HomeController controller, {
+    required double cellHeight,
+  }) {
+    // Skala kontinu dari tinggi sel aktual — labelnya selalu dibuat
+    // sebesar & setebal mungkin yang masih muat, bukan dipatok ke satu
+    // ukuran kecil tetap.
+    final labelFontSize = (cellHeight * 0.115).clamp(10.0, 13.5);
+    final labelBoxHeight = (cellHeight * 0.28).clamp(18.0, 30.0);
+    final visualSize = (cellHeight * 0.42).clamp(26.0, 42.0);
+    final countFontSize = (cellHeight * 0.32).clamp(18.0, 30.0);
     const cardRadius = BorderRadius.all(Radius.circular(18));
     return Stack(
       clipBehavior: Clip.none,
@@ -403,22 +579,28 @@ class _HomePageState extends State<HomePage> {
                                       color: item.enabled
                                           ? item.color
                                           : const Color(0xFF9CA3AF),
-                                      fontSize: count > 9999 ? 24 : 30,
+                                      fontSize: count > 9999 ? countFontSize * 0.75 : countFontSize,
                                       fontWeight: FontWeight.w800,
                                       height: 1,
                                     ),
                                   ),
                                 );
                               })
-                            : Center(child: _buildMenuVisual(item, controller)),
+                            : Center(
+                                child: _buildMenuVisual(
+                                  item,
+                                  controller,
+                                  size: visualSize,
+                                ),
+                              ),
                       ),
                     ),
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+                      padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
                       color: Colors.white,
                       child: SizedBox(
-                        height: 22,
+                        height: labelBoxHeight,
                         child: Center(
                           child: Text(
                             _formatMenuTitle(item.title),
@@ -426,9 +608,9 @@ class _HomePageState extends State<HomePage> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: item.title.length >= 13 ? 10 : 11,
+                              fontSize: labelFontSize,
                               height: 1.1,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                               color: item.enabled
                                   ? const Color(0xFF1F2937)
                                   : const Color(0xFF9CA3AF),
@@ -480,10 +662,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildMenuVisual(MenuItem item, HomeController controller) {
+  Widget _buildMenuVisual(
+    MenuItem item,
+    HomeController controller, {
+    required double size,
+  }) {
     return Container(
-      width: 38,
-      height: 38,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: item.color.withOpacity(item.enabled ? 0.14 : 0.08),
         borderRadius: BorderRadius.circular(12),
@@ -491,7 +677,7 @@ class _HomePageState extends State<HomePage> {
       child: Icon(
         item.icon ?? Icons.apps_rounded,
         color: item.enabled ? item.color : const Color(0xFF9CA3AF),
-        size: 18,
+        size: size * 0.48,
       ),
     );
   }
@@ -513,24 +699,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _scrollToTop() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOut,
-    );
-  }
+}
 
-  void _scrollToMenu() {
-    final context = _menuKey.currentContext;
-    if (context == null) return;
+class _TinyLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _TinyLegend({required this.color, required this.label});
 
-    Scrollable.ensureVisible(
-      context,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOut,
-      alignment: 0.08,
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 3),
+        Text(label, style: const TextStyle(fontSize: 8.5, color: Color(0xFF64748B))),
+      ],
     );
   }
 }

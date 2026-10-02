@@ -18,7 +18,7 @@ import {
   listPreventiveSchedules,
   type ScheduleCustomDetailRow,
 } from "@/lib/api/preventive-schedules";
-import { SCHEDULE_GROUPS } from "@/types/preventive";
+import { SCHEDULE_GROUPS, toScheduleGroup } from "@/types/preventive";
 import { ApiError } from "@/types/api";
 import { pick } from "@/lib/display";
 
@@ -80,23 +80,26 @@ const FREQ = SCHEDULE_GROUPS.filter((g) => g.key !== "unscheduled").map((g) => (
   label: g.label,
 }));
 
-/** Nilai `type_schedule` backend -> label FREQ. */
-const FREQ_FROM_BACKEND: Record<string, string> = {
-  harian: "Harian",
-  daily: "Harian",
-  day: "Harian",
-  "1 hari": "Harian",
-  week: "Mingguan",
-  weekly: "Mingguan",
-  mingguan: "Mingguan",
-  bulanan: "Bulanan",
-  "3 bulan": "3 Bulan",
-  "3 bulanan": "3 Bulan",
-  "6 bulan": "6 Bulan",
-  "6 bulanan": "6 Bulan",
-  "1 tahun": "Tahunan",
-  tahunan: "Tahunan",
-};
+const FREQ_LABEL_BY_GROUP: Record<string, string> = Object.fromEntries(
+  SCHEDULE_GROUPS.map((g) => [g.key, g.label]),
+);
+
+/**
+ * Nilai `type_schedule` backend -> label FREQ. Sebelumnya dictionary exact-
+ * match (`harian`/`weekly`/`mingguan`/dst) yang GAK PERNAH cocok sama format
+ * penyimpanan asli backend ("1 minggu"/"1 bulan", lihat
+ * scheduleTypeToStorageValue di preventive-schedule.ts) — jadi part yang
+ * sebenarnya sudah Mingguan/Bulanan selalu jatuh ke default "Harian" tiap
+ * kali schedule dibuka utk diedit. Sekarang reuse `toScheduleGroup` yang
+ * sudah benar nanganin kedua format ("1 minggu" maupun "mingguan").
+ */
+function frequencyLabelFromBackend(raw: unknown): string {
+  const group = toScheduleGroup(String(raw ?? ""));
+  // Nilai kosong/gak dikenal tetap default "Harian" (bukan dipaksa Mingguan),
+  // sama seperti default persistensi API V2 — lihat komentar customRowToDetail.
+  if (group === "unscheduled") return "Harian";
+  return FREQ_LABEL_BY_GROUP[group] ?? "Harian";
+}
 
 /**
  * Baris Custom Detail aset -> baris form Detail Schedule.
@@ -112,10 +115,7 @@ function customRowToDetail(row: ScheduleCustomDetailRow) {
   return {
     part,
     activity: row.kondisi || (part ? `Pengecekan kondisi ${part}` : ""),
-    frequency:
-      FREQ_FROM_BACKEND[
-        String(row.type_schedule ?? row.durasi_pengecekan ?? "").toLowerCase().trim()
-      ] ?? "Harian",
+    frequency: frequencyLabelFromBackend(row.type_schedule ?? row.durasi_pengecekan),
     condition: row.category_maintenance || "",
     custom_detail_id: row.custom_detail_id || undefined,
   };
@@ -259,10 +259,7 @@ export function ScheduleFormModal({
           ? d.map((row) => ({
               part: pick(row, ["part_mesin", "part"]),
               activity: pick(row, ["job_requirement", "activity", "job_title"]),
-              frequency:
-                FREQ_FROM_BACKEND[
-                  String(pick(row, ["type_schedule", "frequency"])).toLowerCase()
-                ] ?? "Harian",
+              frequency: frequencyLabelFromBackend(pick(row, ["type_schedule", "frequency"])),
               condition: pick(row, ["category_maintenance", "condition"]),
               custom_detail_id:
                 pick(row, ["asset_custom_detail_id", "custom_detail_id"]) ||

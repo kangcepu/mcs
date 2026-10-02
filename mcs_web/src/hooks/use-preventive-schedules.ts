@@ -16,6 +16,7 @@ import {
   listPreventiveSchedules,
   pausePreventiveDetail,
   repairPreventiveSchedule,
+  runPreventiveScheduleCronNow,
   updatePreventiveSchedule,
 } from "@/lib/api/preventive-schedules";
 import type { PreventiveScheduleFilters } from "@/types/preventive";
@@ -94,4 +95,13 @@ export function usePreventiveMutations(id?: string | number) {
       onSuccess: invalidate,
     }),
   };
+}
+
+/** Tombol "Jalankan Sekarang" di Master Data — trigger manual cron generate WO. */
+export function useRunPreventiveScheduleCron() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => runPreventiveScheduleCronNow(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["preventive-schedules"] }),
+  });
 }

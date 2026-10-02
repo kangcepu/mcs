@@ -14,6 +14,7 @@ import {
   getAssetCustomDetailScheduleRows,
   rebuildScheduleDetailsFromCustomDetails,
   removeSchedule,
+  runScheduledGeneration,
 } from '../lib/preventive-schedule.js';
 import type { AuthRequest } from '../types.js';
 
@@ -52,6 +53,24 @@ scheduleRouter.post('/preventive-schedules/generate', authenticate, canManage, a
   const generated = await generateScheduleNow(id);
   ok(res, { schedule_id: id, repaired_detail_divisions: repair.updated ?? 0, generated_work_orders: generated },
     generated.length ? 'WO awal preventive berhasil dibuat' : 'Tidak ada WO yang dapat dibuat hari ini.');
+}));
+
+// Trigger manual proses generate WO yang biasanya jalan via cron harian
+// (00:01 WIB) — pakai fungsi yang SAMA PERSIS dipakai cron (bukan force-
+// generate), jadi cuma jadwal yang beneran jatuh tempo yang diproses;
+// `runScheduledGeneration` sendiri pakai MySQL GET_LOCK jadi aman dipanggil
+// berbarengan sama cron atau trigger manual lain — gak akan bikin WO dobel.
+scheduleRouter.post('/preventive-schedules/run-cron', authenticate, canManage, asyncHandler(async (_req, res) => {
+  const generated = await runScheduledGeneration();
+  // Modul Production (createWoPreventiveGrouped) sengaja tetap ngelaporin
+  // wo_number WO hari ini meski gak ada item baru ditambahkan (dipakai
+  // caller lain) — `total_items` adalah jumlah baris yang BENERAN baru
+  // di-insert kali ini, jadi dipakai buat filter di sini biar pesan ke
+  // tombol manual akurat (gak bilang "WO dibuat" kalau sebenarnya 0 baris
+  // baru, walau datanya sendiri tetap aman/gak dobel di database).
+  const freshlyGenerated = generated.filter((g) => g.total_items > 0);
+  ok(res, { generated_count: freshlyGenerated.length, generated_work_orders: freshlyGenerated },
+    freshlyGenerated.length ? `${freshlyGenerated.length} WO berhasil dibuat` : 'Tidak ada jadwal yang jatuh tempo saat ini.');
 }));
 
 scheduleRouter.get('/preventive-schedules/detail', authenticate, canRead, asyncHandler(async (req, res) => {

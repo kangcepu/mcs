@@ -56,7 +56,12 @@ function approvalJobs(user: User): WoJob[] {
   if (hasAllApprovalAccess(user)) {
     return [
       job('tb_wo_it', 'wo_it', 'WO IS', ['WAIT_KA_DIV', 'WAIT_KA_DIV_ITIS']),
-      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['WAIT_KA_DIV']),
+      // Role non-admin (DEPTHEAD/PLANNER_ADMIN/PLANNER_HEAD di bawah) masing-
+      // masing cuma lihat status tahap mereka sendiri — tapi "full access"
+      // harus beneran mencakup SEMUA tahap approval MESO, bukan cuma
+      // WAIT_KA_DIV, kalau tidak queue admin malah lebih sedikit dari
+      // gabungan queue role-role di bawahnya untuk WO yang sama.
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['WAIT_KA_DIV', 'WAIT_KA_DEPT_MESO', 'FROM_MAINTENANCE', 'WAIT_PLANNER_ADMIN', 'WAIT_PLANNER_HEAD']),
       job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['WAIT_KA_DIV', 'WAIT_KA_DIV_MTC'], {}, 'Approve', true),
       job('tb_wo_ga', 'wo_ga', 'WO GA', ['WAIT_KA_DIV', 'WAIT_KA_DIV_HRGA']),
       job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['WAIT_KA_DIV', 'WAIT_KA_DIV_MTC']),

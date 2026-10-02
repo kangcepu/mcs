@@ -123,7 +123,7 @@ export interface EmployeeLookupResult {
   employee: Employee | null;
 }
 
-export async function findEmployeeForUserResult(companyCode: string, username: string, email = ''): Promise<EmployeeLookupResult> {
+export async function findEmployeeForUserResult(companyCode: string, username: string, email = '', fullname = ''): Promise<EmployeeLookupResult> {
   const employees = await getEmployeesByCompany(companyCode);
   if (!employees) return { status: 'unavailable', employee: null };
   const uname = username.trim();
@@ -133,6 +133,22 @@ export async function findEmployeeForUserResult(companyCode: string, username: s
     const empEmail = String(emp.Email ?? '').trim();
     if (uname !== '' && empCode !== '' && empCode.toLowerCase() === uname.toLowerCase()) return { status: 'found', employee: emp };
     if (mail !== '' && empEmail !== '' && empEmail.toLowerCase() === mail.toLowerCase()) return { status: 'found', employee: emp };
+  }
+  // Sebagian kecil karyawan (staf khusus/owner) gak punya NIK numerik di HR
+  // — `EmployeeCode`-nya "SPECIAL N" dan `Email` kosong, jadi gak pernah
+  // bisa cocok lewat kode/email di atas meskipun orangnya aktif. Tanpa jaring
+  // pengaman ini mereka ke-nonaktifkan otomatis tiap login (lihat
+  // syncEmployeeStatusFromApi) walau datanya ada di Employee API. Fallback
+  // nama cuma dipakai utk baris yang EmployeeCode-nya BUKAN NIK numerik biar
+  // karyawan NIK normal tetap wajib cocok persis kode/email (gak dilonggarin).
+  const name = fullname.trim().toLowerCase();
+  if (name !== '') {
+    for (const emp of employees) {
+      const empCode = String(emp.EmployeeCode ?? '').trim();
+      if (/^\d+$/.test(empCode)) continue;
+      const empName = String(emp.FullName ?? '').trim().toLowerCase();
+      if (empName !== '' && empName === name) return { status: 'found', employee: emp };
+    }
   }
   return { status: 'not_found', employee: null };
 }

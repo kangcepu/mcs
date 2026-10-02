@@ -23,7 +23,11 @@ export const config = {
     user: process.env.DB_USER ?? 'root',
     password: process.env.DB_PASSWORD ?? '',
   },
-  scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '0 * * * *',
+  // Generate WO preventive sekali sehari jam 00:01 WIB (dulu tiap jam) —
+  // cukup, karena due-check-nya per-hari bukan per-jam; ada tombol trigger
+  // manual (POST /preventive-schedules/run-cron) buat jaga-jaga kalau butuh
+  // nyusul sebelum jam 00:01 berikutnya.
+  scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '1 0 * * *',
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
   employeeSyncCronExpr: process.env.EMPLOYEE_SYNC_CRON_EXPR ?? '*/15 * * * *',
   legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),

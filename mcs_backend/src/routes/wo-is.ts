@@ -5,7 +5,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
-import { execute, one, rows, transaction } from '../db.js';
+import { execute, one, rows, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
@@ -137,42 +137,49 @@ async function syncMaterialRequestFromMobile(woNumber: string, material: string,
   if (!woNumber || !material || qty <= 0) return;
   const unit = unitInput?.trim() || 'PCS';
   const executor = jobExecutor || '-';
-  const existingUsage = await one<{ id: number; request_code: string }>(
-    "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
-    [woNumber, executor],
-  );
-  let requestCode = existingUsage?.request_code ?? '';
+  // Dua submit nyaris bersamaan (double-tap, retry koneksi) sebelumnya bisa
+  // dua-duanya lolos cek "belum ada" dan dua-duanya INSERT — part yang sama
+  // ke-request dobel. GET_LOCK serialize di sini, bukan di query masing-
+  // masing, karena gak ada baris buat di-row-lock selagi baris itu sendiri
+  // belum ada (phantom read klasik pada check-then-insert).
+  await withNamedLock(`mcs_material_request:${woNumber}:${executor}`, async () => {
+    const existingUsage = await one<{ id: number; request_code: string }>(
+      "SELECT id, request_code FROM tb_material_usage WHERE wo_number=? AND job_executor=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+      [woNumber, executor],
+    );
+    let requestCode = existingUsage?.request_code ?? '';
 
-  if (!requestCode) {
-    const header = await getHeader(woNumber);
-    if (!header) return;
-    requestCode = randomCode(10);
-    const person = personPayload(user);
-    await transaction(async (connection) => {
-      await connection.execute(
-        'INSERT INTO tb_material_usage (wo_number, date, id_equipment, company, job_title, type_wo, id_division, job_executor, status, request_code, created_at) VALUES (?,CURDATE(),?,?,?,?,?,?,?,?,NOW())',
-        [woNumber, header.id_equipment, header.company, header.job_title, header.type_wo, header.id_division, executor, 'OPEN', requestCode] as never,
-      );
-      await connection.execute("UPDATE tb_wo_it SET status='WAITING_PARTS', pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
-      await connection.execute("UPDATE tb_job_executor SET status='IN_PROGRESS' WHERE wo_number=?", [woNumber]);
-      await connection.execute('INSERT INTO tb_approval_it (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
-        [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, 'Executor Request Material.']);
-    });
-  }
+    if (!requestCode) {
+      const header = await getHeader(woNumber);
+      if (!header) return;
+      requestCode = randomCode(10);
+      const person = personPayload(user);
+      await transaction(async (connection) => {
+        await connection.execute(
+          'INSERT INTO tb_material_usage (wo_number, date, id_equipment, company, job_title, type_wo, id_division, job_executor, status, request_code, created_at) VALUES (?,CURDATE(),?,?,?,?,?,?,?,?,NOW())',
+          [woNumber, header.id_equipment, header.company, header.job_title, header.type_wo, header.id_division, executor, 'OPEN', requestCode] as never,
+        );
+        await connection.execute("UPDATE tb_wo_it SET status='WAITING_PARTS', pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
+        await connection.execute("UPDATE tb_job_executor SET status='IN_PROGRESS' WHERE wo_number=?", [woNumber]);
+        await connection.execute('INSERT INTO tb_approval_it (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',
+          [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, 'Executor Request Material.']);
+      });
+    }
 
-  const existingRequest = await one<{ id: number; material_request: string }>(
-    'SELECT id, material_request FROM tb_material_request WHERE wo_number=? AND request_code=? AND job_executor=? AND part=? ORDER BY id DESC LIMIT 1',
-    [woNumber, requestCode, executor, material],
-  );
-  if (existingRequest) {
-    const newQty = Number(existingRequest.material_request ?? 0) + qty;
-    await execute('UPDATE tb_material_request SET material_request=?, uom_request=? WHERE id=?', [String(newQty), unit, existingRequest.id]);
-    return;
-  }
-  await execute(
-    'INSERT INTO tb_material_request (wo_number, level, part, material_request, uom_request, job_executor, request_code, date) VALUES (?,?,?,?,?,?,?,?)',
-    [woNumber, 'mobile_request', material, String(qty), unit, executor, requestCode, new Date().toISOString().slice(0, 19).replace('T', ' ')],
-  );
+    const existingRequest = await one<{ id: number; material_request: string }>(
+      'SELECT id, material_request FROM tb_material_request WHERE wo_number=? AND request_code=? AND job_executor=? AND part=? ORDER BY id DESC LIMIT 1',
+      [woNumber, requestCode, executor, material],
+    );
+    if (existingRequest) {
+      const newQty = Number(existingRequest.material_request ?? 0) + qty;
+      await execute('UPDATE tb_material_request SET material_request=?, uom_request=? WHERE id=?', [String(newQty), unit, existingRequest.id]);
+      return;
+    }
+    await execute(
+      'INSERT INTO tb_material_request (wo_number, level, part, material_request, uom_request, job_executor, request_code, date) VALUES (?,?,?,?,?,?,?,?)',
+      [woNumber, 'mobile_request', material, String(qty), unit, executor, requestCode, new Date().toISOString().slice(0, 19).replace('T', ' ')],
+    );
+  });
 }
 
 isRouter.use('/is', authenticate, (req, res, next) => {
