@@ -178,7 +178,11 @@ class WoDetailPage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: _buildSimpleInfoCard(
         title: 'Aksi Cepat',
-        child: Column(
+        child: Obx(() => AbsorbPointer(
+          absorbing: controller.isProcessing.value,
+          child: Opacity(
+            opacity: controller.isProcessing.value ? 0.5 : 1,
+            child: Column(
           children: [
             if (controller.canExecute) ...[
               Row(
@@ -235,7 +239,9 @@ class WoDetailPage extends StatelessWidget {
                 onTap: () => _showCloseDialog(context, controller),
               ),
           ],
-        ),
+            ),
+          ),
+        )),
       ),
     );
   }

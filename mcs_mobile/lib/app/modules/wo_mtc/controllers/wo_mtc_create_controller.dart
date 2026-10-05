@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:convert';
 import '../../../data/repositories/wo_mtc_repository.dart';
 import '../../../data/repositories/master_repository.dart';
+import '../../../core/utils/media_picker_helper.dart';
 import '../../../data/models/create_wo_request.dart';
 import '../../../data/models/wo_constants.dart';
 
@@ -329,7 +330,8 @@ class WoMtcCreateController extends GetxController {
             await _picker.pickImage(source: ImageSource.camera);
         if (photo != null) {
           if (selectedImages.length < 5) {
-            selectedImages.add(File(photo.path));
+            selectedImages
+                .add(await MediaPickerHelper.stampTimestamp(File(photo.path)));
           } else {
             Get.snackbar(
               'Limit Reached',

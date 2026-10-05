@@ -164,6 +164,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> approveWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.approveWo(woNumber!, comment, 'approve');
@@ -187,6 +188,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
     String status, {
     required List<String> servicePhotoPaths,
   }) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       if (servicePhotoPaths.isEmpty) {
@@ -214,6 +216,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> addLabor(String trade, int men, double hours) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.addLabor(
@@ -234,6 +237,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> requestPart({String? note}) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _partRequestRepository.requestPart(
@@ -262,6 +266,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> completeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.completeWo(woNumber!, comment);
@@ -281,6 +286,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> closeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.closeWo(woNumber!, comment);
@@ -302,6 +308,7 @@ class WoDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> voidWo(String reason) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.voidWo(woNumber!, reason);

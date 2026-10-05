@@ -1587,23 +1587,41 @@ class WoMtcDetailPage extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF2D3436))),
                   const SizedBox(width: 10),
+                  if ((scheduleGroups['Harian']?.length ?? 0) > 0) ...[
+                    _buildPreventiveStatChip(
+                        label: 'HR',
+                        value: '${scheduleGroups['Harian']?.length ?? 0}',
+                        backgroundColor: const Color(0xFFE6F9F2),
+                        textColor: const Color(0xFF0F9D58)),
+                    const SizedBox(width: 8),
+                  ],
+                  if ((scheduleGroups['Mingguan']?.length ?? 0) > 0) ...[
+                    _buildPreventiveStatChip(
+                        label: 'MG',
+                        value: '${scheduleGroups['Mingguan']?.length ?? 0}',
+                        backgroundColor: const Color(0xFFEAF2FF),
+                        textColor: const Color(0xFF2D5BBA)),
+                    const SizedBox(width: 8),
+                  ],
+                  if ((scheduleGroups['Bulanan']?.length ?? 0) > 0) ...[
+                    _buildPreventiveStatChip(
+                        label: 'BLN',
+                        value: '${scheduleGroups['Bulanan']?.length ?? 0}',
+                        backgroundColor: const Color(0xFFFFF4E8),
+                        textColor: const Color(0xFFE17055)),
+                    const SizedBox(width: 8),
+                  ],
                   _buildPreventiveStatChip(
-                      label: 'Total Part',
-                      value: '$totalParts',
-                      backgroundColor: const Color(0xFFEAF2FF),
-                      textColor: const Color(0xFF2D5BBA)),
-                  const SizedBox(width: 8),
-                  _buildPreventiveStatChip(
-                      label: 'Selesai',
+                      label: 'Done',
                       value: '$doneParts',
                       backgroundColor: const Color(0xFFE6F9F2),
                       textColor: const Color(0xFF0F9D58)),
                   const SizedBox(width: 8),
                   _buildPreventiveStatChip(
-                      label: 'Belum',
-                      value: '${totalParts - doneParts}',
-                      backgroundColor: const Color(0xFFFFF2E6),
-                      textColor: const Color(0xFFE17055)),
+                      label: 'Total',
+                      value: '$totalParts',
+                      backgroundColor: const Color(0xFFEAF2FF),
+                      textColor: const Color(0xFF2D5BBA)),
                   if (controller.isPartExecutionDirty.value) ...[
                     const SizedBox(width: 8),
                     Container(

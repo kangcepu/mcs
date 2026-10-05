@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/repositories/master_repository.dart';
 import '../../../data/repositories/wo_operational_repository.dart';
+import '../../../core/utils/media_picker_helper.dart';
 
 class WoOperationalCreateController extends GetxController {
   final WoOperationalRepository _woRepository = WoOperationalRepository();
@@ -387,7 +388,9 @@ class WoOperationalCreateController extends GetxController {
           imageQuality: 85,
         );
         if (photo != null) {
-          _appendImage(File(photo.path));
+          final stamped =
+              await MediaPickerHelper.stampTimestamp(File(photo.path));
+          _appendImage(stamped);
         }
         return;
       }

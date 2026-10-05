@@ -11,6 +11,7 @@ import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { getObjectStream, saveUploadedFile } from '../lib/storage.js';
+import { scheduleTypeToDisplayLabel } from '../lib/preventive-schedule.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const mesoRouter = Router();
@@ -151,19 +152,19 @@ function isPreventiveType(typeWo: unknown): boolean {
   return PREVENTIVE_TYPES.has(String(typeWo ?? '').toUpperCase());
 }
 
-interface PreventivePartDefinition { custom_detail_id: number; part_mesin: string; bagian_mesin: string | null }
+interface PreventivePartDefinition { custom_detail_id: number; part_mesin: string; bagian_mesin: string | null; type_schedule: string }
 
 async function getPreventivePartDefinitions(woNumber: string, assetCode: string): Promise<PreventivePartDefinition[]> {
-  const scheduleRows = await rows<Record<string, unknown>>('SELECT id, part_mesin FROM tb_wo_meso_detail WHERE wo_number=? ORDER BY id ASC', [woNumber]);
+  const scheduleRows = await rows<Record<string, unknown>>('SELECT id, part_mesin, type_schedule FROM tb_wo_meso_detail WHERE wo_number=? ORDER BY id ASC', [woNumber]);
   if (scheduleRows.length) {
-    return scheduleRows.map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? ''), bagian_mesin: null }));
+    return scheduleRows.map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? ''), bagian_mesin: null, type_schedule: scheduleTypeToDisplayLabel(r.type_schedule) }));
   }
   if (!assetCode) return [];
   const customRows = await rows<Record<string, unknown>>(
-    'SELECT id, part_mesin, bagian_mesin FROM asset_custom_details WHERE asset_code=? ORDER BY row_order ASC, id ASC',
+    'SELECT id, part_mesin, bagian_mesin, durasi_pengecekan FROM asset_custom_details WHERE asset_code=? ORDER BY row_order ASC, id ASC',
     [assetCode],
   );
-  return customRows.map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? ''), bagian_mesin: r.bagian_mesin ? String(r.bagian_mesin) : null }));
+  return customRows.map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? ''), bagian_mesin: r.bagian_mesin ? String(r.bagian_mesin) : null, type_schedule: scheduleTypeToDisplayLabel(r.durasi_pengecekan) }));
 }
 
 function partKey(customDetailId: number, partMesin: string): string {
@@ -195,6 +196,7 @@ async function getMtcPartExecution(woNumber: string, assetCode: string) {
       custom_detail_id: def.custom_detail_id,
       part_mesin: def.part_mesin,
       bagian_mesin: def.bagian_mesin ?? (reference?.bagian_mesin || null),
+      tipe_jadwal: def.type_schedule,
       tampak_jauh: reference?.tampak_jauh ?? [],
       tampak_dekat: reference?.tampak_dekat ?? [],
       detail_part: reference?.detail_part ?? [],

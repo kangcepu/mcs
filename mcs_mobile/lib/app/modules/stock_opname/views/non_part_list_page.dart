@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/media_picker_helper.dart';
 import '../../../data/models/non_part_model.dart';
 import '../../../data/repositories/stock_opname_input_repository.dart';
 import '../controllers/non_part_controller.dart';
@@ -266,8 +267,9 @@ class _NonPartFormDialogState extends State<_NonPartFormDialog> {
     if (picked == null) {
       return;
     }
+    final stamped = await MediaPickerHelper.stampTimestamp(File(picked.path));
     setState(() {
-      selectedImage = File(picked.path);
+      selectedImage = stamped;
     });
   }
 

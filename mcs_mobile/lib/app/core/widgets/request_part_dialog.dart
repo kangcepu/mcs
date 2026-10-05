@@ -27,6 +27,7 @@ class _RequestPartDialogContent extends StatefulWidget {
 
 class _RequestPartDialogContentState extends State<_RequestPartDialogContent> {
   final _noteController = TextEditingController();
+  bool _submitted = false;
 
   @override
   void dispose() {
@@ -80,6 +81,8 @@ class _RequestPartDialogContentState extends State<_RequestPartDialogContent> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
+                      if (_submitted) return;
+                      _submitted = true;
                       final note = _noteController.text.trim();
                       Get.back();
                       widget.onRequest(note: note.isEmpty ? null : note);

@@ -27,6 +27,10 @@ class WoOperationalDetailController extends GetxController
 
   final isLoading = false.obs;
   final isPartExecutionDirty = false.obs;
+  // Guards every mutating action below against a second tap/submit firing
+  // while the first request is still in flight (prevents duplicate WO
+  // actions / material requests from a fast double-tap or slow network).
+  final isProcessing = false.obs;
   bool _partBusy = false;
   final selectedDetailTab = 0.obs;
   final woNumber = ''.obs;
@@ -300,6 +304,8 @@ class WoOperationalDetailController extends GetxController
   }
 
   Future<void> approveWo(String comment) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -330,10 +336,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> declineWo(String comment) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -364,10 +374,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> forwardWo(String toDivision, String comment) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -399,10 +413,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> voidDocument(String reason) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -433,10 +451,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> voidPreventive(String reason) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -466,10 +488,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> deleteWo() async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     try {
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
@@ -497,6 +523,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -545,6 +573,7 @@ class WoOperationalDetailController extends GetxController
       return;
     }
 
+    if (_partBusy) return;
     final row = partExecutionRows[index];
 
     _partBusy = true;
@@ -598,6 +627,7 @@ class WoOperationalDetailController extends GetxController
     if (!isPreventiveWo) {
       return;
     }
+    if (_partBusy) return;
 
     _partBusy = true;
     try {
@@ -725,6 +755,8 @@ class WoOperationalDetailController extends GetxController
       );
       return;
     }
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -763,6 +795,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -783,6 +817,8 @@ class WoOperationalDetailController extends GetxController
       );
       return;
     }
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -822,10 +858,14 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
   Future<void> requestPart({String? note}) async {
+    if (isProcessing.value) return;
+    isProcessing.value = true;
     final jobExecutor = workOrder.value?.jobExecutor ?? '';
 
     try {
@@ -862,6 +902,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -895,6 +937,8 @@ class WoOperationalDetailController extends GetxController
       );
       return;
     }
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -937,6 +981,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -951,6 +997,8 @@ class WoOperationalDetailController extends GetxController
       );
       return;
     }
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -991,6 +1039,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -1013,6 +1063,8 @@ class WoOperationalDetailController extends GetxController
     );
 
     if (confirm != true) return;
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -1045,6 +1097,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 
@@ -1067,6 +1121,8 @@ class WoOperationalDetailController extends GetxController
     );
 
     if (confirm != true) return;
+    if (isProcessing.value) return;
+    isProcessing.value = true;
 
     try {
       Get.dialog(
@@ -1099,6 +1155,8 @@ class WoOperationalDetailController extends GetxController
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      isProcessing.value = false;
     }
   }
 

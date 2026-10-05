@@ -103,10 +103,16 @@ dailyControlRouter.get('/daily-control/scheduled_summary', asyncHandler(async (r
     return;
   }
 
+  // Total "terjadwal hari ini" harus mencakup WO yang SUDAH CLOSED juga —
+  // WO yang sudah selesai dikerjakan tetap bagian dari total hari itu, cuma
+  // statusnya aja yang berubah. Mengecualikan CLOSED di sini membuat
+  // penyebut menyusut begitu WO selesai, padahal pembilang (aktivitas Daily
+  // Control, termasuk dari WO yang sudah closed) tidak ikut menyusut —
+  // hasilnya rasio "selesai/total" bisa lewat 100% (mis. 50/40).
   let total = 0;
   if (division === 'ITS') {
     const result = await rows(
-      "SELECT wo.wo_number FROM tb_wo_it wo WHERE wo.date=? AND wo.status != 'CLOSED' AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')",
+      "SELECT wo.wo_number FROM tb_wo_it wo WHERE wo.date=? AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')",
       [selectedDate],
     );
     total = result.length;
@@ -114,7 +120,7 @@ dailyControlRouter.get('/daily-control/scheduled_summary', asyncHandler(async (r
     const result = await rows<Record<string, unknown>>(
       `SELECT wo.wo_number, wo.job_title, wo.company, wo.location, wo.job_executor, d.division_code, d.division_name, a.AssetName
        FROM tb_wo_mtc wo LEFT JOIN tb_division d ON d.id_division=wo.id_division LEFT JOIN asset a ON a.AssetID=wo.id_equipment
-       WHERE wo.date=? AND wo.status != 'CLOSED' AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')`,
+       WHERE wo.date=? AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')`,
       [selectedDate],
     );
     total = result.filter((r) => classifyMesoFilterMatch(r, mesoFilter)).length;
@@ -122,7 +128,7 @@ dailyControlRouter.get('/daily-control/scheduled_summary', asyncHandler(async (r
     const result = await rows<Record<string, unknown>>(
       `SELECT wo.wo_number, wo.id_equipment AS wo_asset_id, wo.category_maintenance, a.mtc_area_key
        FROM tb_wo_mtc_operational wo LEFT JOIN asset a ON a.AssetID=wo.id_equipment
-       WHERE wo.date=? AND wo.status != 'CLOSED' AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')
+       WHERE wo.date=? AND wo.type_wo IN ('preventive','PREVENTIVE','PREVENTIVE MAINTENANCE','PREV MAINTENANCE','PM')
          AND (wo.job_requirement LIKE 'AUTO FROM SCHEDULE:%' OR wo.auto_generate='yes')`,
       [selectedDate],
     );

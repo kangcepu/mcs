@@ -163,6 +163,7 @@ class WoProductionDetailController extends GetxController
   }
 
   Future<void> approveWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.approveWo(woNumber!, comment, 'approve');
@@ -186,6 +187,7 @@ class WoProductionDetailController extends GetxController
     String status, {
     required List<String> servicePhotoPaths,
   }) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       if (servicePhotoPaths.isEmpty) {
@@ -214,6 +216,7 @@ class WoProductionDetailController extends GetxController
   }
 
   Future<void> addLabor(String trade, int men, double hours) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.addLabor(
@@ -235,6 +238,7 @@ class WoProductionDetailController extends GetxController
 
   Future<void> addMaterial(
       String materialName, double qty, String unit, String pr) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.addMaterial(
@@ -267,6 +271,7 @@ class WoProductionDetailController extends GetxController
   }
 
   Future<void> completeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.completeWo(woNumber!, comment);
@@ -286,6 +291,7 @@ class WoProductionDetailController extends GetxController
   }
 
   Future<void> closeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.closeWo(woNumber!, comment);
@@ -307,6 +313,7 @@ class WoProductionDetailController extends GetxController
   }
 
   Future<void> voidWo(String reason) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woProductionRepository.voidWo(woNumber!, reason);

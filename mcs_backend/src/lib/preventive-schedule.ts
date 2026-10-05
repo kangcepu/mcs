@@ -29,6 +29,26 @@ export function scheduleTypeToStorageValue(value: unknown): string {
   }
 }
 
+/**
+ * Human-readable Indonesian label for a preventive checklist item's
+ * frequency, used by the mobile app to group/badge Harian vs Mingguan vs
+ * Bulanan items inside a single WO (a WO can legitimately bundle items of
+ * different frequencies when they fall due on the same day for the same
+ * asset) — the mobile UI already groups by this label, it was just never
+ * sent by the backend.
+ */
+export function scheduleTypeToDisplayLabel(value: unknown): string {
+  switch (normalizeCustomDetailScheduleType(value)) {
+    case 'harian': return 'Harian';
+    case 'mingguan': return 'Mingguan';
+    case 'bulanan': return 'Bulanan';
+    case '3 bulanan': return '3 Bulan';
+    case '6 bulanan': return '6 Bulan';
+    case 'tahunan': return 'Tahunan';
+    default: return '';
+  }
+}
+
 const WEEKDAYS_NO_SUNDAY = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const ENGLISH_DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 

@@ -477,7 +477,11 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: _buildSimpleInfoCard(
         title: 'Aksi Cepat',
-        child: Column(
+        child: Obx(() => AbsorbPointer(
+          absorbing: controller.isProcessing.value,
+          child: Opacity(
+            opacity: controller.isProcessing.value ? 0.5 : 1,
+            child: Column(
           children: [
             if (controller.canExecute) ...[
               Row(
@@ -544,7 +548,9 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
               ),
             ],
           ],
-        ),
+            ),
+          ),
+        )),
       ),
     );
   }
@@ -1420,6 +1426,21 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
 
             final estimateHeight = totalRows * 168.0;
             final listHeight = estimateHeight.clamp(220.0, screenHeight * 0.54);
+            final harianCount = sections
+                .firstWhere((s) => s.label == 'Harian',
+                    orElse: () => const _PartExecutionSection(label: '', entries: []))
+                .entries
+                .length;
+            final mingguanCount = sections
+                .firstWhere((s) => s.label == 'Mingguan',
+                    orElse: () => const _PartExecutionSection(label: '', entries: []))
+                .entries
+                .length;
+            final bulananCount = sections
+                .firstWhere((s) => s.label == 'Bulanan',
+                    orElse: () => const _PartExecutionSection(label: '', entries: []))
+                .entries
+                .length;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1437,25 +1458,45 @@ class WoOperationalDetailPage extends GetView<WoOperationalDetailController> {
                         ),
                       ),
                       const SizedBox(width: 10),
+                      if (harianCount > 0) ...[
+                        _buildPartStatPill(
+                          label: 'HR',
+                          value: '$harianCount',
+                          bgColor: const Color(0xFFE8F7EE),
+                          textColor: const Color(0xFF0F9D58),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      if (mingguanCount > 0) ...[
+                        _buildPartStatPill(
+                          label: 'MG',
+                          value: '$mingguanCount',
+                          bgColor: const Color(0xFFEAF2FF),
+                          textColor: const Color(0xFF2D5BBA),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      if (bulananCount > 0) ...[
+                        _buildPartStatPill(
+                          label: 'BLN',
+                          value: '$bulananCount',
+                          bgColor: const Color(0xFFFFF4E8),
+                          textColor: const Color(0xFFE17055),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       _buildPartStatPill(
-                        label: 'Total Part',
-                        value: '$totalRows',
-                        bgColor: const Color(0xFFEAF2FF),
-                        textColor: const Color(0xFF2d5bba),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildPartStatPill(
-                        label: 'Selesai',
+                        label: 'Done',
                         value: '$totalDone',
                         bgColor: const Color(0xFFE6F9F2),
                         textColor: const Color(0xFF00a884),
                       ),
                       const SizedBox(width: 8),
                       _buildPartStatPill(
-                        label: 'Belum',
-                        value: '${totalRows - totalDone}',
-                        bgColor: const Color(0xFFFFF2E6),
-                        textColor: const Color(0xFFe17055),
+                        label: 'Total',
+                        value: '$totalRows',
+                        bgColor: const Color(0xFFEAF2FF),
+                        textColor: const Color(0xFF2d5bba),
                       ),
                       if (controller.isPartExecutionDirty.value) ...[
                         const SizedBox(width: 8),

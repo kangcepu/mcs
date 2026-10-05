@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../data/models/work_order_model.dart' as wo_model;
 import '../../../data/repositories/wo_operational_repository.dart';
+import '../../../core/utils/media_picker_helper.dart';
 
 class WoOperationalUpdateController extends GetxController {
   final WoOperationalRepository _woRepository = WoOperationalRepository();
@@ -102,10 +103,12 @@ class WoOperationalUpdateController extends GetxController {
         source: ImageSource.camera,
         imageQuality: 80,
       );
-      
+
       if (photo != null) {
-        attachmentFile.value = File(photo.path);
-        attachmentPath.value = photo.path;
+        final stamped =
+            await MediaPickerHelper.stampTimestamp(File(photo.path));
+        attachmentFile.value = stamped;
+        attachmentPath.value = stamped.path;
       }
     } catch (e) {
       Get.snackbar(

@@ -126,6 +126,7 @@ class DailyControlPage extends StatelessWidget {
                   const SizedBox(height: 16),
                 ],
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
                       formatDisplayDateValue(controller.selectedDate.value),
@@ -135,13 +136,14 @@ class DailyControlPage extends StatelessWidget {
                         color: Color(0xFF1f2937),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Obx(() {
                         return Wrap(
-                          alignment: WrapAlignment.center,
+                          alignment: WrapAlignment.end,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           spacing: 6,
-                          runSpacing: 4,
+                          runSpacing: 6,
                           children: [
                             _buildMaintenanceTypeFilterChip(
                               label: 'PRO:${controller.projectDoneCount}',
@@ -150,28 +152,12 @@ class DailyControlPage extends StatelessWidget {
                               onTap: () => controller
                                   .toggleMaintenanceKindFilter('project'),
                             ),
-                            const Text(
-                              '|',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF9CA3AF),
-                              ),
-                            ),
                             _buildMaintenanceTypeFilterChip(
                               label: 'COR:${controller.correctiveDoneCount}',
                               selected: controller
                                   .isMaintenanceKindSelected('corrective'),
                               onTap: () => controller
                                   .toggleMaintenanceKindFilter('corrective'),
-                            ),
-                            const Text(
-                              '|',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF9CA3AF),
-                              ),
                             ),
                             _buildMaintenanceTypeFilterChip(
                               label: controller.isGaOrProductionFilter
@@ -187,12 +173,20 @@ class DailyControlPage extends StatelessWidget {
                       }),
                     ),
                     const SizedBox(width: 8),
-                    Obx(() => Text(
-                          '(${controller.totalDoneCount})',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF1d4ed8),
+                    Obx(() => Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${controller.totalDoneCount}',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1d4ed8),
+                            ),
                           ),
                         )),
                   ],
@@ -1266,18 +1260,21 @@ class DailyControlPage extends StatelessWidget {
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(8),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFFDBEAFE) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          color: selected ? const Color(0xFFDBEAFE) : const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? const Color(0xFF93C5FD) : const Color(0xFFE5E7EB),
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
             color: selected ? const Color(0xFF1D4ED8) : const Color(0xFF6B7280),
           ),

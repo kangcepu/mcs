@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import '../../../data/repositories/wo_repository.dart';
 import '../../../data/repositories/master_repository.dart';
+import '../../../core/utils/media_picker_helper.dart';
 
 class WoCreateController extends GetxController {
   final WoRepository _woRepository = WoRepository();
@@ -354,7 +355,8 @@ class WoCreateController extends GetxController {
             await _picker.pickImage(source: ImageSource.camera);
         if (photo != null) {
           if (selectedImages.length < 5) {
-            selectedImages.add(File(photo.path));
+            selectedImages
+                .add(await MediaPickerHelper.stampTimestamp(File(photo.path)));
           } else {
             Get.snackbar(
               'Limit Reached',

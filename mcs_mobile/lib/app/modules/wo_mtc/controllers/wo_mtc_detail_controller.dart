@@ -384,6 +384,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> savePartExecution() async {
     if (!canUpdatePreventivePart || woNumber == null) return;
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woMtcRepository.savePartExecution(
@@ -405,6 +406,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
         woNumber == null ||
         index < 0 ||
         index >= partExecutionRows.length) return;
+    if (isProcessing.value) return;
     final row = partExecutionRows[index];
     try {
       isProcessing.value = true;
@@ -652,6 +654,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
     required List<String> servicePhotoPaths,
   }) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -683,6 +686,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
     required double hours,
   }) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -701,6 +705,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> removeLabor(Labor laborItem) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -724,6 +729,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
     required String pr,
   }) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -743,6 +749,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> removeMaterial(MaterialMtc materialItem) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -775,6 +782,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> requestMaterial(List<MaterialRequestItem> items) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -798,6 +806,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> approveWo(String comment) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -816,6 +825,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> completeWo(String comment) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -834,6 +844,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> closeWo(String comment) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -852,6 +863,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> voidWo(String reason) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -870,6 +882,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> createSubWo(String subTo) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;
@@ -999,6 +1012,7 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> uploadAttachment(String filePath) async {
     if (woNumber == null) return;
+    if (isProcessing.value) return;
 
     try {
       isProcessing.value = true;

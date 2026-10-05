@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../../core/utils/app_date_picker_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/media_picker_helper.dart';
 import '../../../data/models/asset_before_model.dart';
 import '../../../data/models/status_so_model.dart';
 import '../controllers/stock_opname_controller.dart';
@@ -796,8 +797,11 @@ class _AttachmentDialogState extends State<_AttachmentDialog> {
                                         final picked = await picker.pickImage(
                                             source: ImageSource.camera);
                                         if (picked != null) {
+                                          final stamped = await MediaPickerHelper
+                                              .stampTimestamp(
+                                                  File(picked.path));
                                           setState(() {
-                                            selectedImage = File(picked.path);
+                                            selectedImage = stamped;
                                           });
                                         }
                                       },

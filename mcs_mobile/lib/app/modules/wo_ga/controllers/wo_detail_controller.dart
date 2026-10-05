@@ -160,6 +160,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> approveWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.approveWo(woNumber!, comment, 'approve');
@@ -183,6 +184,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
     String status, {
     required List<String> servicePhotoPaths,
   }) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       if (servicePhotoPaths.isEmpty) {
@@ -210,6 +212,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> addLabor(String trade, int men, double hours) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.addLabor(
@@ -231,6 +234,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
 
   Future<void> addMaterial(
       String materialName, double qty, String unit, String pr) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.addMaterial(
@@ -263,6 +267,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> completeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.completeWo(woNumber!, comment);
@@ -282,6 +287,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> closeWo(String comment) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.closeWo(woNumber!, comment);
@@ -303,6 +309,7 @@ class WoGaDetailController extends GetxController with RealtimeRefresh {
   }
 
   Future<void> voidWo(String reason) async {
+    if (isProcessing.value) return;
     try {
       isProcessing.value = true;
       await _woRepository.voidWo(woNumber!, reason);

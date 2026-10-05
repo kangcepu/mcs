@@ -11,8 +11,10 @@ import 'app/core/utils/network_checker.dart';
 import 'app/core/constants/api_constants.dart';
 import 'app/core/services/push_notification_service.dart';
 import 'app/core/services/realtime_service.dart';
+import 'app/core/services/connectivity_service.dart';
 import 'app/data/providers/update_provider.dart';
 import 'app/core/widgets/responsive_app_wrapper.dart';
+import 'app/core/widgets/connectivity_banner.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -48,6 +50,7 @@ Future<void> main() async {
 
   Get.put(UpdateProvider());
   Get.put(RealtimeService(), permanent: true).ensureStarted();
+  await Get.putAsync(() => ConnectivityService().init(), permanent: true);
 
   runApp(const MyApp());
 }
@@ -80,7 +83,9 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
         return ResponsiveAppWrapper(
-          child: child ?? const SizedBox.shrink(),
+          child: ConnectivityBanner(
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       theme: ThemeData(

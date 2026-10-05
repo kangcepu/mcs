@@ -366,9 +366,6 @@ class _HomePageState extends State<HomePage> {
       final trendList = (data['trend'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-      final preventiveDailyList = (data['preventive_daily'] as List? ?? [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
 
       final open = _asInt(totals['open']);
       final inProgress = _asInt(totals['in_progress']);
@@ -428,33 +425,6 @@ class _HomePageState extends State<HomePage> {
                         _asDoubleN(t['closed_corrective']) ?? 0,
                       ))
                   .toList(),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Preventive Harian',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF111827)),
-            ),
-            const SizedBox(height: 4),
-            DailyStatusBars(
-              data: preventiveDailyList
-                  .map((p) => DailyStatusPoint(
-                        '${p['date']}',
-                        _asDoubleN(p['closed_pct']) ?? 0,
-                        _asDoubleN(p['in_progress_pct']) ?? 0,
-                        _asDoubleN(p['open_pct']) ?? 0,
-                        _asInt(p['total']),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 4),
-            const Row(
-              children: [
-                _TinyLegend(color: Color(0xFF16A34A), label: 'Selesai'),
-                SizedBox(width: 10),
-                _TinyLegend(color: Color(0xFF1B54E0), label: 'Dikerjakan'),
-                SizedBox(width: 10),
-                _TinyLegend(color: Color(0xFFF59E0B), label: 'Belum'),
-              ],
             ),
           ],
         ),
@@ -699,26 +669,4 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-}
-
-class _TinyLegend extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _TinyLegend({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 3),
-        Text(label, style: const TextStyle(fontSize: 8.5, color: Color(0xFF64748B))),
-      ],
-    );
-  }
 }

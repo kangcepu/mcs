@@ -58,14 +58,23 @@ export function AppSidebar({
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-dvh w-64 flex-col bg-[#0a0f1c] text-slate-300 transition-transform lg:sticky lg:top-0 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex h-dvh w-64 flex-col bg-[#0a0f1c] text-slate-300 transition-[transform,width] lg:sticky lg:top-0 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
-          collapsed && "lg:hidden",
+          collapsed && "lg:w-16",
         )}
       >
         {/* Brand */}
-        <div className="flex items-start justify-between gap-2 px-5 pb-4 pt-5">
-          <Link href="/dashboard" className="flex items-center gap-3">
+        <div
+          className={cn(
+            "flex items-start justify-between gap-2 px-5 pb-4 pt-5",
+            collapsed && "lg:justify-center lg:px-0",
+          )}
+        >
+          <Link
+            href="/dashboard"
+            title={appName}
+            className={cn("flex items-center gap-3", collapsed && "lg:gap-0")}
+          >
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -78,7 +87,7 @@ export function AppSidebar({
                 <Wrench className="h-5 w-5" />
               </span>
             )}
-            <span className="leading-tight">
+            <span className={cn("leading-tight", collapsed && "lg:hidden")}>
               <span className="block text-base font-bold text-white">{appName}</span>
               <span className="block text-[11px] text-slate-400">{appSubtitle}</span>
             </span>
@@ -95,11 +104,21 @@ export function AppSidebar({
         <div className="mx-5 border-t border-white/10" />
 
         {/* Section label */}
-        <p className="px-5 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <p
+          className={cn(
+            "px-5 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500",
+            collapsed && "lg:hidden",
+          )}
+        >
           Menu Utama
         </p>
 
-        <nav className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+        <nav
+          className={cn(
+            "no-scrollbar flex-1 space-y-1 overflow-y-auto pb-4",
+            collapsed ? "px-3 pt-3 lg:px-2" : "px-3",
+          )}
+        >
           {items.map((item) => (
             <SidebarLink
               key={item.href}
@@ -107,6 +126,7 @@ export function AppSidebar({
               pathname={pathname}
               childItems={visibleChildren(item, user)}
               onNavigate={onClose}
+              collapsed={collapsed}
             />
           ))}
         </nav>
@@ -120,11 +140,13 @@ function SidebarLink({
   pathname,
   childItems,
   onNavigate,
+  collapsed = false,
 }: {
   item: NavItem;
   pathname: string;
   childItems: NavChild[];
   onNavigate: () => void;
+  collapsed?: boolean;
 }) {
   const active = item.match
     ? pathname.startsWith(item.match)
@@ -144,7 +166,12 @@ function SidebarLink({
         <Link
           href={item.href}
           onClick={onNavigate}
-          className="flex flex-1 items-center gap-3 px-3 py-2.5"
+          title={item.label}
+          aria-label={item.label}
+          className={cn(
+            "flex flex-1 items-center gap-3 px-3 py-2.5",
+            collapsed && "lg:justify-center lg:gap-0 lg:px-0",
+          )}
         >
           <Icon
             className={cn(
@@ -152,7 +179,7 @@ function SidebarLink({
               active ? "text-white" : "text-slate-300 group-hover:text-white",
             )}
           />
-          <span className="text-white">{item.label}</span>
+          <span className={cn("text-white", collapsed && "lg:hidden")}>{item.label}</span>
         </Link>
         {hasChildren ? (
           <button
@@ -160,6 +187,7 @@ function SidebarLink({
             className={cn(
               "px-2.5 py-2.5",
               active ? "text-white/80" : "text-slate-500 hover:text-slate-300",
+              collapsed && "lg:hidden",
             )}
             aria-label={expanded ? "Tutup submenu" : "Buka submenu"}
           >
@@ -168,12 +196,17 @@ function SidebarLink({
             />
           </button>
         ) : (
-          <span className="px-2.5" />
+          <span className={cn("px-2.5", collapsed && "lg:hidden")} />
         )}
       </div>
 
       {hasChildren && expanded ? (
-        <div className="ml-[26px] mt-1 space-y-0.5 border-l border-white/10 pl-3">
+        <div
+          className={cn(
+            "ml-[26px] mt-1 space-y-0.5 border-l border-white/10 pl-3",
+            collapsed && "lg:hidden",
+          )}
+        >
           {childItems.map((child) => {
             const ChildIcon = child.icon;
             const childActive =

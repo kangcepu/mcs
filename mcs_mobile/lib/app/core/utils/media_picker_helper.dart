@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -28,7 +29,7 @@ class MediaPickerHelper {
       );
 
       if (photo == null) return null;
-      return File(photo.path);
+      return await stampTimestamp(File(photo.path));
     } catch (e) {
       return null;
     }
@@ -110,6 +111,50 @@ class MediaPickerHelper {
       return null;
     }
   }
+
+  /// Burns the current date/time ("DD/MM/YYYY HH:mm") into the bottom-left
+  /// corner of [file] as a visible watermark, mirroring how a dedicated
+  /// field camera stamps evidence photos. Best-effort: if decoding/encoding
+  /// fails for any reason, the original file is returned untouched so a
+  /// stamping glitch never blocks the upload flow.
+  static Future<File> stampTimestamp(File file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return file;
+
+      final now = DateTime.now();
+      final text =
+          '${_two(now.day)}/${_two(now.month)}/${now.year} ${_two(now.hour)}:${_two(now.minute)}';
+
+      final barHeight = (decoded.height * 0.06).clamp(28, 60).round();
+      img.fillRect(
+        decoded,
+        x1: 0,
+        y1: decoded.height - barHeight,
+        x2: decoded.width,
+        y2: decoded.height,
+        color: img.ColorRgba8(0, 0, 0, 140),
+      );
+
+      img.drawString(
+        decoded,
+        text,
+        font: img.arial24,
+        x: 12,
+        y: decoded.height - barHeight + ((barHeight - 24) ~/ 2),
+        color: img.ColorRgba8(255, 255, 255, 255),
+      );
+
+      final outBytes = img.encodeJpg(decoded, quality: 90);
+      await file.writeAsBytes(outBytes, flush: true);
+      return file;
+    } catch (e) {
+      return file;
+    }
+  }
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
 
   static Future<File?> compressImage(File file) async {
     try {
