@@ -127,6 +127,29 @@ async function hasScheduleDivisionUser(divisionId: number): Promise<boolean> {
   return Number(row?.total ?? 0) > 0;
 }
 
+async function executionStatus(target: string, scheduleDetailIds: number[]): Promise<{ total_items: number; done_items: number; percent: number }> {
+  if (!scheduleDetailIds.length) return { total_items: 0, done_items: 0, percent: 0 };
+  const placeholders = scheduleDetailIds.map(() => '?').join(',');
+  let sql: string | null = null;
+  if (target === 'wo_mtc') {
+    sql = `SELECT COUNT(*) AS total, SUM(CASE WHEN UPPER(TRIM(COALESCE(d.maintenance_status,''))) = 'DONE' THEN 1 ELSE 0 END) AS done
+           FROM tb_wo_meso_detail d WHERE d.schedule_detail_id IN (${placeholders})`;
+  } else if (target === 'wo_mtc_operational') {
+    sql = `SELECT COUNT(*) AS total, SUM(CASE WHEN UPPER(TRIM(COALESCE(pe.maintenance_status,''))) = 'DONE' THEN 1 ELSE 0 END) AS done
+           FROM tb_wo_mtc_operational_detail d
+           LEFT JOIN tb_wo_operational_part_execution pe ON pe.wo_number = d.wo_number AND pe.part_mesin = d.part_mesin
+           WHERE d.schedule_detail_id IN (${placeholders})`;
+  } else if (target === 'wo_preventive') {
+    sql = `SELECT COUNT(*) AS total, SUM(CASE WHEN d.is_done = 1 THEN 1 ELSE 0 END) AS done
+           FROM tb_wo_preventive_detail d WHERE d.schedule_detail_id IN (${placeholders})`;
+  }
+  if (!sql) return { total_items: 0, done_items: 0, percent: 0 };
+  const row = await one<{ total: number | string | null; done: number | string | null }>(sql, scheduleDetailIds).catch(() => null);
+  const total = Number(row?.total ?? 0);
+  const done = Number(row?.done ?? 0);
+  return { total_items: total, done_items: done, percent: total > 0 ? Math.round((done / total) * 1000) / 10 : 0 };
+}
+
 async function generationStatus(header: Record<string, unknown>, details: Record<string, unknown>[]): Promise<Record<string, unknown>> {
   const activeIds = details
     .filter((d) => String(d.is_pause ?? 'started').toLowerCase().trim() === 'started')
@@ -153,7 +176,9 @@ async function generationStatus(header: Record<string, unknown>, details: Record
 
   const activeCount = activeIds.length;
   const generatedCount = generatedIds.size;
+  const execution = await executionStatus(target, activeIds);
   return {
+    execution,
     active_detail_count: activeCount,
     generated_detail_count: generatedCount,
     missing_detail_count: Math.max(0, activeCount - generatedCount),

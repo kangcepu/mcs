@@ -53,6 +53,7 @@ export default function PreventiveScheduleDetailPage({
           missing_detail_count?: number;
           initial_generation_complete?: boolean;
           work_order_numbers?: string[];
+          execution?: { total_items: number; done_items: number; percent: number };
         };
       }
     | undefined;
@@ -271,6 +272,19 @@ export default function PreventiveScheduleDetailPage({
                     ) : (
                       <span className="text-amber-600">Perlu Repair</span>
                     ),
+                },
+                {
+                  label: "Progres Eksekusi",
+                  value: generation?.execution && generation.execution.total_items > 0 ? (
+                    <span className={generation.execution.percent >= 100 ? "text-emerald-600" : "text-slate-800"}>
+                      {generation.execution.percent}%{" "}
+                      <span className="text-slate-400">
+                        ({generation.execution.done_items} dari {generation.execution.total_items} item)
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Belum ada WO terbit</span>
+                  ),
                 },
               ]}
             />
