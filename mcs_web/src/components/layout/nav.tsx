@@ -205,6 +205,12 @@ export const NAV_ITEMS: NavItem[] = [
         icon: Timer,
         area: "masterScheduler",
       },
+      {
+        label: "Backup Database",
+        href: "/master-data/db-backup",
+        icon: Database,
+        area: "masterBackup",
+      },
     ],
   },
 ];
