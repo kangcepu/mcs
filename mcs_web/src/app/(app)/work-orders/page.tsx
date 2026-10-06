@@ -7,6 +7,7 @@ import { Plus, RefreshCw } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Tabs } from "@/components/ui/tabs";
 import { FilterBar, FilterDate, FilterSelect } from "@/components/ui/filter-bar";
+import { MTC_AREA_OPTIONS, mtcAreaLabel } from "@/lib/mtc-area";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
 import { StatusBadge, statusLabel } from "@/components/ui/status-badge";
@@ -35,6 +36,7 @@ const DEFAULTS = {
   type_wo: "",
   company: "",
   asset_id: "",
+  area: "",
   date_from: "",
   date_to: "",
   page: 1,
@@ -120,6 +122,11 @@ export default function WorkOrdersPage() {
       cell: (r) => (
         <span className="capitalize text-slate-600">{r.type_wo ?? "-"}</span>
       ),
+    },
+    {
+      key: "area",
+      header: "Area",
+      cell: (r) => mtcAreaLabel(r.mtc_area_key as string | null | undefined),
     },
     {
       key: "company",
@@ -219,6 +226,12 @@ export default function WorkOrdersPage() {
           onChange={(v) => setValues({ type_wo: v }, { resetPage: true })}
           options={TYPE_WO_OPTIONS}
           placeholder="Semua tipe"
+        />
+        <FilterSelect
+          value={values.area}
+          onChange={(v) => setValues({ area: v }, { resetPage: true })}
+          options={MTC_AREA_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          placeholder="Semua area"
         />
         <input
           className="input-base h-9 w-36"

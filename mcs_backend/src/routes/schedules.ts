@@ -36,9 +36,7 @@ scheduleRouter.post('/preventive-schedules', authenticate, canManage, asyncHandl
   const result = await save(0, req.body, user);
   if (!result.ok) throw new HttpError(422, result.message ?? 'Failed to create schedule', 'SCHEDULE_CREATE_FAILED');
 
-  const newId = Number((result.data?.header as Record<string, unknown> | undefined)?.id ?? 0);
-  const generated = newId > 0 ? await generateScheduleNow(newId) : [];
-  ok(res, { ...result.data, generated_work_orders: generated }, generated.length ? 'Preventive schedule dan WO awal dibuat' : 'Preventive schedule created');
+  ok(res, { ...result.data, generated_work_orders: [] }, 'Preventive schedule created');
 }));
 
 scheduleRouter.post('/preventive-schedules/generate', authenticate, canManage, asyncHandler(async (req, res) => {

@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pause, Pencil, Play, Send, Trash2, Wrench } from "lucide-react";
+import { ChevronDown, Pause, Pencil, Play, Send, Trash2, Wrench } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -74,6 +74,14 @@ export default function PreventiveScheduleDetailPage({
     detail?.repair_status?.schedule_detail_total ?? details.length;
   const customCount = detail?.repair_status?.custom_detail_total ?? 0;
   const hasUnscheduled = (grouped.get("unscheduled")?.length ?? 0) > 0;
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  const toggleGroup = (key: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   // Jumlah baris bisa "selaras" (sama persis dgn Custom Detail) padahal
   // isinya rusak — mis. part_mesin kosong dari bug field-mapping lama.
   // Cek isi baris juga, jangan cuma jumlahnya, biar tombol Repair tetap
@@ -268,16 +276,51 @@ export default function PreventiveScheduleDetailPage({
             />
           </div>
 
+          <div className="card p-3">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {SCHEDULE_GROUPS.filter((g) => g.key !== "unscheduled" || hasUnscheduled).map((g) => {
+                const count = grouped.get(g.key)?.length ?? 0;
+                return (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => toggleGroup(g.key)}
+                    className={`rounded-md border px-2.5 py-1.5 text-left transition ${
+                      openGroups.has(g.key)
+                        ? "border-brand-300 bg-brand-50"
+                        : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <p className="text-[11px] leading-tight text-slate-500">{g.label}</p>
+                    <p className="text-base font-semibold leading-tight tabular-nums text-slate-900">
+                      {count}
+                      <span className="ml-1 text-[11px] font-normal text-slate-400">part</span>
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {SCHEDULE_GROUPS.map((g) => {
             const items = grouped.get(g.key) ?? [];
-            if (items.length === 0) return null;
+            if (g.key === "unscheduled" && items.length === 0) return null;
+            const open = openGroups.has(g.key) && items.length > 0;
             return (
               <div key={g.key} className="card overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
-                  <h3 className="text-sm font-semibold text-slate-800">{g.label}</h3>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(g.key)}
+                  aria-expanded={open}
+                  className={`flex w-full items-center justify-between bg-slate-50/60 px-4 py-2 text-left ${open ? "border-b border-slate-100" : ""}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+                    <h3 className="text-sm font-semibold text-slate-800">{g.label}</h3>
+                  </span>
                   <span className="text-xs text-slate-400">{items.length} part</span>
-                </div>
-                <div className="divide-y divide-slate-100">
+                </button>
+                {open ? <div className="divide-y divide-slate-100">
                   {items.map((d, idx) => (
                     <div
                       key={(d.id as string) ?? idx}
@@ -323,7 +366,7 @@ export default function PreventiveScheduleDetailPage({
                       ) : null}
                     </div>
                   ))}
-                </div>
+                </div> : null}
               </div>
             );
           })}

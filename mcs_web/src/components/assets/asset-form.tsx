@@ -1,5 +1,6 @@
 "use client";
 
+import { MTC_AREA_OPTIONS } from "@/lib/mtc-area";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,6 +26,7 @@ const schema = z.object({
   is_active: z.boolean(),
   /** Kosong = bukan aset IT. Lepas dari Kategori — satu kategori (mis. Inventaris) bisa campur milik IT & bukan. */
   it_ownership_status: z.enum(["", "inventory", "in_use"]).optional(),
+  mtc_area_key: z.enum(["", "GSU_WNB", "GSU_INJECT", "RU_SAWMILL", "RU_PRODUCTION"]).optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -84,6 +86,7 @@ export function AssetFormModal({
       keterangan: pick(i, ["Keterangan", "description"]),
       is_active: initial ? !isAssetInactive(i) : true,
       it_ownership_status: pick(i, ["it_ownership_status"]) as "" | "inventory" | "in_use",
+      mtc_area_key: (pick(i, ["mtc_area_key"]) || "") as "" | "GSU_WNB" | "GSU_INJECT" | "RU_SAWMILL" | "RU_PRODUCTION",
     });
     // `options` (company/lokasi/kategori) di-fetch async dan sering belum
     // siap saat reset() pertama jalan — <select> native tidak bisa
@@ -230,6 +233,18 @@ export function AssetFormModal({
             <option value="">Bukan aset IT</option>
             <option value="inventory">Milik IT — Inventaris (stok, belum dipakai)</option>
             <option value="in_use">Milik IT — Sedang dipakai user</option>
+          </Select>
+        </Field>
+
+        <Field
+          label="Tanggung Jawab Maintenance (Area)"
+          hint="Menentukan user Maintenance area mana yang bertanggung jawab atas aset ini dan WO preventive-nya."
+        >
+          <Select {...register("mtc_area_key")}>
+            <option value="">Bukan area Maintenance</option>
+            {MTC_AREA_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </Select>
         </Field>
 

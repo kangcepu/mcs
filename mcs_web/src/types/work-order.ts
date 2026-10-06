@@ -23,6 +23,7 @@ export interface WorkOrderListItem {
   asset_id?: number | string | null;
   asset_code?: string | null;
   asset_name?: string | null;
+  mtc_area_key?: string | null;
   requested_by?: string | null;
   executor?: string | null;
   created_at?: string | null;
@@ -39,6 +40,7 @@ export interface WorkOrderFilters {
   type_wo?: string;
   company?: string;
   asset_id?: string;
+  area?: string;
   q?: string;
   page?: number;
   per_page?: number;

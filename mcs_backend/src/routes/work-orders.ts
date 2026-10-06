@@ -5,6 +5,7 @@ import { authenticate, requirePermission } from '../auth.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { companyFilterVariants, resolveCompanyCode } from '../lib/employee-api.js';
+import { normalizeAreaKey } from '../lib/daily-control.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
 import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
@@ -118,6 +119,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   const typeWo = String(req.query.type_wo ?? '').trim();
   const company = String(req.query.company ?? '').trim();
   const assetId = String(req.query.asset_id ?? '').trim();
+  const area = normalizeAreaKey(req.query.area);
   const dateFrom = String(req.query.date_from ?? '').trim();
   const dateTo = String(req.query.date_to ?? '').trim();
   const page = Math.max(1, Number(req.query.page ?? 1));
@@ -153,6 +155,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
       params.push(...variants.map((v) => `%${v}%`));
     }
     if (assetId) { where += ' AND w.id_equipment = ?'; params.push(assetId); }
+    if (area) { where += ' AND a.mtc_area_key = ?'; params.push(area); }
     if (dateFrom) { where += ' AND w.date >= ?'; params.push(dateFrom); }
     if (dateTo) { where += ' AND w.date <= ?'; params.push(dateTo); }
     // Legacy PHP (`M_Schedule::sync_preventive_header_to_wo_mtc`) nge-mirror
@@ -184,7 +187,7 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
       // WO final yang kebetulan paling baru bisa habisin jatah LIMIT per modul
       // duluan dan WO aktif yang lebih lama jadi gak pernah ke-fetch sama sekali.
       return rows(
-        `SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
+        `SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name, a.mtc_area_key FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
          ORDER BY (CASE WHEN UPPER(TRIM(w.status)) IN (${finishedPlaceholders}) THEN 1 ELSE 0 END) ASC, COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`,
         [...params, ...finishedList, perDomainLimit],
       );
@@ -237,7 +240,8 @@ workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req
     isPendingWoApproval(user, approvalModuleKey[domain], wo),
     isPendingWoClosing(user, approvalModuleKey[domain], wo),
   ]);
-  ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences, histories, actions: { can_approve: canApprove, can_close: canClose } });
+  const evidenceItems = evidences.map((ev) => ({ ...ev, url: `/uploads/${String(ev.file_path ?? '').replace(/^\/+/, '')}` }));
+  ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences: evidenceItems, histories, actions: { can_approve: canApprove, can_close: canClose } });
 }));
 
 workOrderRouter.post('/work-orders/create', authenticate, asyncHandler(async (req, res) => {

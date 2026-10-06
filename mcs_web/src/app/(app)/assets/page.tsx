@@ -1,5 +1,6 @@
 "use client";
 
+import { mtcAreaLabel } from "@/lib/mtc-area";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -94,6 +95,11 @@ export default function AssetsPage() {
       key: "category",
       header: "Kategori",
       cell: (r) => pick(r, ["CategoryAsset", "category_name", "category"]) || "-",
+    },
+    {
+      key: "mtc_area_key",
+      header: "Area Maintenance",
+      cell: (r) => mtcAreaLabel(pick(r, ["mtc_area_key"])),
     },
     {
       key: "active",
