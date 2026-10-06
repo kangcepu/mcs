@@ -28,6 +28,8 @@ import { equipmentRouter } from './routes/equipment.js';
 import { scheduleRouter } from './routes/schedules.js';
 import { miscRouter } from './routes/misc.js';
 import { gaRouter } from './routes/wo-ga.js';
+import { dbBackupRouter } from './routes/db-backup.js';
+import { runDueAutoBackup } from './lib/db-backup.js';
 import { isRouter } from './routes/wo-is.js';
 import { maintenanceRouter } from './routes/wo-maintenance.js';
 import { productionRouter } from './routes/wo-production.js';
@@ -84,7 +86,7 @@ app.use(express.static(path.resolve('public')));
 const v2 = express.Router();
 v2.use(healthRouter); v2.use(authRouter); v2.use(dashboardRouter); v2.use(masterRouter); v2.use(assetRouter); v2.use(assetMutationRouter); v2.use(workOrderRouter); v2.use(dailyControlRouter); v2.use(materialRouter); v2.use(equipmentRouter); v2.use(scheduleRouter); v2.use(miscRouter); v2.use(mesoRouter); v2.use(maintenanceRouter); v2.use(isRouter); v2.use(productionRouter); v2.use(gaRouter);
 v2.use(reportAssetRouter); v2.use(reportAssetMutationRouter); v2.use(reportEquipmentRouter); v2.use(reportWoMtcRouter);
-v2.use(approvalCenterRouter); v2.use(integrationsRouter); v2.use(realtimeRouter);
+v2.use(approvalCenterRouter); v2.use(integrationsRouter); v2.use(realtimeRouter); v2.use(dbBackupRouter);
 app.use('/api/v2', v2);
 app.use('/api', authRouter);
 app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));
@@ -110,5 +112,9 @@ const employeeSyncTask = cron.schedule(config.employeeSyncCronExpr, () => {
     .catch((error) => console.error('Employee sync cron failed:', error));
 }, { timezone: 'Asia/Jakarta' });
 
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+const dbBackupTask = cron.schedule('* * * * *', () => {
+  runDueAutoBackup().catch((error) => console.error('DB backup tick failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());
