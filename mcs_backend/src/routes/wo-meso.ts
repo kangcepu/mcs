@@ -775,6 +775,12 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
       );
     }
     await connection.execute('UPDATE tb_job_executor SET status=? WHERE id=?', [status, executor!.id] as never);
+    if (status === 'COMPLETE') {
+      await connection.execute(
+        "UPDATE tb_job_executor SET status='COMPLETE' WHERE wo_number=? AND job_executor=? AND status IN ('WAITING','IN_PROGRESS')",
+        [woNumber, executor!.job_executor] as never,
+      );
+    }
   });
 
   await syncDailyControlForWoUpdate({
