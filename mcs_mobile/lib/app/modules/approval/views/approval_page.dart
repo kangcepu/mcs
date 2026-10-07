@@ -95,22 +95,24 @@ class ApprovalPage extends StatelessWidget {
                 onExpand: controller.ensureSectionLoaded,
               ),
               const SizedBox(height: 12),
-              _SectionCard(
-                sectionKey: 'mutations',
-                title: 'Mutasi Asset',
-                subtitle: 'Permintaan mutasi yang perlu kamu approve.',
-                count: controller.countOf('mutations'),
-                accentColor: const Color(0xFF7C3AED),
-                items: controller.itemsOf('mutations'),
-                emptyText: 'Belum ada mutasi yang menunggu approve.',
-                processing: controller.isProcessing.value,
-                processingItemKey: controller.processingItemKey.value,
-                onAction: controller.handleAction,
-                onOpenDetail: null,
-                isLoading: controller.isSectionLoading('mutations'),
-                isLoaded: controller.isSectionLoaded('mutations'),
-                onExpand: controller.ensureSectionLoaded,
-              ),
+              if (controller.selectedCategory.value.isEmpty) ...[
+                _SectionCard(
+                  sectionKey: 'mutations',
+                  title: 'Mutasi Asset',
+                  subtitle: 'Permintaan mutasi yang perlu kamu approve.',
+                  count: controller.countOf('mutations'),
+                  accentColor: const Color(0xFF7C3AED),
+                  items: controller.itemsOf('mutations'),
+                  emptyText: 'Belum ada mutasi yang menunggu approve.',
+                  processing: controller.isProcessing.value,
+                  processingItemKey: controller.processingItemKey.value,
+                  onAction: controller.handleAction,
+                  onOpenDetail: null,
+                  isLoading: controller.isSectionLoading('mutations'),
+                  isLoaded: controller.isSectionLoaded('mutations'),
+                  onExpand: controller.ensureSectionLoaded,
+                ),
+              ],
             ],
           );
         }),
@@ -128,50 +130,55 @@ class _CategoryStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final summary = controller.summary.value;
     final categories = controller.woCategorySummaries;
+    final selected = controller.selectedCategory.value;
 
-    return GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-          childAspectRatio: 2.75,
-        ),
-        itemCount: categories.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            final active = controller.selectedCategory.value.isEmpty;
-            return _FilterChip(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ModuleTab(
               label: 'Semua',
               count: summary.total,
-              color: const Color(0xFF475569),
-              active: active,
+              color: const Color(0xFF0F172A),
+              active: selected.isEmpty,
               onTap: () => controller.toggleCategory(''),
-            );
-          }
-
-          final item = categories[index - 1];
-          return _FilterChip(
-            label: item.label,
-            count: item.count,
-            color: item.color,
-            active: controller.selectedCategory.value == item.key,
-            onTap: () => controller.toggleCategory(item.key),
-          );
-        },
-      );
+            ),
+          ),
+          for (final item in categories)
+            Expanded(
+              child: _ModuleTab(
+                label: item.label,
+                count: item.count,
+                color: item.color,
+                active: selected == item.key,
+                onTap: () => controller.toggleCategory(item.key),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
-class _FilterChip extends StatelessWidget {
+class _ModuleTab extends StatelessWidget {
   final String label;
   final int count;
   final Color color;
   final bool active;
   final VoidCallback onTap;
 
-  const _FilterChip({
+  const _ModuleTab({
     required this.label,
     required this.count,
     required this.color,
@@ -181,57 +188,111 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: BoxDecoration(
-            color: active ? color : Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: active ? color : const Color(0xFFE2E8F0),
+    final empty = count == 0;
+    final numberColor = empty
+        ? const Color(0xFFCBD5E1)
+        : (active ? color : const Color(0xFF334155));
+    final labelColor = active ? color : const Color(0xFF94A3B8);
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.only(top: 10, bottom: 0),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? color : Colors.transparent,
+              width: 2.5,
             ),
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.18),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : null,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$count',
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                height: 1.1,
+                color: numberColor,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: active ? Colors.white : color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                  color: labelColor,
                 ),
               ),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: active ? Colors.white : const Color(0xFF334155),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OldestChip extends StatelessWidget {
+  final String date;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _OldestChip({
+    required this.date,
+    required this.active,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final parsed = DateTime.tryParse(date);
+    final dayMonth = parsed == null
+        ? '-'
+        : '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}';
+    final year = parsed == null ? '' : '${parsed.year}';
+    final textColor = active ? Colors.white : const Color(0xFF6B7280);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 62,
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? color : const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              dayMonth,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  height: 1.15,
+                  color: textColor),
+            ),
+            Text(
+              year,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  height: 1.15,
+                  color: textColor),
+            ),
+          ],
         ),
       ),
     );
@@ -278,6 +339,30 @@ class _SectionCard extends StatefulWidget {
 class _SectionCardState extends State<_SectionCard>
     with SingleTickerProviderStateMixin {
   bool _isExpanded = false;
+  bool _oldestOnly = false;
+
+  ApprovalItem? get _oldestItem {
+    ApprovalItem? oldest;
+    DateTime? oldestAt;
+    for (final item in widget.items) {
+      final at = DateTime.tryParse(item.date);
+      if (at == null) continue;
+      if (oldestAt == null || at.isBefore(oldestAt)) {
+        oldest = item;
+        oldestAt = at;
+      }
+    }
+    return oldest;
+  }
+
+  Future<void> _toggleOldest() async {
+    if (!_isExpanded) {
+      await _toggleSection();
+    }
+    setState(() {
+      _oldestOnly = !_oldestOnly;
+    });
+  }
 
   Future<void> _toggleSection() async {
     final next = !_isExpanded;
@@ -292,6 +377,10 @@ class _SectionCardState extends State<_SectionCard>
 
   @override
   Widget build(BuildContext context) {
+    final oldest = _oldestItem;
+    final visibleItems =
+        _oldestOnly && oldest != null ? <ApprovalItem>[oldest] : widget.items;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -320,20 +409,6 @@ class _SectionCardState extends State<_SectionCard>
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                 child: Row(
                   children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: widget.accentColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        _sectionIcon(widget.sectionKey),
-                        color: widget.accentColor,
-                        size: 21,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,7 +432,15 @@ class _SectionCardState extends State<_SectionCard>
                         ],
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    if (_oldestItem != null) ...[
+                      _OldestChip(
+                        date: _oldestItem!.date,
+                        active: _oldestOnly,
+                        color: widget.accentColor,
+                        onTap: _toggleOldest,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 11,
@@ -402,8 +485,7 @@ class _SectionCardState extends State<_SectionCard>
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: widget.isLoading
                           ? Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 22),
+                              padding: const EdgeInsets.symmetric(vertical: 22),
                               child: Column(
                                 children: [
                                   SizedBox(
@@ -425,74 +507,81 @@ class _SectionCardState extends State<_SectionCard>
                                 ],
                               ),
                             )
-                          : widget.items.isEmpty
-                          ? Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.inbox_outlined,
-                                    color: widget.accentColor,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      widget.emptyText,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF64748B),
-                                      ),
+                          : visibleItems.isEmpty
+                              ? Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFFE2E8F0),
                                     ),
                                   ),
-                                ],
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: widget.items.length,
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                return _ApprovalItemCard(
-                                  item: widget.items[index],
-                                  processing: widget.processing,
-                                  processingItemKey: widget.processingItemKey,
-                                  onAction: widget.onAction,
-                                  onOpenDetail: widget.onOpenDetail,
-                                  accentColor: widget.accentColor,
-                                );
-                              },
-                            ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.inbox_outlined,
+                                        color: widget.accentColor,
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          widget.emptyText,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF64748B),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (oldest != null) ...[
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          formatDisplayDate(oldest.date),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: widget.accentColor,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
+                                    ListView.separated(
+                                      itemCount: visibleItems.length,
+                                      shrinkWrap: true,
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
+                                      separatorBuilder: (_, __) =>
+                                          const SizedBox(height: 10),
+                                      itemBuilder: (context, index) {
+                                        return _ApprovalItemCard(
+                                          item: visibleItems[index],
+                                          processing: widget.processing,
+                                          processingItemKey:
+                                              widget.processingItemKey,
+                                          onAction: widget.onAction,
+                                          onOpenDetail: widget.onOpenDetail,
+                                          accentColor: widget.accentColor,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                     ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  IconData _sectionIcon(String sectionKey) {
-    switch (sectionKey) {
-      case 'wo_approvals':
-        return Icons.verified_outlined;
-      case 'wo_closings':
-        return Icons.task_alt_outlined;
-      case 'materials':
-        return Icons.inventory_2_outlined;
-      case 'mutations':
-        return Icons.swap_horiz_rounded;
-      default:
-        return Icons.folder_open_outlined;
-    }
   }
 }
 

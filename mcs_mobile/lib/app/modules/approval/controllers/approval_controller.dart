@@ -389,31 +389,31 @@ class ApprovalController extends GetxController with RealtimeRefresh {
     return [
       ApprovalCategorySummary(
         key: 'MTC',
-        label: 'WO MTC',
+        label: 'MTC',
         count: summary.value.categoryCount('MTC'),
         color: const Color(0xFF2563EB),
       ),
       ApprovalCategorySummary(
         key: 'MESO',
-        label: 'WO MESO',
+        label: 'MESO',
         count: summary.value.categoryCount('MESO'),
         color: const Color(0xFF7C3AED),
       ),
       ApprovalCategorySummary(
         key: 'IS',
-        label: 'WO IS',
+        label: 'IS',
         count: summary.value.categoryCount('IS'),
         color: const Color(0xFF0EA5E9),
       ),
       ApprovalCategorySummary(
         key: 'GA',
-        label: 'WO GA',
+        label: 'GA',
         count: summary.value.categoryCount('GA'),
         color: const Color(0xFF059669),
       ),
       ApprovalCategorySummary(
         key: 'PRO',
-        label: 'WO Pro',
+        label: 'PROD',
         count: summary.value.categoryCount('PRO'),
         color: const Color(0xFFD97706),
       ),
