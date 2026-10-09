@@ -283,7 +283,10 @@ dailyControlRouter.post('/daily-control/read', asyncHandler(async (req, res) => 
 dailyControlRouter.get('/daily-control/comments', asyncHandler(async (req, res) => {
   const id = Number(req.query.activity_id ?? req.query.daily_control_id ?? 0);
   if (id <= 0) throw new HttpError(422, 'activity_id is required');
-  ok(res, await getCommentsByDailyControl(id));
+  // Dibungkus `{ items }` biar konsisten sama endpoint daily-control lain
+  // (mis. part-mentions) — mobile repo cuma baca `data['items']`, kalau
+  // `data` langsung array dia diam-diam balikin list kosong jadi chat ga muncul.
+  ok(res, { daily_control_id: id, items: await getCommentsByDailyControl(id) });
 }));
 
 dailyControlRouter.post('/daily-control/comment', asyncHandler(async (req, res) => {

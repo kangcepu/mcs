@@ -262,37 +262,43 @@ class _OldestChip extends StatelessWidget {
     final year = parsed == null ? '' : '${parsed.year}';
     final textColor = active ? Colors.white : const Color(0xFF6B7280);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 62,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? color : const Color(0xFFF3F4F6),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              dayMonth,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.15,
-                  color: textColor),
+    return Material(
+      color: active ? color : const Color(0xFFF3F4F6),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 68,
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active ? color : const Color(0xFFD1D5DB),
             ),
-            Text(
-              year,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.15,
-                  color: textColor),
-            ),
-          ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                dayMonth,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.15,
+                    color: textColor),
+              ),
+              Text(
+                year,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.15,
+                    color: textColor),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -339,7 +345,7 @@ class _SectionCard extends StatefulWidget {
 class _SectionCardState extends State<_SectionCard>
     with SingleTickerProviderStateMixin {
   bool _isExpanded = false;
-  bool _oldestOnly = false;
+  bool _sortOldestFirst = false;
 
   ApprovalItem? get _oldestItem {
     ApprovalItem? oldest;
@@ -360,7 +366,7 @@ class _SectionCardState extends State<_SectionCard>
       await _toggleSection();
     }
     setState(() {
-      _oldestOnly = !_oldestOnly;
+      _sortOldestFirst = !_sortOldestFirst;
     });
   }
 
@@ -378,8 +384,17 @@ class _SectionCardState extends State<_SectionCard>
   @override
   Widget build(BuildContext context) {
     final oldest = _oldestItem;
-    final visibleItems =
-        _oldestOnly && oldest != null ? <ApprovalItem>[oldest] : widget.items;
+    final visibleItems = List<ApprovalItem>.from(widget.items);
+    if (_sortOldestFirst) {
+      visibleItems.sort((a, b) {
+        final atA = DateTime.tryParse(a.date);
+        final atB = DateTime.tryParse(b.date);
+        if (atA == null && atB == null) return 0;
+        if (atA == null) return 1;
+        if (atB == null) return -1;
+        return atA.compareTo(atB);
+      });
+    }
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -432,10 +447,10 @@ class _SectionCardState extends State<_SectionCard>
                         ],
                       ),
                     ),
-                    if (_oldestItem != null) ...[
+                    if (_isExpanded && _oldestItem != null) ...[
                       _OldestChip(
                         date: _oldestItem!.date,
-                        active: _oldestOnly,
+                        active: _sortOldestFirst,
                         color: widget.accentColor,
                         onTap: _toggleOldest,
                       ),

@@ -22,14 +22,47 @@ import { SCHEDULE_GROUPS, toScheduleGroup } from "@/types/preventive";
 import { ApiError } from "@/types/api";
 import { pick } from "@/lib/display";
 
-const detailSchema = z.object({
-  part: z.string().min(1, "Wajib"),
-  activity: z.string().optional(),
-  frequency: z.string().min(1, "Wajib"),
-  condition: z.string().optional(),
-  /** Tautan ke asset_custom_details.id bila baris berasal dari Custom Detail. */
-  custom_detail_id: z.union([z.number(), z.string()]).optional(),
-});
+const WEEKDAY_OPTIONS = [
+  { value: "monday", label: "Senin" },
+  { value: "tuesday", label: "Selasa" },
+  { value: "wednesday", label: "Rabu" },
+  { value: "thursday", label: "Kamis" },
+  { value: "friday", label: "Jumat" },
+  { value: "saturday", label: "Sabtu" },
+];
+const WEEKDAY_VALUES = WEEKDAY_OPTIONS.map((w) => w.value);
+const MONTHLY_LIKE_GROUPS = new Set(["monthly", "quarterly", "semiannual", "annual"]);
+
+const detailSchema = z
+  .object({
+    part: z.string().min(1, "Wajib"),
+    activity: z.string().optional(),
+    frequency: z.string().min(1, "Wajib"),
+    /** Hari (mingguan, nilai: monday..saturday) atau tanggal 1-28 (bulanan ke atas). */
+    choose_day: z.string().optional(),
+    condition: z.string().optional(),
+    /** Tautan ke asset_custom_details.id bila baris berasal dari Custom Detail. */
+    custom_detail_id: z.union([z.number(), z.string()]).optional(),
+  })
+  .superRefine((v, ctx) => {
+    const group = toScheduleGroup(v.frequency);
+    if (group === "weekly" && !WEEKDAY_VALUES.includes(v.choose_day ?? "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["choose_day"],
+        message: "Pilih hari",
+      });
+    } else if (MONTHLY_LIKE_GROUPS.has(group)) {
+      const n = Number(v.choose_day);
+      if (!v.choose_day || !Number.isInteger(n) || n < 1 || n > 28) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["choose_day"],
+          message: "1-28",
+        });
+      }
+    }
+  });
 
 const schema = z
   .object({
@@ -116,9 +149,34 @@ function customRowToDetail(row: ScheduleCustomDetailRow) {
     part,
     activity: row.kondisi || (part ? `Pengecekan kondisi ${part}` : ""),
     frequency: frequencyLabelFromBackend(row.type_schedule ?? row.durasi_pengecekan),
+    choose_day: "",
     condition: row.category_maintenance || "",
     custom_detail_id: row.custom_detail_id || undefined,
   };
+}
+
+/**
+ * Nilai awal field Hari/Tanggal saat schedule lama dibuka utk diedit.
+ * Mingguan ambil dari kolom `choose_day` (nama hari). Bulanan ke atas HARUS
+ * ambil dari tanggal `start_date` — kolom `choose_day` selalu kosong untuk
+ * tipe ini (lihat resolveStartDate di preventive-schedule-crud.ts, kolom
+ * choose_day di DB adalah ENUM nama hari, gak bisa nyimpen angka tanggal).
+ * Parse manual dari prefix "YYYY-MM-DD", BUKAN `new Date()` — string
+ * tanpa suffix zona waktu di-parse browser pakai timezone lokal device,
+ * bukan WIB, jadi gampang geser satu hari (sumber bug yang sama berkali-
+ * kali ditemukan di sisi backend, lihat histori perbaikan di proyek ini).
+ */
+function initialChooseDayFromRow(row: Record<string, unknown>): string {
+  const group = toScheduleGroup(String(pick(row, ["type_schedule", "frequency"]) ?? ""));
+  if (group === "weekly") {
+    return String(pick(row, ["choose_day"]) ?? "").toLowerCase();
+  }
+  if (MONTHLY_LIKE_GROUPS.has(group)) {
+    const raw = String(pick(row, ["start_date"]) ?? "");
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    return m ? String(Number(m[3])) : "";
+  }
+  return "";
 }
 
 /**
@@ -133,6 +191,7 @@ function detailToBackend(detail: FormValues["details"][number]) {
     part_mesin: detail.part,
     job_requirement: detail.activity,
     type_schedule: detail.frequency,
+    choose_day: detail.choose_day?.trim() || undefined,
     category_maintenance: detail.condition,
     asset_custom_detail_id: detail.custom_detail_id,
   };
@@ -171,7 +230,7 @@ export function ScheduleFormModal({
     resolver: zodResolver(schema),
     defaultValues: {
       mtc_executors: [],
-      details: [{ part: "", activity: "", frequency: "", condition: "" }],
+      details: [{ part: "", activity: "", frequency: "", choose_day: "", condition: "" }],
     },
   });
 
@@ -260,12 +319,13 @@ export function ScheduleFormModal({
               part: pick(row, ["part_mesin", "part"]),
               activity: pick(row, ["job_requirement", "activity", "job_title"]),
               frequency: frequencyLabelFromBackend(pick(row, ["type_schedule", "frequency"])),
+              choose_day: initialChooseDayFromRow(row as Record<string, unknown>),
               condition: pick(row, ["category_maintenance", "condition"]),
               custom_detail_id:
                 pick(row, ["asset_custom_detail_id", "custom_detail_id"]) ||
                 undefined,
             }))
-          : [{ part: "", activity: "", frequency: "", condition: "" }],
+          : [{ part: "", activity: "", frequency: "", choose_day: "", condition: "" }],
     });
     setAutoFilledFor("");
   }, [open, initial, reset]);
@@ -427,6 +487,7 @@ export function ScheduleFormModal({
                     part: "",
                     activity: "",
                     frequency: "",
+                    choose_day: "",
                     condition: "",
                   })
                 }
@@ -450,19 +511,24 @@ export function ScheduleFormModal({
             <p className="mb-2 text-xs text-rose-600">{errors.details.message}</p>
           ) : null}
 
-          <div className="mb-1 hidden gap-2 px-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[1fr_1fr_140px_1fr_36px]">
+          <div className="mb-1 hidden gap-2 px-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[1fr_1fr_140px_110px_1fr_36px]">
             <span>Part Mesin</span>
             <span>Aktivitas / Prosedur</span>
             <span>Frekuensi</span>
+            <span>Hari / Tanggal</span>
             <span>Kategori Mtc</span>
             <span />
           </div>
 
           <div className="space-y-2">
-            {fields.map((f, i) => (
+            {fields.map((f, i) => {
+              const rowFrequency = watch(`details.${i}.frequency`);
+              const rowGroup = toScheduleGroup(rowFrequency);
+              const rowError = errors.details?.[i]?.choose_day?.message;
+              return (
               <div
                 key={f.id}
-                className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 p-2 sm:grid-cols-[1fr_1fr_140px_1fr_36px]"
+                className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 p-2 sm:grid-cols-[1fr_1fr_140px_110px_1fr_36px]"
               >
                 <input
                   type="hidden"
@@ -484,6 +550,30 @@ export function ScheduleFormModal({
                     </option>
                   ))}
                 </Select>
+                {rowGroup === "weekly" ? (
+                  <Select
+                    {...register(`details.${i}.choose_day`)}
+                    className={rowError ? "border-rose-400" : undefined}
+                  >
+                    <option value="">Hari</option>
+                    {WEEKDAY_OPTIONS.map((w) => (
+                      <option key={w.value} value={w.value}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </Select>
+                ) : MONTHLY_LIKE_GROUPS.has(rowGroup) ? (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={28}
+                    placeholder="Tgl 1-28"
+                    className={rowError ? "border-rose-400" : undefined}
+                    {...register(`details.${i}.choose_day`)}
+                  />
+                ) : (
+                  <Input value="-" readOnly className="bg-slate-50 text-slate-400" />
+                )}
                 <Input
                   placeholder="mkl / elc / general…"
                   {...register(`details.${i}.condition`)}
@@ -497,7 +587,8 @@ export function ScheduleFormModal({
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

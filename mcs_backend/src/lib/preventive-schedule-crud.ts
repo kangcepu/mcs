@@ -1,4 +1,5 @@
 import { execute, one, rows } from '../db.js';
+import { nowInJakarta } from './daily-control.js';
 
 function storageTypeForSave(value: unknown): string {
   let raw = String(value ?? '').toLowerCase().trim();
@@ -32,8 +33,33 @@ export interface ScheduleDetailInput {
   asset_custom_detail_id?: number;
 }
 
+/**
+ * Jadwal bulanan/3-bulan/6-bulan/tahunan tidak bisa pakai kolom `choose_day`
+ * (ENUM nama hari) buat simpan tanggal-dalam-bulan — itu akar penyebab bug
+ * "choose_day ENUM collision" yang berkali-kali ditemukan (lihat histori
+ * perbaikan Mesin Inject 19, 27 aset lain, dst). Satu-satunya tempat yang
+ * memang bisa menyimpan tanggal adalah `start_date` (generator baca
+ * tanggalnya lewat normalizeScheduleDetailChooseDayForType di
+ * preventive-schedule.ts). Jadi untuk tipe bulanan ke atas, `choose_day`
+ * dari form (angka 1-28) diterjemahkan jadi tanggal `start_date` bulan ini.
+ */
+const MONTHLY_LIKE_TYPES = new Set(['1 bulan', '3 bulan', '6 bulan', '1 tahun']);
+
+function resolveStartDate(d: ScheduleDetailInput, storedType: string): string {
+  if (MONTHLY_LIKE_TYPES.has(storedType)) {
+    const day = Number(d.choose_day);
+    if (Number.isInteger(day) && day >= 1 && day <= 28) {
+      const { date } = nowInJakarta();
+      const [y, m] = date.split('-');
+      return `${y}-${m}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  return d.start_date ?? nowInJakarta().date;
+}
+
 function detailFields(scheduleId: number, d: ScheduleDetailInput): Record<string, unknown> {
   const part = String(d.part_mesin ?? '');
+  const storedType = storageTypeForSave(d.type_schedule ?? 'harian');
   return {
     tbl_schedules_id: scheduleId,
     id_division: d.id_division,
@@ -43,13 +69,13 @@ function detailFields(scheduleId: number, d: ScheduleDetailInput): Record<string
     job_title: String(d.job_title ?? '').trim() !== '' ? d.job_title : `Pengecekan ${part}`,
     job_requirement: d.job_requirement ?? '',
     running_hours: d.running_hours ?? '0',
-    type_schedule: storageTypeForSave(d.type_schedule ?? 'harian'),
-    choose_day: normalizeChooseDay(d),
+    type_schedule: storedType,
+    choose_day: normalizeChooseDay(d, storedType),
     type_wo: d.type_wo ?? 'PREV MAINTENANCE',
     is_pause: d.is_pause ?? 'started',
     last_update: new Date().toISOString().slice(0, 19).replace('T', ' '),
     executor: d.executor ?? null,
-    start_date: d.start_date ?? new Date().toISOString().slice(0, 10),
+    start_date: resolveStartDate(d, storedType),
     part_mesin: part,
     asset_custom_detail_id: d.asset_custom_detail_id ?? 0,
   };
@@ -112,10 +138,9 @@ async function missingCustomDetailParts(assetCode: string, details: ScheduleDeta
  * frekuensi bulanan/3 bulan/6 bulan/tahunan, defaultnya WAJIB '' juga —
  * jangan coba simpan angka hari, itu bakal kesimpen jadi hari yang salah.
  */
-function normalizeChooseDay(d: ScheduleDetailInput): string {
-  const type = String(d.type_schedule ?? '').toLowerCase().trim();
+function normalizeChooseDay(d: ScheduleDetailInput, storedType: string): string {
   const day = String(d.choose_day ?? '').trim().toLowerCase();
-  if (['week', '1 minggu', 'mingguan'].includes(type)) {
+  if (storedType === '1 minggu') {
     const valid = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     return valid.includes(day) ? day : '';
   }

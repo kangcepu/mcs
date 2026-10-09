@@ -102,7 +102,11 @@ function closingJobs(user: User): WoJob[] {
   if (hasAllApprovalAccess(user)) {
     return [
       job('tb_wo_it', 'wo_it', 'WO IS', ['NEED_CLOSED'], {}, 'Closed'),
-      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['NEED_CLOSED'], {}, 'Closed', true),
+      // WO MESO corrective praktis gak pernah sampai NEED_CLOSED — berhenti
+      // di COMPLETE_EXECUTOR (lihat komentar di cabang DEPTHEAD di bawah).
+      // Tanpa COMPLETE_EXECUTOR di sini, user approval_all=1/management pun
+      // gak lihat WO corrective yang udah siap ditutup.
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['NEED_CLOSED', 'COMPLETE_EXECUTOR'], {}, 'Closed', true),
       job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['NEED_CLOSED'], {}, 'Closed'),
       job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], {}, 'Closed'),
       job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['NEED_CLOSED'], {}, 'Closed'),
@@ -122,7 +126,34 @@ function closingJobs(user: User): WoJob[] {
       job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], { id_division: div }, 'Closed'),
     );
   } else if (pos === 'DEPTHEAD') {
-    jobs.push(job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['COMPLETE_EXECUTOR'], { id_division: div }, 'Closed', true));
+    // TANPA filter id_division — sama seperti approvalJobs() di atas untuk
+    // tahap WAIT_KA_DEPT_MESO. Kepala Dept MESO mengawasi WO dari SEMUA
+    // divisi pemohon, bukan cuma divisinya sendiri. Filter id_division di
+    // sini sebelumnya ketiban salah-copy dari pola DIVHEAD persis di atas —
+    // akibatnya WO corrective MESO yang executornya sudah selesai
+    // (COMPLETE_EXECUTOR) dari divisi manapun SELAIN id_division DEPTHEAD
+    // sendiri gak pernah muncul di antrian "Menunggu Closed" siapapun,
+    // padahal sudah selesai dikerjakan (lihat laporan WO-092026/AF RU/0001).
+    jobs.push(job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['COMPLETE_EXECUTOR'], {}, 'Closed', true));
+  }
+
+  // Pembuat WO tetap bisa menutup WO buatannya sendiri begitu siap ditutup,
+  // di luar/tambahan dari akses posisi di atas (mis. Kadept MESO tetap
+  // punya akses lewat cabang DEPTHEAD, terlepas dari ini). Dicocokkan lewat
+  // `creator` (disimpan sebagai fullname, sama kayak kolom `creator` saat
+  // WO dibuat) karena pembuat WO sering bukan DIVHEAD/DEPTHEAD/DIVHEAD IT
+  // dsb — staff biasa gak kebagian akses apapun dari blok di atas sama
+  // sekali. deduplicateApprovalItems() di getPendingWoClosings() udah
+  // nangani kalau user yang sama juga dapat entri yg sama dari blok posisi.
+  const fullname = String(user.fullname ?? '').trim();
+  if (fullname) {
+    jobs.push(
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['COMPLETE_EXECUTOR'], { creator: fullname }, 'Closed', true),
+      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
+      job('tb_wo_it', 'wo_it', 'WO IS', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
+      job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
+      job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
+    );
   }
 
   return jobs;
@@ -153,6 +184,15 @@ function buildJobWhere(j: WoJob): { sql: string; params: unknown[] } {
   }
   for (const [field, value] of Object.entries(j.where)) {
     if (value === null || value === undefined || value === '') continue;
+    if (field === 'creator') {
+      // `creator` disimpan sebagai fullname SAAT WO dibuat — kalau nama user
+      // berubah sesudahnya (mis. "Ferra" -> "Ferra Novita"), exact match gagal
+      // dan si pembuat kehilangan akses tutup WO-nya sendiri. Terima juga
+      // kasus creator tersimpan sebagai prefix dari fullname saat ini.
+      clauses.push(`(LOWER(TRIM(wo.\`creator\`)) = LOWER(?) OR (TRIM(wo.\`creator\`) <> '' AND LOWER(?) LIKE CONCAT(LOWER(TRIM(wo.\`creator\`)), '%')))`);
+      params.push(value, value);
+      continue;
+    }
     clauses.push(`wo.\`${field}\` = ?`);
     params.push(value);
   }

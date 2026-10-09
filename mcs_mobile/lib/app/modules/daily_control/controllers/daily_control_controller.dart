@@ -1010,22 +1010,10 @@ class DailyControlController extends GetxController
         .where(_matchesSelectedMaintenanceKind)
         .toList();
 
-    filtered.sort((a, b) {
-      final unreadA = a.unreadCount > 0 ? 1 : 0;
-      final unreadB = b.unreadCount > 0 ? 1 : 0;
-      final unreadCompare = unreadB.compareTo(unreadA);
-      if (unreadCompare != 0) {
-        return unreadCompare;
-      }
-
-      final nameCompare = a.user.toLowerCase().compareTo(b.user.toLowerCase());
-      if (nameCompare != 0) {
-        return nameCompare;
-      }
-      final timeA = a.time;
-      final timeB = b.time;
-      return timeB.compareTo(timeA);
-    });
+    // Urutan murni berdasarkan waktu aktivitas, terbaru di atas — JANGAN
+    // dikelompokkan dulu berdasarkan abjad nama user atau status unread,
+    // itu bikin urutan waktunya kacau (lihat laporan user).
+    filtered.sort((a, b) => b.time.compareTo(a.time));
 
     return filtered;
   }

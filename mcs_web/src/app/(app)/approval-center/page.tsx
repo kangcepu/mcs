@@ -308,7 +308,7 @@ export default function ApprovalCenterPage() {
       <DataTable
         columns={columns}
         data={rows}
-        rowKey={(r, i) => (r.wo_number as string) ?? docNoOf(r) ?? i}
+        rowKey={(r, i) => (r.request_code as string) ?? (r.wo_number as string) ?? docNoOf(r) ?? i}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => list.refetch()}
