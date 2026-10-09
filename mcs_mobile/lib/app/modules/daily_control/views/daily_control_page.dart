@@ -4167,7 +4167,11 @@ class _DailyControlDetailSheetState extends State<_DailyControlDetailSheet> {
   }
 
   Widget _buildDetailHeader() {
-    final activity = widget.activity;
+    // Pakai `_activity` (state yang diperbarui `_listenForActivityUpdate`),
+    // bukan `widget.activity` yang statis sejak dialog dibuka — kalau media
+    // WO baru ke-sync ke Daily Control setelah dialog ini kebuka, thumbnail-nya
+    // ga pernah muncul karena masih baca snapshot lama yang medianya kosong.
+    final activity = _activity;
     final images = activity.media;
     final primaryTitle = _dailyControlPrimaryDetailText(activity);
     final displayName = widget.controller.resolveActivityDisplayName(activity);
