@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { Ban, Check, RefreshCw, X } from "lucide-react";
+import { Ban, Check, FileText, RefreshCw, X } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
 import { Tabs } from "@/components/ui/tabs";
@@ -62,6 +62,21 @@ function evidenceUrl(evidence: Record<string, unknown>): string {
 const VIDEO_EXT_RE = /\.(mp4|mov|avi|mkv|webm)(\?|$)/i;
 function isVideoUrl(url: string): boolean {
   return VIDEO_EXT_RE.test(url);
+}
+
+/**
+ * Lampiran dari form "Buat WO" (kolom `attachment`, bukan Evidence/service
+ * photo) — path relatif dipisah koma, belum ada prefix `/uploads/` (beda dari
+ * `evidences[].url` yang backend sudah tambahkan prefix-nya).
+ */
+function parseCreateAttachments(wo: Record<string, unknown>): string[] {
+  const raw = String(pick(wo, ["attachment"]) || "").trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `/uploads/${p.replace(/^\/+/, "")}`);
 }
 
 /** Fallback untuk approval cache lama sebelum respons V2 dinormalisasi. */
@@ -142,6 +157,10 @@ export default function WorkOrderDetailPage({
   }, [materialLineItems, materialRecorded, materialRequests]);
 
   const scheduleItems = wo?.schedule_items ?? [];
+  const createAttachments = useMemo(
+    () => (wo ? parseCreateAttachments(wo as Record<string, unknown>) : []),
+    [wo],
+  );
   const isPreventive =
     (mod === "maintenance" || mod === "meso") &&
     /prev/i.test(String((wo as Record<string, unknown>)?.type_wo ?? ""));
@@ -331,6 +350,67 @@ export default function WorkOrderDetailPage({
                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
                       {String(wo.description)}
                     </p>
+                  </div>
+                ) : null}
+
+                {createAttachments.length > 0 ? (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                      Lampiran dari Pembuat WO
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {createAttachments.map((path, i) => {
+                        const url = evidenceUrl({ url: path });
+                        if (!url) return null;
+                        if (isVideoUrl(url)) {
+                          return (
+                            <div
+                              key={path}
+                              className="overflow-hidden rounded-lg border border-slate-200"
+                            >
+                              <video
+                                src={url}
+                                controls
+                                preload="metadata"
+                                className="aspect-square w-full bg-black object-contain"
+                              />
+                            </div>
+                          );
+                        }
+                        if (/\.pdf(\?|$)/i.test(url)) {
+                          return (
+                            <a
+                              key={path}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100"
+                            >
+                              <FileText className="h-6 w-6" />
+                              <span className="text-xs">PDF {i + 1}</span>
+                            </a>
+                          );
+                        }
+                        return (
+                          <a
+                            key={path}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group overflow-hidden rounded-lg border border-slate-200"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={`Lampiran ${i + 1}`}
+                              loading="lazy"
+                              decoding="async"
+                              className="aspect-square w-full bg-slate-100 object-cover transition group-hover:opacity-90"
+                            />
+                          </a>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : null}
               </div>

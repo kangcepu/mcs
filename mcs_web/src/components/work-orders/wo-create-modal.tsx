@@ -457,12 +457,12 @@ export function WoCreateModal({
           </Field>
 
           <Field
-            label="Lampiran Foto (Opsional)"
-            hint="JPG / PNG / PDF, maks 10 file @ 5 MB."
+            label="Lampiran Foto/Video (Opsional)"
+            hint="JPG / PNG / WEBP / PDF atau MP4 / MOV / AVI / MKV / WEBM, maks 10 file @ 50 MB."
           >
             <input
               type="file"
-              accept="image/jpeg,image/png,application/pdf"
+              accept="image/jpeg,image/png,image/webp,image/bmp,application/pdf,video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm"
               multiple
               onChange={(e) =>
                 setAttachments(Array.from(e.target.files ?? []))

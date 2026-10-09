@@ -28,16 +28,17 @@ const domains: Record<Domain, { table: string; approval: string; prefix: string;
   production: { table: 'tb_wo_preventive', approval: 'tb_approval_preventive', prefix: 'PREV', permission: 'wo_preventive', executor: '' },
 };
 const domainOf = (value: string): Domain => { if (!(value in domains)) throw new HttpError(404, 'Unknown work order domain'); return value as Domain; };
-// Sama kayak attachmentUpload di wo-production/meso/is/ga/maintenance.ts
-// (jpg/png/pdf, 5MB) — endpoint create gabungan ini sebelumnya gak punya
-// handler upload sama sekali, jadi modal "Buat WO" di web ga pernah nampilin
-// kolom lampiran, padahal kolom `attachment` udah ada di kelima tabel WO.
+// Endpoint create gabungan ini sebelumnya gak punya handler upload sama
+// sekali, jadi modal "Buat WO" di web ga pernah nampilin kolom lampiran,
+// padahal kolom `attachment` udah ada di kelima tabel WO. Batas ukuran
+// dinaikkan ke 50MB (sama kayak servicePhotoUpload di wo-production.ts/dst)
+// biar video gak kepotong — jauh lebih besar dari kebutuhan foto/PDF biasa.
 const attachmentUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).slice(1).toLowerCase();
-    cb(null, ['jpg', 'jpeg', 'png', 'pdf'].includes(ext));
+    cb(null, ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'pdf', 'mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext));
   },
 });
 const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);

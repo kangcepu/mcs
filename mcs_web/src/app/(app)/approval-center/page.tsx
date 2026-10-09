@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BadgeCheck, Check, Eye, Loader2, X } from "lucide-react";
+import { BadgeCheck, Check, Eye, FileText, Loader2, X } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Tabs } from "@/components/ui/tabs";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -26,6 +26,7 @@ import { APPROVAL_TABS, type ApprovalItem, type ApprovalTabKey } from "@/types/a
 import type { WoDecision } from "@/lib/api/approval-center";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { dash, pick } from "@/lib/display";
+import { toAbsoluteUploadUrl } from "@/lib/env";
 
 const DEFAULTS = { tab: "wo_approvals", q: "", page: 1, per_page: DEFAULT_PER_PAGE };
 
@@ -68,6 +69,22 @@ function docNoOf(item: ApprovalItem): string {
   return String(
     pick(item, ["doc_no", "document_no", "ref", "no_doc", "docno"]) || item.id || "",
   );
+}
+
+const VIDEO_EXT_RE = /\.(mp4|mov|avi|mkv|webm)(\?|$)/i;
+
+/**
+ * Lampiran dari form "Buat WO" (kolom `attachment`) — path relatif dipisah
+ * koma, belum ada prefix `/uploads/`.
+ */
+function parseCreateAttachments(detail: Record<string, unknown>): string[] {
+  const raw = String(pick(detail, ["attachment"]) || "").trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => toAbsoluteUploadUrl(`/uploads/${p.replace(/^\/+/, "")}`));
 }
 
 export default function ApprovalCenterPage() {
@@ -397,6 +414,69 @@ export default function ApprovalCenterPage() {
                     { label: "Status", value: <StatusBadge status={detailValue(["status"], ["status"])} /> },
                   ]}
                 />
+
+                {(() => {
+                  const attachments = parseCreateAttachments(detail);
+                  if (!attachments.length) return null;
+                  return (
+                    <section>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Lampiran dari Pembuat WO
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        {attachments.map((url, i) => {
+                          if (VIDEO_EXT_RE.test(url)) {
+                            return (
+                              <div
+                                key={url}
+                                className="overflow-hidden rounded-lg border border-slate-200"
+                              >
+                                <video
+                                  src={url}
+                                  controls
+                                  preload="metadata"
+                                  className="aspect-square w-full bg-black object-contain"
+                                />
+                              </div>
+                            );
+                          }
+                          if (/\.pdf(\?|$)/i.test(url)) {
+                            return (
+                              <a
+                                key={url}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100"
+                              >
+                                <FileText className="h-6 w-6" />
+                                <span className="text-xs">PDF {i + 1}</span>
+                              </a>
+                            );
+                          }
+                          return (
+                            <a
+                              key={url}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group overflow-hidden rounded-lg border border-slate-200"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt={`Lampiran ${i + 1}`}
+                                loading="lazy"
+                                decoding="async"
+                                className="aspect-square w-full bg-slate-100 object-cover transition group-hover:opacity-90"
+                              />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })()}
               </div>
             )
           ) : (
