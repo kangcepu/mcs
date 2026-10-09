@@ -81,6 +81,8 @@ export interface CreateWorkOrderInput {
   job_requirement?: string;
   /** Khusus module "maintenance": MKL | ELC | SPL | OTO. */
   category_maintenance?: string;
+  /** Lampiran opsional (JPG/PNG/PDF, maks 10 file @ 5MB). */
+  attachments?: File[];
 }
 
 export interface CreatedWorkOrder {
@@ -93,7 +95,19 @@ export interface CreatedWorkOrder {
 export function createWorkOrder(
   body: CreateWorkOrderInput,
 ): Promise<ApiResponse<CreatedWorkOrder>> {
-  return apiV2.post<CreatedWorkOrder>("/work-orders/create", body);
+  const { attachments, ...fields } = body;
+  if (!attachments || attachments.length === 0) {
+    return apiV2.post<CreatedWorkOrder>("/work-orders/create", fields);
+  }
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) continue;
+    fd.append(key, String(value));
+  }
+  for (const file of attachments) fd.append("attachment", file);
+  return apiV2.post<CreatedWorkOrder>("/work-orders/create", undefined, {
+    formData: fd,
+  });
 }
 
 export interface UpdateWorkOrderInput {

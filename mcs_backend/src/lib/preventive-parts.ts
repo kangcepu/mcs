@@ -182,24 +182,59 @@ export async function getMaintenancePreventiveParts(woNumber: string): Promise<P
   const assetCode = String(assetRow?.AssetCode ?? '').trim();
   const cdMap = await buildCustomDetailMap(assetCode);
 
-  const definitions: PartExecutionDefinition[] = assetCode
-    ? (await rows<{ id: number; part_mesin: string }>(
-      "SELECT id, part_mesin FROM asset_custom_details WHERE asset_code=? AND part_mesin IS NOT NULL AND TRIM(part_mesin) <> '' ORDER BY row_order ASC, id ASC",
-      [assetCode],
-    )).map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? '') }))
-    : [];
+  // Legacy (M_Wo_Operational::get_preventive_parts) nyaring checklist WO ini
+  // ke part yang emang due buat frekuensi WO ini doang, lewat snapshot per-WO
+  // di tb_wo_mtc_operational_detail (diisi saat WO di-generate dari jadwal).
+  // Sebelumnya di sini snapshot itu gak dipakai sama sekali — langsung ambil
+  // SEMUA row asset_custom_details tanpa peduli frekuensi, jadi 1 WO mingguan
+  // nampilin juga part harian/bulanan/tahunan punya asset yang sama. Fallback
+  // ke catalog penuh cuma kalau snapshot-nya kosong (WO lama/data gak lengkap).
+  const scheduleSnapshot = await rows<{ part_mesin: string }>(
+    "SELECT part_mesin FROM tb_wo_mtc_operational_detail WHERE wo_number=? AND part_mesin IS NOT NULL AND TRIM(part_mesin) <> '' ORDER BY id ASC",
+    [woNumber],
+  );
+
+  let definitions: PartExecutionDefinition[] = [];
+  if (scheduleSnapshot.length) {
+    const seen = new Set<string>();
+    for (const r of scheduleSnapshot) {
+      const partMesin = String(r.part_mesin ?? '').trim();
+      const key = partMesin.toLowerCase();
+      if (!partMesin || seen.has(key)) continue;
+      seen.add(key);
+      const cd = assetCode ? await one<{ id: number }>('SELECT id FROM asset_custom_details WHERE asset_code=? AND LOWER(TRIM(part_mesin))=?', [assetCode, key]) : null;
+      definitions.push({ custom_detail_id: Number(cd?.id ?? 0), part_mesin: partMesin });
+    }
+  } else {
+    definitions = assetCode
+      ? (await rows<{ id: number; part_mesin: string }>(
+        "SELECT id, part_mesin FROM asset_custom_details WHERE asset_code=? AND part_mesin IS NOT NULL AND TRIM(part_mesin) <> '' ORDER BY row_order ASC, id ASC",
+        [assetCode],
+      )).map((r) => ({ custom_detail_id: Number(r.id), part_mesin: String(r.part_mesin ?? '') }))
+      : [];
+  }
+
+  // Matching key HARUS berbasis nama part, bukan `custom_detail_id` — id yang
+  // kesimpen di tb_wo_operational_part_execution sejak WO itu dibuat sering
+  // udah gak nyambung lagi ke `asset_custom_details.id` sekarang (tabel itu
+  // pernah di-rebuild/id-nya geser), jadi kalau dicocokkan pakai id, row yang
+  // part-nya sama malah dianggap 2 entitas beda dan part-nya nongol dobel.
+  const keyOf = (customDetailId: number, partMesin: string): string => {
+    const name = String(partMesin ?? '').toLowerCase().trim();
+    return name ? `part:${name}` : `id:${customDetailId}`;
+  };
 
   const existingRows = await rows<Record<string, unknown>>('SELECT * FROM tb_wo_operational_part_execution WHERE wo_number=?', [woNumber]);
   const existingByKey = new Map<string, Record<string, unknown>>();
   for (const row of existingRows) {
-    const key = Number(row.custom_detail_id ?? 0) > 0 ? `id:${row.custom_detail_id}` : `part:${String(row.part_mesin ?? '').toLowerCase().trim()}`;
+    const key = keyOf(Number(row.custom_detail_id ?? 0), String(row.part_mesin ?? ''));
     existingByKey.set(key, row);
   }
 
   const mediaRows = await rows<Record<string, unknown>>('SELECT * FROM tb_wo_operational_part_execution_media WHERE wo_number=? ORDER BY id DESC', [woNumber]);
   const mediaByKey = new Map<string, Record<string, unknown>[]>();
   for (const row of mediaRows) {
-    const key = Number(row.custom_detail_id ?? 0) > 0 ? `id:${row.custom_detail_id}` : `part:${String(row.part_mesin ?? '').toLowerCase().trim()}`;
+    const key = keyOf(Number(row.custom_detail_id ?? 0), String(row.part_mesin ?? ''));
     const list = mediaByKey.get(key) ?? [];
     list.push({ id: row.id, name: row.media_name, path: row.media_path, url: `/uploads/${String(row.media_path)}`, media_type: row.media_type, created_at: row.created_at });
     mediaByKey.set(key, list);
@@ -208,7 +243,7 @@ export async function getMaintenancePreventiveParts(woNumber: string): Promise<P
   const usedKeys = new Set<string>();
   const data: Record<string, unknown>[] = [];
   for (const def of definitions) {
-    const key = def.custom_detail_id > 0 ? `id:${def.custom_detail_id}` : `part:${def.part_mesin.toLowerCase().trim()}`;
+    const key = keyOf(def.custom_detail_id, def.part_mesin);
     usedKeys.add(key);
     const current = existingByKey.get(key);
     const cd = cdMap.get(def.part_mesin.toLowerCase().trim());

@@ -1,11 +1,14 @@
+import path from 'node:path';
 import { resolveAssetAttachmentUrl, splitAssetAttachmentFilenames } from '../lib/asset-attachments.js';
 import { Router } from 'express';
+import multer from 'multer';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { companyFilterVariants, resolveCompanyCode } from '../lib/employee-api.js';
 import { normalizeAreaKey } from '../lib/daily-control.js';
+import { saveUploadedFile } from '../lib/storage.js';
 import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
 import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
@@ -25,6 +28,18 @@ const domains: Record<Domain, { table: string; approval: string; prefix: string;
   production: { table: 'tb_wo_preventive', approval: 'tb_approval_preventive', prefix: 'PREV', permission: 'wo_preventive', executor: '' },
 };
 const domainOf = (value: string): Domain => { if (!(value in domains)) throw new HttpError(404, 'Unknown work order domain'); return value as Domain; };
+// Sama kayak attachmentUpload di wo-production/meso/is/ga/maintenance.ts
+// (jpg/png/pdf, 5MB) — endpoint create gabungan ini sebelumnya gak punya
+// handler upload sama sekali, jadi modal "Buat WO" di web ga pernah nampilin
+// kolom lampiran, padahal kolom `attachment` udah ada di kelima tabel WO.
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).slice(1).toLowerCase();
+    cb(null, ['jpg', 'jpeg', 'png', 'pdf'].includes(ext));
+  },
+});
 const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);
 // Sama kayak LIST_EXCLUDED_STATUSES di wo-meso/is/ga/maintenance/production.ts —
 // dipakai buat naro WO yang udah kelar di bawah daftar gabungan ini, bukan
@@ -148,6 +163,18 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
     if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
     if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR w.job_requirement LIKE ? OR a.AssetName LIKE ? OR a.AssetCode LIKE ?)'; params.push(...Array(5).fill(`%${q}%`)); }
     if (status) { where += ' AND w.status = ?'; params.push(status); }
+    else {
+      // Endpoint per-modul yang dipakai mobile (mis. /production/list,
+      // /meso/list) default-nya nyembunyiin WO yang udah final kalau user
+      // belum pilih status spesifik (lihat LIST_EXCLUDED_STATUSES di
+      // wo-production.ts/wo-meso.ts/dst). Endpoint gabungan ini sebelumnya
+      // gak replikasi exclusion itu, jadi tanpa filter status, list-nya
+      // kebanjiran WO lama yang sudah CLOSED/VOID/REJECT dari sepanjang
+      // masa — beda sama tampilan mobile yang bersih by default.
+      const finishedPlaceholdersDefault = [...FINISHED_STATUSES].map(() => '?').join(',');
+      where += ` AND UPPER(TRIM(w.status)) NOT IN (${finishedPlaceholdersDefault})`;
+      params.push(...FINISHED_STATUSES);
+    }
     if (typeWo) { const variants = TYPE_WO_VARIANTS[typeWo] ?? [typeWo]; where += ` AND w.type_wo IN (${variants.map(() => '?').join(',')})`; params.push(...variants); }
     if (company) {
       const variants = companyFilterVariants(company);
@@ -244,9 +271,13 @@ workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req
   ok(res, { ...item as object, module: domain, executors, labors, materials, approvals, evidences: evidenceItems, histories, actions: { can_approve: canApprove, can_close: canClose } });
 }));
 
-workOrderRouter.post('/work-orders/create', authenticate, asyncHandler(async (req, res) => {
+workOrderRouter.post('/work-orders/create', authenticate, attachmentUpload.array('attachment', 10), asyncHandler(async (req, res) => {
   const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const user = (req as AuthRequest).user!; if (!permissive(user, domain)) throw new HttpError(403, 'You do not have permission to create this work order');
-  const b = req.body; if (!b.job_title) throw new HttpError(400, 'job_title is required'); const idEquipment = await resolveAssetId(b); if (!idEquipment) throw new HttpError(400, 'asset_code is required'); const isPreventive = /preventive/i.test(String(b.type_wo ?? '')); const executor = executorFor(domain, user); const wo = await transaction(async (connection) => { const number = b.wo_number ?? await nextNumber(connection, domain, String(user.division_code ?? user.id_division)); const status = domain === 'maintenance' && isPreventive ? 'IN_PROGRESS_EXECUTOR' : (b.status ?? 'WAIT_KA_DIV'); const values = [number, b.date ?? new Date().toISOString().slice(0, 10), b.company ?? user.company_name ?? '', b.shift ?? '', b.type_wo ?? 'CORRECTIVE', b.priority ?? 'NORMAL', b.id_division ?? user.id_division, idEquipment, b.job_title, b.running_hours ?? null, b.job_requirement ?? '', executor, status, executor, user.fullname]; await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, values); await connection.execute('INSERT INTO tb_job_executor (job_executor,wo_number,status,created_at) VALUES (?,?,?,NOW())', [executor, number, isPreventive ? 'IN_PROGRESS' : 'WAITING']); return number; }); created(res, { wo_number: wo, module: domain }, 'Work order created');
+  const b = req.body; if (!b.job_title) throw new HttpError(400, 'job_title is required'); const idEquipment = await resolveAssetId(b); if (!idEquipment) throw new HttpError(400, 'asset_code is required'); const isPreventive = /preventive/i.test(String(b.type_wo ?? '')); const executor = executorFor(domain, user);
+  const uploaded = await Promise.all(((req.files as Express.Multer.File[] | undefined) ?? [])
+    .map((f) => saveUploadedFile(f.buffer, 'wo_attachments', f.originalname, f.mimetype)));
+  const attachment = uploaded.join(',');
+  const wo = await transaction(async (connection) => { const number = b.wo_number ?? await nextNumber(connection, domain, String(user.division_code ?? user.id_division)); const status = domain === 'maintenance' && isPreventive ? 'IN_PROGRESS_EXECUTOR' : (b.status ?? 'WAIT_KA_DIV'); const values = [number, b.date ?? new Date().toISOString().slice(0, 10), b.company ?? user.company_name ?? '', b.shift ?? '', b.type_wo ?? 'CORRECTIVE', b.priority ?? 'NORMAL', b.id_division ?? user.id_division, idEquipment, b.job_title, b.running_hours ?? null, b.job_requirement ?? '', attachment, executor, status, executor, user.fullname]; await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,attachment,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, values); await connection.execute('INSERT INTO tb_job_executor (job_executor,wo_number,status,created_at) VALUES (?,?,?,NOW())', [executor, number, isPreventive ? 'IN_PROGRESS' : 'WAITING']); return number; }); created(res, { wo_number: wo, module: domain }, 'Work order created');
 }));
 workOrderRouter.post('/work-orders/update', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const item = await header(domain, wo) as Record<string, unknown> | null; if (!item) throw new HttpError(404, 'Work order not found'); if (terminal.has(String(item.status).toUpperCase())) throw new HttpError(409, 'Terminal work order cannot be edited');
   const body = { ...req.body } as Record<string, unknown>;

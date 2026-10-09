@@ -69,6 +69,7 @@ export function WoCreateModal({
   const options = useWorkOrderOptions();
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Errors>({});
   const [attempted, setAttempted] = useState(false);
 
@@ -110,6 +111,7 @@ export function WoCreateModal({
       date: today(),
       module: lockedModule ?? modules[0] ?? "",
     });
+    setAttachments([]);
     setErrors({});
     setAttempted(false);
     create.reset();
@@ -183,6 +185,7 @@ export function WoCreateModal({
         company: form.company.trim() || undefined,
         running_hours: "0",
         job_requirement: form.job_requirement.trim() || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       const created = res.data;
       toast.success("WO berhasil dibuat", created?.wo_number);
@@ -451,6 +454,26 @@ export function WoCreateModal({
               onChange={(e) => set("job_requirement", e.target.value)}
               placeholder="Detail kebutuhan, gejala, atau instruksi kerja"
             />
+          </Field>
+
+          <Field
+            label="Lampiran Foto (Opsional)"
+            hint="JPG / PNG / PDF, maks 10 file @ 5 MB."
+          >
+            <input
+              type="file"
+              accept="image/jpeg,image/png,application/pdf"
+              multiple
+              onChange={(e) =>
+                setAttachments(Array.from(e.target.files ?? []))
+              }
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
+            />
+            {attachments.length > 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {attachments.length} file dipilih
+              </p>
+            ) : null}
           </Field>
         </div>
       )}
