@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
@@ -117,11 +119,29 @@ class MediaPickerHelper {
   /// field camera stamps evidence photos. Best-effort: if decoding/encoding
   /// fails for any reason, the original file is returned untouched so a
   /// stamping glitch never blocks the upload flow.
+  ///
+  /// The decode/draw/encode work runs via `compute()` on a background
+  /// isolate — doing it synchronously on the UI isolate (as before) could
+  /// block the main thread long enough on a full-resolution camera photo
+  /// (12MP+) to trigger an Android ANR ("tidak menanggapi") dialog.
   static Future<File> stampTimestamp(File file) async {
     try {
       final bytes = await file.readAsBytes();
+      final stamped = await compute(_stampTimestampBytes, bytes);
+      if (stamped == null) return file;
+      await file.writeAsBytes(stamped, flush: true);
+      return file;
+    } catch (e) {
+      return file;
+    }
+  }
+
+  /// Runs on a background isolate via [compute] — must stay a static/
+  /// top-level function with no captured state.
+  static Uint8List? _stampTimestampBytes(Uint8List bytes) {
+    try {
       final decoded = img.decodeImage(bytes);
-      if (decoded == null) return file;
+      if (decoded == null) return null;
 
       final now = DateTime.now();
       final text =
@@ -146,11 +166,9 @@ class MediaPickerHelper {
         color: img.ColorRgba8(255, 255, 255, 255),
       );
 
-      final outBytes = img.encodeJpg(decoded, quality: 90);
-      await file.writeAsBytes(outBytes, flush: true);
-      return file;
+      return Uint8List.fromList(img.encodeJpg(decoded, quality: 90));
     } catch (e) {
-      return file;
+      return null;
     }
   }
 

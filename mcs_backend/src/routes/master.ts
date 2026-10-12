@@ -223,9 +223,12 @@ async function saveUser(id: number, input: Record<string, unknown>): Promise<num
     return id;
   }
 
-  if (!data.username || !data.fullname) return false;
+  // Sebelumnya di sini cuma `return false`, lalu route handler nampilin pesan
+  // generik "Unable to create master data" — user gak pernah tahu beneran
+  // kenapa (username kosong? udah dipakai? dll). Dibedain biar jelas.
+  if (!data.username || !data.fullname) throw new HttpError(422, 'Username dan Full Name wajib diisi.');
   const existing = await one('SELECT id_user FROM tb_user WHERE username = ?', [data.username]);
-  if (existing) return false;
+  if (existing) throw new HttpError(422, `Username "${data.username}" sudah dipakai user lain.`);
   if (!('active' in data) && cols.has('active')) data.active = 1;
 
   const idCompany = Number(data.id_company ?? 0);

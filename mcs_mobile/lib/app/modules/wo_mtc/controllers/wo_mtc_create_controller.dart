@@ -326,8 +326,12 @@ class WoMtcCreateController extends GetxController {
       if (result == null) return;
 
       if (result == 'camera') {
-        final XFile? photo =
-            await _picker.pickImage(source: ImageSource.camera);
+        final XFile? photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
         if (photo != null) {
           if (selectedImages.length < 5) {
             selectedImages
@@ -343,7 +347,11 @@ class WoMtcCreateController extends GetxController {
           }
         }
       } else if (result == 'gallery') {
-        final List<XFile> images = await _picker.pickMultiImage();
+        final List<XFile> images = await _picker.pickMultiImage(
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
 
         if (images.isNotEmpty) {
           for (var image in images) {
@@ -446,7 +454,7 @@ class WoMtcCreateController extends GetxController {
             ? null
             : woNumberController.text,
         date: dateController.text,
-        idEquipment: selectedAsset.value!['AssetID'],
+        idEquipment: selectedAsset.value!['AssetID']?.toString(),
         company: selectedCompany.value ?? companyController.text,
         shift: shiftController.text.isNotEmpty ? shiftController.text : null,
         jobTitle: jobTitleController.text,

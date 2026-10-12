@@ -9,7 +9,8 @@ import '../../../data/repositories/master_repository.dart';
 import '../../../core/utils/media_picker_helper.dart';
 
 class WoProductionCreateController extends GetxController {
-  final WoProductionRepository _woProductionRepository = WoProductionRepository();
+  final WoProductionRepository _woProductionRepository =
+      WoProductionRepository();
   final MasterRepository _masterRepository = MasterRepository();
 
   final formKey = GlobalKey<FormState>();
@@ -312,8 +313,12 @@ class WoProductionCreateController extends GetxController {
       if (result == null) return;
 
       if (result == 'camera') {
-        final XFile? photo =
-            await _picker.pickImage(source: ImageSource.camera);
+        final XFile? photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
         if (photo != null) {
           if (selectedImages.length < 5) {
             selectedImages
@@ -329,7 +334,11 @@ class WoProductionCreateController extends GetxController {
           }
         }
       } else if (result == 'gallery') {
-        final List<XFile> images = await _picker.pickMultiImage();
+        final List<XFile> images = await _picker.pickMultiImage(
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
 
         if (images.isNotEmpty) {
           for (var image in images) {
@@ -446,4 +455,3 @@ class WoProductionCreateController extends GetxController {
     }
   }
 }
-

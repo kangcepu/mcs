@@ -11,6 +11,7 @@ import { deleteSetting, ensureAppSettingTable, getSetting, putSetting } from '..
 import { encryptSecret } from '../lib/crypto-secrets.js';
 import { FIREBASE_CREDENTIAL_SETTING_KEY } from '../lib/fcm.js';
 import { getAssetReportList, getAssetsHistoryReport, getQrReport, recapWorkOrderOptions } from '../lib/reports.js';
+import { getStockOpnameReport, getStockOpnamePdf } from '../lib/stock-opname-proxy.js';
 import { getNotificationDetail, getNotificationSummary } from '../lib/notifications.js';
 import { nowInJakarta } from '../lib/daily-control.js';
 import { runPreventiveAlarmCron } from '../lib/preventive-alarm.js';
@@ -317,7 +318,38 @@ miscRouter.get('/reports/:report', authenticate, asyncHandler(async (req, res) =
     ok(res, result);
     return;
   }
+  if (report === 'stock-opname') {
+    // Stock Opname bukan data MCS — proxy ke service terpisah (lihat
+    // lib/stock-opname-proxy.ts). Token user diteruskan apa adanya karena
+    // service itu nerima JWT yang sama dengan backend ini.
+    const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    try {
+      const { rows: data, total } = await getStockOpnameReport(token, {
+        noSo: q('q'), type: q('type'), dateFrom: q('date_from'), dateTo: q('date_to'), company: q('company'),
+        page, perPage,
+      });
+      ok(res, data, undefined, { page, per_page: perPage, total, total_pages: Math.max(1, Math.ceil(total / perPage)) });
+    } catch (e) {
+      throw new HttpError(502, 'Gagal menghubungi service Stock Opname.', 'SO_SERVICE_UNREACHABLE');
+    }
+    return;
+  }
   throw new HttpError(404, 'Unknown report resource', 'REPORT_NOT_FOUND');
+}));
+
+miscRouter.get('/reports/stock-opname/print', authenticate, asyncHandler(async (req, res) => {
+  const noSo = String(req.query.no_so ?? '').trim();
+  if (!noSo) throw new HttpError(400, 'no_so is required');
+  const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  try {
+    const pdf = await getStockOpnamePdf(token, noSo);
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.fileName}"`);
+    res.send(pdf.buffer);
+  } catch (e) {
+    if (e instanceof Error && e.message === 'SO_NOT_FOUND') throw new HttpError(404, 'No. SO tidak ditemukan.', 'SO_NOT_FOUND');
+    throw new HttpError(502, 'Gagal mengambil PDF Stock Opname.', 'SO_PDF_FAILED');
+  }
 }));
 const MOBILE_RELEASE_DEFAULT = {
   version: '1.0.0', version_code: 1, download_url: '/uploads/downloads/mcs-mobile-v1.apk', file_name: 'mcs-mobile-v1.apk',

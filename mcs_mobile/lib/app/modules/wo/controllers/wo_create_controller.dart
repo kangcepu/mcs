@@ -60,13 +60,13 @@ class WoCreateController extends GetxController {
 
     ever(selectedAsset, (asset) {
       if (asset != null) {
-        final companyRaw = (asset['Company'] ?? asset['CompanyName'] ?? '')
-            .toString()
-            .trim();
+        final companyRaw =
+            (asset['Company'] ?? asset['CompanyName'] ?? '').toString().trim();
         if (companyRaw.isNotEmpty) {
           final matched = companies.firstWhereOrNull(
             (c) =>
-                c['code'].toString().toLowerCase() == companyRaw.toLowerCase() ||
+                c['code'].toString().toLowerCase() ==
+                    companyRaw.toLowerCase() ||
                 c['label'].toString().toLowerCase() == companyRaw.toLowerCase(),
           );
           final companyLabel = matched?['label']?.toString() ?? companyRaw;
@@ -351,8 +351,12 @@ class WoCreateController extends GetxController {
       if (result == null) return;
 
       if (result == 'camera') {
-        final XFile? photo =
-            await _picker.pickImage(source: ImageSource.camera);
+        final XFile? photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
         if (photo != null) {
           if (selectedImages.length < 5) {
             selectedImages
@@ -368,7 +372,11 @@ class WoCreateController extends GetxController {
           }
         }
       } else if (result == 'gallery') {
-        final List<XFile> images = await _picker.pickMultiImage();
+        final List<XFile> images = await _picker.pickMultiImage(
+          imageQuality: 40,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
 
         if (images.isNotEmpty) {
           for (var image in images) {

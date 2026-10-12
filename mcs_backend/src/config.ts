@@ -31,6 +31,10 @@ export const config = {
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
   employeeSyncCronExpr: process.env.EMPLOYEE_SYNC_CRON_EXPR ?? '*/15 * * * *',
   legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),
+  // Stock Opname jalan di service terpisah (dipakai mobile langsung, lihat
+  // soBaseUrl di api_constants.dart) — menerima JWT yang sama dengan backend
+  // ini (JWT_SECRET sama), jadi cukup diteruskan apa adanya, bukan login ulang.
+  soBaseUrl: (process.env.SO_BASE_URL ?? 'https://so.padmoasm.com').replace(/\/+$/, ''),
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '',
   erpMssql: {
     host: process.env.ERP_MSSQL_HOST ?? '192.168.10.100',
