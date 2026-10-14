@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
   ClipboardEdit,
@@ -55,6 +56,9 @@ export default function MaterialUsageDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
+  const returnHref = from ? `/material-usage?${decodeURIComponent(from)}` : undefined;
   const toast = useToast();
   const confirm = useConfirm();
   const canManage = useCan(PERMISSIONS.materialUsage);
@@ -155,7 +159,7 @@ export default function MaterialUsageDetailPage({
   return (
     <PageContainer
       breadcrumb={
-        <BackLink fallbackHref="/material-usage">Kembali ke Material Usage</BackLink>
+        <BackLink fallbackHref="/material-usage" returnHref={returnHref}>Kembali ke Material Usage</BackLink>
       }
       title={
         <span className="flex flex-wrap items-center gap-2">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, RefreshCw } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Tabs } from "@/components/ui/tabs";
@@ -45,6 +45,7 @@ const DEFAULTS = {
 
 export default function WorkOrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: user, isLoading: userLoading } = useMe();
   const allowedModules = readableWoModules(user);
 
@@ -157,11 +158,13 @@ export default function WorkOrdersPage() {
 
   const goToDetail = (r: WorkOrderListItem) => {
     const mod = (r.module ?? values.module ?? "maintenance").toString().toLowerCase();
+    const qs = searchParams.toString();
+    const from = qs ? `?from=${encodeURIComponent(qs)}` : "";
     router.push(
       `/work-orders/${encodeURIComponent(mod)}/${r.wo_number
         .split("/")
         .map(encodeURIComponent)
-        .join("/")}`,
+        .join("/")}${from}`,
     );
   };
 

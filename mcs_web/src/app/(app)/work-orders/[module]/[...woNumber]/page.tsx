@@ -2,6 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Ban, Check, FileText, RefreshCw, X } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
@@ -113,6 +114,9 @@ export default function WorkOrderDetailPage({
   const { module, woNumber } = use(params);
   const woNo = woNumber.map(decodeURIComponent).join("/");
   const mod = decodeURIComponent(module);
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
+  const returnHref = from ? `/work-orders?${decodeURIComponent(from)}` : undefined;
 
   const toast = useToast();
   const { data: me, isLoading: meLoading } = useMe();
@@ -223,7 +227,7 @@ export default function WorkOrderDetailPage({
   return (
     <PageContainer
       breadcrumb={
-        <BackLink fallbackHref="/work-orders">Kembali ke Work Order</BackLink>
+        <BackLink fallbackHref="/work-orders" returnHref={returnHref}>Kembali ke Work Order</BackLink>
       }
       title={
         <span className="flex flex-wrap items-center gap-2">

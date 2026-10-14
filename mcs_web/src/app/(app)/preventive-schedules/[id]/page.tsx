@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Pause, Pencil, Play, Send, Trash2, Wrench } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
@@ -36,6 +36,9 @@ export default function PreventiveScheduleDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
+  const returnHref = from ? `/preventive-schedules?${decodeURIComponent(from)}` : undefined;
   const toast = useToast();
   const canManage = useCan(PERMISSIONS.schedule);
   const [editOpen, setEditOpen] = useState(false);
@@ -196,7 +199,7 @@ export default function PreventiveScheduleDetailPage({
   return (
     <PageContainer
       breadcrumb={
-        <BackLink fallbackHref="/preventive-schedules">Kembali ke Preventive Schedule</BackLink>
+        <BackLink fallbackHref="/preventive-schedules" returnHref={returnHref}>Kembali ke Preventive Schedule</BackLink>
       }
       title={assetLabel}
       headerTitle={assetLabel}

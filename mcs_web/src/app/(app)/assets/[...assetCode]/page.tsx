@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import { Pencil, Power, RefreshCw } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
@@ -41,6 +42,9 @@ export default function AssetDetailPage({
 }) {
   const { assetCode } = use(params);
   const code = assetCode.map(decodeURIComponent).join("/");
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
+  const returnHref = from ? `/assets?${decodeURIComponent(from)}` : undefined;
 
   const toast = useToast();
   const canWrite = useCan(PERMISSIONS.privilageAsset);
@@ -90,7 +94,7 @@ export default function AssetDetailPage({
   return (
     <PageContainer
       breadcrumb={
-        <BackLink fallbackHref="/assets">Kembali ke Aset</BackLink>
+        <BackLink fallbackHref="/assets" returnHref={returnHref}>Kembali ke Aset</BackLink>
       }
       title={
         <span className="flex flex-wrap items-center gap-2">

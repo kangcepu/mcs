@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
@@ -34,6 +34,7 @@ const DEFAULTS = {
 
 export default function MaterialUsagePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [requestOpen, setRequestOpen] = useState(false);
   const { values, setValues, reset, hasActiveFilters } = useQueryParams(DEFAULTS);
   const { data, isLoading, isFetching, error, refetch } = useMaterialUsageList(values);
@@ -148,7 +149,11 @@ export default function MaterialUsagePage() {
         isFetching={isFetching && !isLoading}
         error={error}
         onRetry={() => refetch()}
-        onRowClick={(r) => router.push(`/material-usage/${r.id}`)}
+        onRowClick={(r) => {
+          const qs = searchParams.toString();
+          const from = qs ? `?from=${encodeURIComponent(qs)}` : "";
+          router.push(`/material-usage/${r.id}${from}`);
+        }}
         emptyTitle="Belum ada material usage"
         emptyDescription="Ubah filter untuk menampilkan data lain."
       />

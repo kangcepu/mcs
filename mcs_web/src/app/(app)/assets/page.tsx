@@ -3,7 +3,7 @@
 import { mtcAreaLabel } from "@/lib/mtc-area";
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FileSpreadsheet, Plus } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
@@ -45,6 +45,7 @@ const DEFAULTS = {
 
 export default function AssetsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const canWrite = useCan(PERMISSIONS.privilageAsset);
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -185,7 +186,14 @@ export default function AssetsPage() {
         onRowClick={(r) => {
           const code = pick(r, ["AssetCode", "asset_code"]);
           if (code) {
-            router.push(`/assets/${code.split("/").map(encodeURIComponent).join("/")}`);
+            // Teruskan filter/halaman yang sedang aktif lewat `from`, supaya
+            // tombol "Kembali ke Aset" di halaman detail bisa balik persis
+            // ke sini (lihat BackLink `returnHref`) — bukan ngandelin
+            // `router.back()` yang gak selalu konsisten urutannya setelah
+            // beberapa kali `router.replace` (ganti filter/halaman).
+            const qs = searchParams.toString();
+            const from = qs ? `?from=${encodeURIComponent(qs)}` : "";
+            router.push(`/assets/${code.split("/").map(encodeURIComponent).join("/")}${from}`);
           }
         }}
         emptyTitle="Belum ada aset"

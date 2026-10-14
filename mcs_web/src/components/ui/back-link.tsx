@@ -5,17 +5,24 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 /**
- * Tombol "kembali" yang memakai riwayat browser (`router.back()`) alih-alih
- * `<Link>` ke URL daftar polos, supaya filter/pencarian/halaman yang sedang
- * aktif di halaman daftar tidak hilang saat pengguna kembali dari detail.
- * `fallbackHref` dipakai hanya bila tidak ada riwayat untuk kembali (mis.
+ * Tombol "kembali". Kalau `returnHref` dikasih (URL daftar lengkap dengan
+ * query string filter/halaman yang sedang aktif saat baris itu diklik),
+ * itu yang dipakai — eksplisit, tidak bergantung urutan riwayat browser.
+ * `router.back()` sendiri pernah diandalkan untuk ini tapi tidak selalu
+ * konsisten (mis. page sempat ganti query beberapa kali lewat
+ * `router.replace` sebelum pindah ke detail — urutan riwayatnya tidak
+ * selalu balik ke entry yang benar). `fallbackHref` dipakai kalau
+ * `returnHref` tidak ada dan juga tidak ada riwayat untuk kembali (mis.
  * detail dibuka langsung lewat URL/bookmark).
  */
 export function BackLink({
   fallbackHref,
+  returnHref,
   children,
 }: {
   fallbackHref: string;
+  /** URL daftar lengkap (termasuk query filter/halaman) untuk kembali eksplisit. */
+  returnHref?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -24,7 +31,9 @@ export function BackLink({
     <button
       type="button"
       onClick={() => {
-        if (typeof window !== "undefined" && window.history.length > 1) {
+        if (returnHref) {
+          router.push(returnHref);
+        } else if (typeof window !== "undefined" && window.history.length > 1) {
           router.back();
         } else {
           router.push(fallbackHref);

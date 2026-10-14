@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Plus } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
@@ -37,6 +37,7 @@ const TOWO_OPTIONS = [
 
 export default function PreventiveSchedulesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const canManage = useCan(PERMISSIONS.schedule);
   const [formOpen, setFormOpen] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -140,7 +141,11 @@ export default function PreventiveSchedulesPage() {
         isFetching={isFetching && !isLoading}
         error={error}
         onRetry={() => refetch()}
-        onRowClick={(r) => router.push(`/preventive-schedules/${r.id}`)}
+        onRowClick={(r) => {
+          const qs = searchParams.toString();
+          const from = qs ? `?from=${encodeURIComponent(qs)}` : "";
+          router.push(`/preventive-schedules/${r.id}${from}`);
+        }}
         emptyTitle="Belum ada schedule"
         emptyDescription="Buat schedule preventive untuk aset yang belum memilikinya."
       />
