@@ -221,7 +221,11 @@ async function getPendingPartRequest(woNumber: string, jobExecutor: string): Pro
   const executor = jobExecutor.trim();
   let sql = "SELECT id, request_note, requested_by_name, created_at FROM tb_material_part_request WHERE wo_number = ? AND status = 'PENDING'";
   const params: unknown[] = [woNumber];
+  // Sama kayak bug di /material-usage/detail: filter job_executor jangan
+  // di-skip pas blank, biar gak ke-anggap "masih ada pending" gara-gara
+  // nemu request PENDING punya executor LAIN di WO yang sama.
   if (executor !== '' && executor !== '-') { sql += ' AND job_executor = ?'; params.push(executor); }
+  else { sql += " AND (job_executor IS NULL OR job_executor='' OR job_executor='-')"; }
   sql += ' ORDER BY id DESC LIMIT 1';
   return one<Record<string, unknown>>(sql, params);
 }

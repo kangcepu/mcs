@@ -167,7 +167,24 @@ export function isScheduleDue(scheduleType: unknown, chooseDay: unknown, lastUpd
 
   if (normalizedType === 'mingguan') {
     const todayName = dayNameOf(new Date());
-    return cd.toLowerCase() === todayName && today >= targetDate;
+    if (cd.toLowerCase() !== todayName) return false;
+    // `last_update` dipakai sebagai "kapan terakhir disentuh", bukan murni
+    // "kapan terakhir di-generate" — item baru dibuat/di-edit/di-pause-resume
+    // juga nyetel ulang kolom ini. Kalau item ITU SENDIRI belum pernah due
+    // sebelumnya (hari `last_update` ≠ `choose_day`), `+7 hari` di atas jadi
+    // ngaco: bisa nunda due pertama sampai hampir 2 minggu kalau hari
+    // dibuat/disentuhnya beda jauh dari choose_day (mis. dibuat hari Selasa,
+    // choose_day Sabtu — +7 hari jatuh ke Selasa depan, Sabtu TERDEKAT
+    // sesudahnya baru H+11, bukan Sabtu H+4 yang seharusnya). Begitu item
+    // sudah pernah due & ke-generate sekali, `last_update` otomatis jatuh
+    // persis di hari choose_day lagi, jadi `+7 hari` di atas presisi untuk
+    // siklus-siklus berikutnya — cuma due PERTAMA yang butuh pengecualian ini.
+    const lastDate = new Date(effectiveLastUpdate);
+    if (isNaN(lastDate.getTime())) return false;
+    if (dayNameOf(lastDate) !== cd.toLowerCase()) {
+      return today >= (toDateOnly(effectiveLastUpdate) ?? today);
+    }
+    return today >= targetDate;
   }
 
   const chosenDate = /^\d{1,2}$/.test(cd) ? Number(cd) : 1;

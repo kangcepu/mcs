@@ -44,11 +44,18 @@ materialRouter.post('/material-usage/request', authenticate, asyncHandler(async 
   const note = String(req.body.note ?? '').trim();
   if (!wo) throw new HttpError(422, 'wo_number wajib diisi.', 'MU_WO_REQUIRED');
 
-  let existingQuery = "SELECT id FROM tb_material_part_request WHERE wo_number=? AND status='PENDING'";
-  const params: unknown[] = [wo];
-  if (executor !== '') { existingQuery += ' AND job_executor=?'; params.push(executor); }
-  else { existingQuery += " AND (job_executor IS NULL OR job_executor='')"; }
-  if (await one(existingQuery, params)) throw new HttpError(409, 'Masih ada request part PENDING untuk WO ini.', 'MU_REQUEST_EXISTS');
+  // Sengaja di-scope per WO SAJA (bukan per wo_number+job_executor) —
+  // sebelumnya 2 orang bisa bikin 2 request part nyangkut bareng buat WO
+  // yang sama cuma gara-gara job_executor yang mereka isi beda (salah satu
+  // ada yang kosong, satu lagi keisi) — itu dua "slot" independen jadi
+  // permintaan tetap tembus dobel. Dari sisi user, 1 WO ya cuma boleh 1
+  // request part yang masih nunggu diproses, titik — siapapun yang minta,
+  // apapun job_executor-nya, sampai tim Sparepart memilihkan part-nya.
+  const existing = await one<{ id: number }>(
+    "SELECT id FROM tb_material_part_request WHERE wo_number=? AND status='PENDING' LIMIT 1",
+    [wo],
+  );
+  if (existing) throw new HttpError(409, 'Masih ada request part yang belum diproses tim Sparepart untuk WO ini. Tunggu sampai request sebelumnya dipilihkan part-nya sebelum mengajukan lagi.', 'MU_REQUEST_EXISTS');
 
   const name = String(user.fullname ?? 'User').trim();
   const insert = await execute(
@@ -124,17 +131,33 @@ materialRouter.get('/material-usage/detail', authenticate, asyncHandler(async (r
   const wo_ = await woInfo(wo);
 
   if (!usage) {
+    // Sama kayak lookup `req_` di bawah — filter job_executor jangan di-skip
+    // pas blank, biar gak ke-ambil header material_usage WO lain yang
+    // kebetulan executor-nya beda tapi id-nya lebih besar.
     let usageQ = 'SELECT * FROM tb_material_usage WHERE wo_number=?';
     const usageParams: unknown[] = [wo];
     if (exec !== '' && exec !== '-') { usageQ += ' AND job_executor=?'; usageParams.push(exec); }
-    usageQ += ' ORDER BY id DESC LIMIT 1';
+    else { usageQ += " AND (job_executor IS NULL OR job_executor='' OR job_executor='-')"; }
+    usageQ += " ORDER BY (status IN ('OPEN','IN_PROGRESS')) DESC, id DESC LIMIT 1";
     usage = await one<Record<string, unknown>>(usageQ, usageParams);
   }
   if (!req_) {
+    // Filter `job_executor` HARUS tetap diterapkan (termasuk kasus blank/'-')
+    // — sebelumnya di-skip total kalau `exec==='-'`, jadi query ini ambil
+    // request TERBARU di WO ini tanpa peduli punya executor siapa. Kalau WO
+    // punya >1 request part (mis. 1 lama tanpa job_executor yang masih
+    // PENDING, 1 lagi lebih baru dengan job_executor beda yang udah
+    // SELECTED), yang ke-ambil malah yang SELECTED itu (id lebih besar) —
+    // padahal yang perlu ditindaklanjuti tim Sparepart justru yang PENDING.
+    // Itu bikin modal "Pilih Part" nempel ke request yang salah dan selalu
+    // gagal ("Request sudah diproses") walau ada request lain yang
+    // sebenarnya masih nunggu. Prioritaskan status PENDING dulu, baru ORDER
+    // BY id DESC sebagai fallback kalau semuanya sudah diproses (read-only).
     let q = 'SELECT * FROM tb_material_part_request WHERE wo_number=?';
     const params: unknown[] = [wo];
     if (exec !== '' && exec !== '-') { q += ' AND job_executor=?'; params.push(exec); }
-    q += ' ORDER BY id DESC LIMIT 1';
+    else { q += " AND (job_executor IS NULL OR job_executor='')"; }
+    q += " ORDER BY (status='PENDING') DESC, id DESC LIMIT 1";
     req_ = await one<Record<string, unknown>>(q, params) ?? {};
   }
   req_ = req_ ?? {};
