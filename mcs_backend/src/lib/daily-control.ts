@@ -1050,9 +1050,20 @@ export async function syncDailyControlForWoUpdate(params: SyncDailyControlParams
   const notes = params.notes.trim() || 'Update WO';
   const fullname = params.actorFullname.trim();
 
+  // Lookup HARUS ikut discoped ke `activity_date` hari ini, bukan cuma
+  // `wo_number` — sebelumnya 1 WO cuma punya 1 baris Daily Control seumur
+  // hidup, jadi tiap ada submit evidence baru di hari lain, baris yang SAMA
+  // itu di-UPDATE nimpa tanggal/judul/catatan lama. Akibatnya histori hari-
+  // hari sebelumnya lenyap total dari Daily Control (padahal evidence-nya
+  // di tb_wo_service_evidence tetap ada) — list Daily Control difilter ketat
+  // per `activity_date` (lihat baris query list di atas), jadi WO yang
+  // sering diupdate (tiap hari kerja) cuma pernah "kelihatan" di tanggal
+  // PALING TERAKHIR dia disentuh, bukan di tiap hari dia benar-benar ada
+  // progres. Sekarang: submit di hari yang SAMA tetap gabung ke 1 baris
+  // (konsolidasi wajar), tapi masuk hari baru = baris baru, histori aman.
   const existing = await one<{ id: number }>(
-    "SELECT id FROM tb_daily_control WHERE wo_number=? AND source_type='WO_MAINTENANCE' LIMIT 1",
-    [woNumber],
+    "SELECT id FROM tb_daily_control WHERE wo_number=? AND source_type='WO_MAINTENANCE' AND activity_date=? LIMIT 1",
+    [woNumber, activityDate],
   );
 
   let dailyControlId: number;

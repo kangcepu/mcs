@@ -6,6 +6,12 @@ import { HttpError } from '../http.js';
 import type { PoolConnection } from 'mysql2/promise';
 
 const WO_TABLES = ['tb_wo_mtc_operational', 'tb_wo_mtc', 'tb_wo_it', 'tb_wo_ga', 'tb_wo_preventive'] as const;
+// Status WO yang sudah final/sudah dipindah ke modul lain — "Material Received" tidak boleh
+// menghidupkannya balik jadi PARTS_RECEIVED kalau statusnya sudah salah satu dari ini.
+const WO_LOCKED_STATUSES = new Set([
+  'CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'REJECTED', 'DECLINED',
+  'FORWARD_TO_MESO',
+]);
 const APPROVAL_TABLE: Record<string, string> = {
   tb_wo_mtc: 'tb_approval',
   tb_wo_mtc_operational: 'tb_approval_operational',
@@ -610,14 +616,19 @@ export async function closedMaterialUsage(
       }
 
       if (foundTable) {
-        const [getRows] = await connection.execute(`SELECT wo_number, job_executor FROM ${foundTable} WHERE wo_number = ?`, [data.wo_number]);
-        const get = (getRows as { wo_number: string; job_executor: string }[])[0];
+        const [getRows] = await connection.execute(`SELECT wo_number, job_executor, status FROM ${foundTable} WHERE wo_number = ?`, [data.wo_number]);
+        const get = (getRows as { wo_number: string; job_executor: string; status: string }[])[0];
         const approvalTable = APPROVAL_TABLE[foundTable];
         await connection.execute(
           `INSERT INTO ${approvalTable} (wo_number, fullname, id_division, id_position, comment, created_at) VALUES (?,?,?,?, 'Material Received.', NOW())`,
           [data.wo_number, approver.fullname, approver.id_division, approver.id_position],
         );
-        await connection.execute(`UPDATE ${foundTable} SET status='PARTS_RECEIVED', pic=? WHERE wo_number=?`, [get?.job_executor ?? null, data.wo_number]);
+        // WO sudah final atau sudah dipindah (forward ke MESO, dll) — jangan hidupkan lagi
+        // statusnya cuma karena tim sparepart baru konfirmasi parts diterima belakangan.
+        const currentStatus = String(get?.status ?? '').toUpperCase().trim();
+        if (!WO_LOCKED_STATUSES.has(currentStatus)) {
+          await connection.execute(`UPDATE ${foundTable} SET status='PARTS_RECEIVED', pic=? WHERE wo_number=?`, [get?.job_executor ?? null, data.wo_number]);
+        }
       }
 
       await connection.execute("UPDATE tb_material_usage SET status='CLOSED' WHERE wo_number=? AND job_executor=? AND request_code=?", [data.wo_number, data.job_executor, data.request_code]);

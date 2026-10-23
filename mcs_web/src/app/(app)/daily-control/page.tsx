@@ -17,9 +17,11 @@ import {
   useDailyControlComments,
   useDailyControlMentionUsers,
   useDailyControlPartMentions,
+  useDailyControlTeamUsers,
   useDailyControlUnread,
   useDailyControlMutations,
 } from "@/hooks/use-daily-control";
+import type { DailyControlTeamUser } from "@/lib/api/daily-control";
 import { PERMISSIONS } from "@/lib/permissions";
 import { toDateInput, formatDateTime, formatNumber } from "@/lib/format";
 import { dash, pick } from "@/lib/display";
@@ -132,6 +134,53 @@ function activityMtcCategory(row: Record<string, unknown>): string {
   return "";
 }
 
+/**
+ * Klasifikasi USER (bukan aktivitas) per modul/kategori — port 1:1 dari
+ * `_isMtcUser`/`_isItsUser`/`_isMesoUser`/`_isMesoUserSubCategory` di mobile
+ * (daily_control_controller.dart), biar daftar user yang muncul di panel
+ * "Rekap Update per User" PERSIS sama isinya dengan panel "Status User
+ * {Divisi}" di mobile — termasuk user yang belum update sama sekali (count 0).
+ */
+function isMtcTeamUser(u: DailyControlTeamUser): boolean {
+  const code = String(u.division_code ?? "").toUpperCase();
+  const name = String(u.division_name ?? "").toUpperCase();
+  if (code.includes("MTC")) return true;
+  return name.includes("MAINTENANCE") && !name.includes("MESO");
+}
+function isItsTeamUser(u: DailyControlTeamUser): boolean {
+  const code = String(u.division_code ?? "").toUpperCase();
+  const name = String(u.division_name ?? "").toUpperCase();
+  return code.includes("ITS") || code.includes("ITIS") || name.includes("IT INFORMATION SYSTEM") || name === "IT";
+}
+function isMesoTeamUser(u: DailyControlTeamUser): boolean {
+  const code = String(u.division_code ?? "").toUpperCase();
+  const name = String(u.division_name ?? "").toUpperCase();
+  if (name.includes("MESO")) return true;
+  if (["MES", "MESO", "MKL", "ELC", "SPL", "OTO"].some((c) => code.includes(c))) return true;
+  return ["MEKANIKAL", "ELEKTRIKAL", "SIPIL", "OTOMOTIF"].some((n) => name.includes(n));
+}
+function isMesoTeamUserSubCategory(u: DailyControlTeamUser, key: string): boolean {
+  const code = String(u.division_code ?? "").toUpperCase();
+  const name = String(u.division_name ?? "").toUpperCase();
+  if (key === "MKL") return code.includes("MKL") || name.includes("MEKANIKAL");
+  if (key === "ELC") return code.includes("ELC") || name.includes("ELEKTRIKAL");
+  if (key === "SPL") return code.includes("SPL") || name.includes("SIPIL");
+  if (key === "OTO") return code.includes("OTO") || name.includes("OTOMOTIF");
+  return true;
+}
+function hasMtcArea(u: DailyControlTeamUser, areaKey: string): boolean {
+  switch (areaKey.toLowerCase()) {
+    case "gsu_wnb": return Number(u.mtc_area_gsu_wnb) === 1;
+    case "gsu_inject": return Number(u.mtc_area_gsu_inject) === 1;
+    case "ru_sawmill": return Number(u.mtc_area_ru_sawmill) === 1;
+    case "ru_production": return Number(u.mtc_area_ru_production) === 1;
+    default: return false;
+  }
+}
+function isExecutorAdmin(u: DailyControlTeamUser): boolean {
+  return String(u.id_position ?? "").trim().toUpperCase() === "EXECUTOR_ADMIN";
+}
+
 export default function DailyControlPage() {
   return (
     <PermissionGuard permission={PERMISSIONS.dailyControl} mode="page">
@@ -183,6 +232,7 @@ function DailyControlInner() {
   // Feed sudah berisi semua modul; `source_table` + `meso_subtype` per baris
   // dipakai untuk menyaring modul & kategori MESO di client.
   const activities = useDailyControlActivities(filters);
+  const teamUsers = useDailyControlTeamUsers();
   const unreadFeed = useDailyControlUnread();
   const { markRead, comment: postComment } = useDailyControlMutations();
 
@@ -246,6 +296,72 @@ function DailyControlInner() {
     }
     return { pro: p, cor: c, prev: pv, unreadCount: u };
   }, [moduleRows]);
+
+  // Rekap "siapa update berapa WO" per modul/tanggal — versi web dari panel
+  // "Status User {Divisi}" yang sudah ada di mobile (daily_control_page.dart,
+  // `userUpdateStatuses`). HARUS mulai dari daftar MASTER USER per divisi
+  // (`/daily-control/team-users`, port 1:1 dari `data.users` yang mobile
+  // dapat dari endpoint legacy), bukan cuma dari aktivitas yang ada — supaya
+  // user yang BELUM update sama sekali tetap muncul dengan angka 0, persis
+  // kayak mobile (mis. divisi ELC isinya tetap 4 user walau yang aktif
+  // update cuma 1-2 orang).
+  const userSummary = useMemo(() => {
+    const users = teamUsers.data?.data?.items ?? [];
+
+    let classified = users;
+    if (deferredModule === "meso") {
+      classified = classified.filter(isMesoTeamUser);
+      if (deferredMtcCat) classified = classified.filter((u) => isMesoTeamUserSubCategory(u, deferredMtcCat));
+    } else if (deferredModule === "maintenance") {
+      classified = classified.filter(isMtcTeamUser);
+      if (area) classified = classified.filter((u) => hasMtcArea(u, area));
+    } else if (deferredModule === "is") {
+      classified = classified.filter(isItsTeamUser);
+    }
+    // Modul lain (GA/Produksi) atau "Semua modul" gak punya klasifikasi
+    // setara di mobile — fallback tampilkan semua user tanpa difilter,
+    // daripada nyembunyiin panel ini sama sekali.
+    if (deferredModule !== "is") {
+      // Mobile: `filteredExecutorAdminTeamUsers` cuma lewatin filter posisi
+      // EXECUTOR_ADMIN kecuali untuk divisi ITS.
+      classified = classified.filter(isExecutorAdmin);
+    }
+
+    const counts = new Map<number, number>();
+    for (const r of rows) {
+      const rec = r as Record<string, unknown>;
+      const participantIds = Array.isArray(rec.participant_user_ids)
+        ? (rec.participant_user_ids as unknown[]).map((n) => Number(n)).filter((n) => n > 0)
+        : [];
+      const idSet = new Set(participantIds);
+      const rowIdUser = Number(rec.id_user ?? 0);
+      if (rowIdUser > 0) idSet.add(rowIdUser);
+
+      const participantNames = Array.isArray(rec.participant_names)
+        ? (rec.participant_names as unknown[]).map((n) => String(n ?? "").trim().toUpperCase()).filter(Boolean)
+        : [];
+      const submitterName = String(pick(rec, ["fullname", "created_by"]) || "").trim().toUpperCase();
+      const nameSet = new Set(participantNames);
+      if (submitterName) nameSet.add(submitterName);
+
+      for (const u of classified) {
+        const uid = Number(u.id_user);
+        const uname = String(u.alias || u.fullname || "").trim().toUpperCase();
+        if ((uid > 0 && idSet.has(uid)) || (uname && nameSet.has(uname))) {
+          counts.set(uid, (counts.get(uid) ?? 0) + 1);
+        }
+      }
+    }
+
+    return classified
+      .map((u) => ({
+        id: Number(u.id_user),
+        name: String(u.alias || u.fullname || "").trim(),
+        count: counts.get(Number(u.id_user)) ?? 0,
+      }))
+      .filter((u) => u.name)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [rows, teamUsers.data, deferredModule, deferredMtcCat, area]);
   const unreadItems = unreadFeed.data?.data?.activities ?? [];
   const totalUnread = Number(unreadFeed.data?.data?.count ?? unreadCount);
 
@@ -319,7 +435,7 @@ function DailyControlInner() {
         onRefresh={() => activities.refetch()}
         isFetching={activities.isFetching}
       >
-        <FilterDate label="Tanggal" value={date} onChange={setDate} />
+        <FilterDate label="Tanggal" value={date} onChange={setDate} max={today} />
         <select
           className="input-base h-9 w-40"
           value={module}
@@ -399,6 +515,43 @@ function DailyControlInner() {
           </button>
         ))}
       </div>
+
+      {userSummary.length > 0 ? (
+        <section className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Rekap Update per User
+            </h3>
+            <span className="text-xs text-slate-500">
+              {formatNumber(userSummary.filter((u) => u.count > 0).length)}/{formatNumber(userSummary.length)} user sudah update
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-4 sm:grid-cols-3 lg:grid-cols-4">
+            {userSummary.map((u) => (
+              <div
+                key={u.id || u.name}
+                className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                  u.count > 0 ? "border-slate-100 bg-slate-50" : "border-slate-100 bg-white"
+                }`}
+              >
+                <span
+                  className={`truncate text-sm ${u.count > 0 ? "text-slate-700" : "text-slate-400"}`}
+                  title={u.name}
+                >
+                  {u.name}
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    u.count > 0 ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  {formatNumber(u.count)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {unreadItems.length > 0 ? (
         <section className="card overflow-hidden border-brand-100">

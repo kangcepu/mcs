@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getDailyControlSummary,
   getDailyControlActivity,
+  getDailyControlTeamUsers,
   getDailyControlUnread,
   getDailyControlMentionUsers,
   getDailyControlPartMentions,
@@ -28,6 +29,16 @@ export function useDailyControlActivities(filters: DailyControlFilters) {
     // Query backend berat (~beberapa detik) — jangan refetch tiap fokus,
     // cache 2 menit supaya pindah halaman & balik terasa instan.
     staleTime: 2 * 60_000,
+  });
+}
+
+export function useDailyControlTeamUsers() {
+  return useQuery({
+    queryKey: ["daily-control-team-users"],
+    queryFn: ({ signal }) => getDailyControlTeamUsers(signal),
+    // Daftar master user per divisi jarang berubah — cache lebih lama dari
+    // activities biar gak nge-fetch ulang tiap ganti filter tanggal/modul.
+    staleTime: 10 * 60_000,
   });
 }
 

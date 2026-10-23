@@ -7,6 +7,31 @@ import type {
   DailyControlSummary,
 } from "@/types/daily-control";
 
+export interface DailyControlTeamUser {
+  id_user: number;
+  fullname: string;
+  alias?: string | null;
+  id_position?: string | null;
+  id_division?: string | number | null;
+  division_name?: string | null;
+  division_code?: string | null;
+  wo_category_general?: number;
+  wo_category_electrical?: number;
+  wo_category_mould?: number;
+  mtc_area_gsu_wnb?: number;
+  mtc_area_gsu_inject?: number;
+  mtc_area_ru_sawmill?: number;
+  mtc_area_ru_production?: number;
+  [key: string]: unknown;
+}
+
+/** GET /v2/daily-control/team-users → daftar master user per divisi (scope sama kayak mobile). */
+export function getDailyControlTeamUsers(
+  signal?: AbortSignal,
+): Promise<ApiResponse<{ items: DailyControlTeamUser[] }>> {
+  return apiV2.get<{ items: DailyControlTeamUser[] }>("/daily-control/team-users", { signal });
+}
+
 export interface DailyControlMentionSuggestion {
   id?: string | number;
   label: string;

@@ -149,6 +149,21 @@ dailyControlRouter.get('/daily-control/scheduled_summary', asyncHandler(async (r
   legacyOk(res, { division, preventive_total: total, selected_date: selectedDate }, 'Daily control scheduled summary retrieved');
 }));
 
+/**
+ * Daftar master user per divisi (scope sama kayak `GET /daily-control`
+ * legacy) — dipakai web buat bikin panel "Rekap Update per User" yang ikut
+ * nampilin user yang BELUM update (count 0), bukan cuma yang ada aktivitas.
+ * Mobile sudah dapat ini gratis lewat `data.users` di endpoint legacy; web
+ * pakai endpoint V2 terpisah (`/daily-control/activities`) yang gak bawa
+ * field itu, jadi dibikinin endpoint sendiri di sini.
+ */
+dailyControlRouter.get('/daily-control/team-users', asyncHandler(async (req, res) => {
+  const user = (req as AuthRequest).user!;
+  const scope = getDivisionScope(user);
+  const users = await getTeamUsers(scope);
+  legacyOk(res, { items: users }, 'Team users retrieved');
+}));
+
 dailyControlRouter.get('/daily-control/asset_options', asyncHandler(async (req, res) => {
   const term = String(req.query.term ?? '').trim();
   legacyOk(res, { items: await searchAssets(term, 30) }, 'Asset options retrieved');

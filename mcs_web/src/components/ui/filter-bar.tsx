@@ -131,10 +131,15 @@ export function FilterDate({
   value,
   onChange,
   label,
+  max,
+  min,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  /** Opsional — batas tanggal maksimum/minimum yang bisa dipilih (format `yyyy-mm-dd`). */
+  max?: string;
+  min?: string;
 }) {
   return (
     <label className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-500">
@@ -143,6 +148,8 @@ export function FilterDate({
         type="date"
         className="h-9 bg-transparent text-sm text-slate-700 outline-none"
         value={value}
+        max={max}
+        min={min}
         onChange={(e) => onChange(e.target.value)}
       />
     </label>

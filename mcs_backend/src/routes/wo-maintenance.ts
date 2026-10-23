@@ -136,7 +136,7 @@ async function getHeader(woNumber: string): Promise<Record<string, unknown> | nu
   return one<Record<string, unknown>>('SELECT * FROM tb_wo_mtc_operational WHERE wo_number=?', [woNumber]);
 }
 
-const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'FORWARD_TO_MESO']);
 function isFinalWoStatus(status: unknown): boolean {
   return FINAL_STATUSES.has(String(status ?? '').toUpperCase().trim());
 }
