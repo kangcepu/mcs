@@ -12,7 +12,9 @@ import {
   getMasterOptions,
   getPermissionCatalog,
   listMasterActivity,
+  listMasterDataChanges,
   listMaster,
+  listWorkOrderEvents,
   searchEmployees,
   updateMaster,
 } from "@/lib/api/master";
@@ -33,6 +35,22 @@ export function useMasterActivity(params: Record<string, string | number | undef
   return useQuery({
     queryKey: ["master-activity", params],
     queryFn: ({ signal }) => listMasterActivity(params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMasterDataChanges(params: Record<string, string | number | undefined>) {
+  return useQuery({
+    queryKey: ["master-data-changes", params],
+    queryFn: ({ signal }) => listMasterDataChanges(params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useWorkOrderEvents(params: Record<string, string | number | undefined>) {
+  return useQuery({
+    queryKey: ["work-order-events", params],
+    queryFn: ({ signal }) => listWorkOrderEvents(params, signal),
     placeholderData: keepPreviousData,
   });
 }

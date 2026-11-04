@@ -134,3 +134,32 @@ export async function getStockOpnamePdf(noSo: string): Promise<Blob> {
   }
   return response.blob();
 }
+
+export interface StockOpnameAssetDetailRow {
+  asset_code: string;
+  asset_name: string;
+  company: string;
+  category: string;
+  location: string;
+  status: string;
+  username: string;
+  parts_count: number | null;
+  qty_found: number | null;
+}
+
+export interface StockOpnameAssetDetail {
+  no_so: string;
+  type: "ASSET" | "BOM";
+  rows: StockOpnameAssetDetailRow[];
+}
+
+/** Daftar aset yang sudah/sedang di-cek untuk satu No. SO (mirip di mobile). */
+export function getStockOpnameAssetDetail(
+  noSo: string,
+  signal?: AbortSignal,
+): Promise<ApiResponse<StockOpnameAssetDetail>> {
+  return apiV2.get<StockOpnameAssetDetail>("/reports/stock-opname/assets", {
+    params: { no_so: noSo },
+    signal,
+  });
+}

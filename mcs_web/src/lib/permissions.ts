@@ -34,6 +34,9 @@ export function hasAllPermissions(
  */
 export const AREA_PERMISSIONS = {
   dashboard: { read: [] as string[] },
+  // Personal — isinya sendiri sudah di-scope backend sesuai hak akses/posisi
+  // user, jadi menunya ditampilkan ke semua user yang login, sama kayak Dashboard.
+  myWork: { read: [] as string[] },
   workOrders: {
     read: [
       "wo_mtc",
@@ -71,6 +74,10 @@ export const AREA_PERMISSIONS = {
   masterBackup: {
     read: [PERMISSIONS.userManagement],
     write: [PERMISSIONS.userManagement],
+  },
+  masterMobileDevices: {
+    read: [PERMISSIONS.mcsMobileUpload],
+    write: [PERMISSIONS.mcsMobileUpload],
   },
   masterCompany: {
     read: [PERMISSIONS.userManagement],

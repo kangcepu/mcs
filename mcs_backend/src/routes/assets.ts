@@ -228,10 +228,27 @@ assetRouter.post('/assets/status', authenticate, requirePermission('privilage_as
 }));
 
 assetRouter.post('/assets/generate-code', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const { company = 'MCS', category = 'ASSET', location = 'GENERAL' } = req.body;
-  const prefix = `${String(company).slice(0, 3).toUpperCase()}/${String(category).slice(0, 3).toUpperCase()}-${String(location).slice(0, 3).toUpperCase()}`;
-  const last = await one<{ seq: number }>('SELECT MAX(CAST(RIGHT(AssetCode, 4) AS UNSIGNED)) AS seq FROM asset WHERE AssetCode LIKE ?', [`${prefix}/%`]);
-  ok(res, { AssetCode: `${prefix}/${String(Number(last?.seq ?? 0) + 1).padStart(4, '0')}` });
+  // Dulu motong 3 huruf pertama dari NAMA company/category/location, jadi hasilnya
+  // gak match kode asli di master data (mis. lokasi "Human Resource & General
+  // Affair" jadi "HUM" padahal kode resminya "HRGA") — beda dari pola AssetCode
+  // yang sudah ada & dari cara legacy generate kodenya (lookup kode asli, bukan
+  // potong nama). Samakan dengan lookup yang sama seperti bulk import aset.
+  const companyName = String(req.body.company ?? '').trim();
+  const locationName = String(req.body.location ?? '').trim();
+  const categoryName = String(req.body.category ?? '').trim();
+  const [company, location, category] = await Promise.all([
+    one<{ id_company: string }>('SELECT id_company FROM tb_company WHERE company_name=?', [companyName]),
+    one<{ location_code: string }>('SELECT location_code FROM tb_location_asset WHERE location_name=?', [locationName]),
+    one<{ category_code: string }>('SELECT category_code FROM tb_category_asset WHERE category_name=?', [categoryName]),
+  ]);
+  if (!company || !location || !category) throw new HttpError(422, 'Company, lokasi, dan kategori harus cocok dengan master data.');
+  const prefix = `${company.id_company}/${category.category_code}-${location.location_code}/`;
+  const last = await one<{ seq: number }>('SELECT MAX(CAST(RIGHT(AssetCode, 4) AS UNSIGNED)) AS seq FROM asset WHERE AssetCode LIKE ?', [`${prefix}%`]);
+  const assetCode = `${prefix}${String(Number(last?.seq ?? 0) + 1).padStart(4, '0')}`;
+  // Web (lib/api/assets.ts generateAssetCode) baca `data.asset_code` — dulu di sini
+  // cuma ngirim `AssetCode`, jadi tombol "Generate" selalu diam-diam gagal ngisi
+  // field kode (gak ada error, cuma gak kefill).
+  ok(res, { asset_code: assetCode, AssetCode: assetCode });
 }));
 
 const bulkImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });

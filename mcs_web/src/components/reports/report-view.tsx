@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Download, FileText, Loader2, Printer } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar, FilterDate, FilterSelect } from "@/components/ui/filter-bar";
@@ -8,11 +9,13 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
 import { Button } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/modal";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast";
 import { useMe } from "@/hooks/use-auth";
 import { useReport } from "@/hooks/use-reports";
 import { useQueryParams } from "@/hooks/use-query-params";
-import { fetchAllReportRows, getStockOpnamePdf } from "@/lib/api/reports";
+import { cn } from "@/lib/utils";
+import { fetchAllReportRows, getStockOpnameAssetDetail, getStockOpnamePdf } from "@/lib/api/reports";
 import { DEFAULT_PER_PAGE, ApiError } from "@/types/api";
 import { exportToCsv, inferColumns } from "@/lib/csv";
 import { printReportPdf } from "@/lib/print-report";
@@ -57,13 +60,28 @@ export function ReportView({
   description,
   filters: filterConfig,
   summarize,
+  columns: columnsOverride,
 }: {
   reportKey: ReportKey;
   title: string;
   description?: string;
   filters: ReportFilterConfig[];
-  /** Hitung tile ringkasan DARI baris hasil filter aktif (harus konsisten dgn tabel). */
-  summarize?: (rows: Array<Record<string, unknown>>) => { label: string; value: string }[];
+  /**
+   * Hitung tile ringkasan. `meta` (total hasil filter sebenarnya, dari server)
+   * tersedia buat tile yang harus nunjukin total SELURUH hasil filter, bukan
+   * cuma halaman yang lagi tampil (mis. "Total No. SO") — `rows` tetap yang
+   * dipakai buat tile yang emang cuma relevan dari halaman aktif.
+   */
+  summarize?: (
+    rows: Array<Record<string, unknown>>,
+    meta?: { total?: number },
+  ) => { label: string; value: string }[];
+  /**
+   * Kolom tabel layar khusus (JSX, badge, dll) — override tampilan dari
+   * `preset.columns` (yang tetap dipakai apa adanya buat PDF/CSV export,
+   * karena isinya plain text buat pdfkit).
+   */
+  columns?: Column<Record<string, unknown>>[];
 }) {
   const { values, setValues, reset, hasActiveFilters } = useQueryParams(BASE_DEFAULTS);
   const toast = useToast();
@@ -72,7 +90,15 @@ export function ReportView({
   const [selectedSo, setSelectedSo] = useState<Record<string, unknown> | null>(null);
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [soTab, setSoTab] = useState<"pdf" | "assets">("pdf");
   const soPreviewRequest = useRef(0);
+
+  const selectedSoNo = String(selectedSo?.no_so ?? "");
+  const soAssetDetail = useQuery({
+    queryKey: ["stock-opname-asset-detail", selectedSoNo],
+    queryFn: ({ signal }) => getStockOpnameAssetDetail(selectedSoNo, signal),
+    enabled: reportKey === "stock-opname" && selectedSo !== null && soTab === "assets",
+  });
 
   // Hanya kirim param yang relevan untuk report ini.
   const activeParams = useMemo(() => {
@@ -124,6 +150,7 @@ export function ReportView({
     soPreviewRequest.current += 1;
     setSelectedSo(null);
     setIsPreviewLoading(false);
+    setSoTab("pdf");
     setPreviewPdfUrl((url) => {
       if (url) URL.revokeObjectURL(url);
       return null;
@@ -141,6 +168,7 @@ export function ReportView({
     const requestId = soPreviewRequest.current + 1;
     soPreviewRequest.current = requestId;
     setSelectedSo(row);
+    setSoTab("pdf");
     setIsPreviewLoading(true);
     setPreviewPdfUrl((url) => {
       if (url) URL.revokeObjectURL(url);
@@ -160,7 +188,7 @@ export function ReportView({
     }
   }, [toast]);
 
-  const columns = useMemo<Column<Record<string, unknown>>[]>(() => {
+  const derivedColumns = useMemo<Column<Record<string, unknown>>[]>(() => {
     return pdfColumns.map((c) => ({
       key: c.key,
       header: c.header,
@@ -174,7 +202,9 @@ export function ReportView({
     }));
   }, [pdfColumns]);
 
-  const tiles = summarize ? summarize(summaryRows) : [];
+  const columns = columnsOverride ?? derivedColumns;
+
+  const tiles = summarize ? summarize(summaryRows, data?.meta) : [];
 
   /** Ambil seluruh baris (semua halaman) sesuai filter aktif. */
   const collectAll = (): Promise<Array<Record<string, unknown>>> =>
@@ -360,32 +390,66 @@ export function ReportView({
             <Button variant="secondary" onClick={closeStockOpnamePreview} disabled={isPreviewLoading}>
               Batal
             </Button>
-            <Button
-              onClick={() => {
-                if (previewPdfUrl) window.open(previewPdfUrl, "_blank");
-              }}
-              disabled={!previewPdfUrl || isPreviewLoading}
-            >
-              <Printer className="h-4 w-4" />
-              Cetak PDF
-            </Button>
+            {soTab === "pdf" ? (
+              <Button
+                onClick={() => {
+                  if (previewPdfUrl) window.open(previewPdfUrl, "_blank");
+                }}
+                disabled={!previewPdfUrl || isPreviewLoading}
+              >
+                <Printer className="h-4 w-4" />
+                Cetak PDF
+              </Button>
+            ) : null}
           </>
         }
       >
-        {isPreviewLoading ? (
-          <div className="flex h-[62vh] items-center justify-center gap-3 text-sm text-slate-500">
-            <Loader2 className="h-5 w-5 animate-spin" /> Menyiapkan dokumen PDF…
-          </div>
-        ) : previewPdfUrl ? (
-          <iframe
-            title={`Preview ${dash(selectedSo?.no_so)}`}
-            src={previewPdfUrl}
-            className="h-[62vh] w-full rounded-lg border border-slate-200"
-          />
+        <div className="mb-3 flex gap-1 border-b border-slate-200">
+          {(
+            [
+              { key: "pdf" as const, label: "Dokumen PDF" },
+              { key: "assets" as const, label: "Daftar Aset Dicek" },
+            ]
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setSoTab(t.key)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                soTab === t.key
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {soTab === "pdf" ? (
+          isPreviewLoading ? (
+            <div className="flex h-[62vh] items-center justify-center gap-3 text-sm text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" /> Menyiapkan dokumen PDF…
+            </div>
+          ) : previewPdfUrl ? (
+            <iframe
+              title={`Preview ${dash(selectedSo?.no_so)}`}
+              src={previewPdfUrl}
+              className="h-[62vh] w-full rounded-lg border border-slate-200"
+            />
+          ) : (
+            <div className="flex h-48 items-center justify-center text-sm text-slate-500">
+              Dokumen PDF tidak tersedia.
+            </div>
+          )
         ) : (
-          <div className="flex h-48 items-center justify-center text-sm text-slate-500">
-            Dokumen PDF tidak tersedia.
-          </div>
+          <StockOpnameAssetList
+            isLoading={soAssetDetail.isLoading}
+            error={soAssetDetail.error}
+            rows={soAssetDetail.data?.data?.rows ?? []}
+            type={soAssetDetail.data?.data?.type}
+          />
         )}
       </Modal>
 
@@ -401,6 +465,76 @@ export function ReportView({
         </div>
       ) : null}
     </PageContainer>
+  );
+}
+
+/** Tabel aset yang sudah/sedang di-cek untuk satu No. SO (tab "Daftar Aset Dicek"). */
+function StockOpnameAssetList({
+  isLoading,
+  error,
+  rows,
+  type,
+}: {
+  isLoading: boolean;
+  error: unknown;
+  rows: import("@/lib/api/reports").StockOpnameAssetDetailRow[];
+  type?: "ASSET" | "BOM";
+}) {
+  const isBom = type === "BOM";
+
+  const columns = useMemo<Column<import("@/lib/api/reports").StockOpnameAssetDetailRow>[]>(() => {
+    const base: Column<import("@/lib/api/reports").StockOpnameAssetDetailRow>[] = [
+      { key: "asset_code", header: "Kode Aset", cell: (r) => <span className="font-medium text-slate-900">{dash(r.asset_code)}</span> },
+      { key: "asset_name", header: "Nama Aset", cell: (r) => dash(r.asset_name) },
+      { key: "company", header: "Company", cell: (r) => dash(r.company) },
+      { key: "category", header: "Kategori", cell: (r) => dash(r.category) },
+      { key: "location", header: "Lokasi", cell: (r) => dash(r.location) },
+    ];
+    if (isBom) {
+      base.push({
+        key: "parts",
+        header: "Part Ditemukan",
+        align: "center",
+        cell: (r) => {
+          const total = r.parts_count ?? 0;
+          const found = r.qty_found ?? 0;
+          const done = total > 0 && found >= total;
+          return (
+            <span className={cn("font-medium", done ? "text-emerald-700" : "text-amber-700")}>
+              {formatNumber(found)} / {formatNumber(total)}
+            </span>
+          );
+        },
+      });
+    } else {
+      base.push({
+        key: "status",
+        header: "Status",
+        align: "center",
+        cell: (r) => (
+          <StatusBadge
+            status={r.status === "CHECKED" ? "Sudah Dicek" : "Belum Dicek"}
+            tone={r.status === "CHECKED" ? "green" : "amber"}
+          />
+        ),
+      });
+      base.push({ key: "username", header: "Di-scan Oleh", cell: (r) => dash(r.username) });
+    }
+    return base;
+  }, [isBom]);
+
+  return (
+    <div className="max-h-[62vh] overflow-auto">
+      <DataTable
+        columns={columns}
+        data={rows}
+        rowKey={(r, i) => r.asset_code || i}
+        isLoading={isLoading}
+        error={error}
+        emptyTitle="Belum ada aset yang tercatat"
+        emptyDescription="Belum ada aktivitas scan untuk No. SO ini."
+      />
+    </div>
   );
 }
 

@@ -41,6 +41,7 @@ function useInvalidateApprovals() {
     qc.invalidateQueries({ queryKey: ["approval-list"] });
     qc.invalidateQueries({ queryKey: ["work-orders"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
+    qc.invalidateQueries({ queryKey: ["my-work"] });
   };
 }
 

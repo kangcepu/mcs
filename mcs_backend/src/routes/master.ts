@@ -486,7 +486,80 @@ masterRouter.get('/master/activity-log', authenticate, asyncHandler(async (req, 
 
 masterRouter.get('/system-activity-log', authenticate, asyncHandler(async (req, res) => {
   requireUserManagement((req as AuthRequest).user!);
-  ok(res, await rows('SELECT * FROM tb_system_activity_log ORDER BY id DESC LIMIT ?', [Math.min(Number(req.query.limit ?? 100), 500)]));
+  // Web (halaman Log Event) ngirim q/module/page/per_page buat filter &
+  // pagination — sebelumnya di sini DIAM-DIAM diabaikan semua, cuma
+  // `limit` doang yang kepakai, jadi search box/dropdown modul/pagination
+  // di halaman itu keliatan ada tapi gak ngapa-ngapain (selalu 500 baris
+  // terakhir apa adanya).
+  const page = Math.max(1, Number(req.query.page ?? 1));
+  const perPage = Math.min(200, Math.max(10, Number(req.query.per_page ?? req.query.limit ?? 25)));
+  const q = String(req.query.q ?? '').trim();
+  const moduleFilter = String(req.query.module ?? '').trim();
+  let where = 'WHERE 1=1';
+  const params: unknown[] = [];
+  if (moduleFilter) { where += ' AND module = ?'; params.push(moduleFilter); }
+  if (q) {
+    where += ' AND (action LIKE ? OR reference LIKE ? OR actor_fullname LIKE ? OR actor_username LIKE ?)';
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM tb_system_activity_log ${where}`, params);
+  const data = await rows(`SELECT * FROM tb_system_activity_log ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, perPage, (page - 1) * perPage]);
+  const totalCount = Number(total?.total ?? 0);
+  ok(res, data, 'OK', { page, per_page: perPage, total: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / perPage)) });
+}));
+
+/**
+ * Log Event — "Perubahan Work Order": gabungan tabel approval/komentar WO
+ * dari SEMUA modul (meso/maintenance/is/ga/production) jadi satu timeline.
+ * Tabel approval per-modul udah ada & dipakai buat riwayat per-WO — ini
+ * cuma nggabungin lintas modul buat satu halaman "apa aja yang terjadi di
+ * semua WO akhir-akhir ini", bukan tabel/logging baru.
+ */
+const WO_EVENT_SOURCES: { module: string; label: string; table: string }[] = [
+  { module: 'meso', label: 'MESO', table: 'tb_approval' },
+  { module: 'maintenance', label: 'Maintenance', table: 'tb_approval_operational' },
+  { module: 'is', label: 'IS', table: 'tb_approval_it' },
+  { module: 'ga', label: 'GA', table: 'tb_approval_ga' },
+  { module: 'production', label: 'Production', table: 'tb_approval_preventive' },
+];
+
+masterRouter.get('/work-order-events', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement((req as AuthRequest).user!);
+  const page = Math.max(1, Number(req.query.page ?? 1));
+  const perPage = Math.min(200, Math.max(10, Number(req.query.per_page ?? 25)));
+  const q = String(req.query.q ?? '').trim();
+  const moduleFilter = String(req.query.module ?? '').trim();
+  const sources = moduleFilter ? WO_EVENT_SOURCES.filter((s) => s.module === moduleFilter) : WO_EVENT_SOURCES;
+
+  const perSourceLimit = page * perPage;
+  const buildWhere = (): { where: string; params: unknown[] } => {
+    let where = 'WHERE 1=1';
+    const params: unknown[] = [];
+    if (q) { where += ' AND (wo_number LIKE ? OR comment LIKE ? OR fullname LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    return { where, params };
+  };
+
+  const [rowSets, countSets] = await Promise.all([
+    Promise.all(sources.map(async (s) => {
+      const { where, params } = buildWhere();
+      const data = await rows<Record<string, unknown>>(
+        `SELECT '${s.module}' AS module, wo_number, fullname, id_position, id_division, comment, created_at FROM \`${s.table}\` ${where} ORDER BY created_at DESC LIMIT ?`,
+        [...params, perSourceLimit],
+      );
+      return data;
+    })),
+    Promise.all(sources.map(async (s) => {
+      const { where, params } = buildWhere();
+      return one<{ total: number }>(`SELECT COUNT(*) total FROM \`${s.table}\` ${where}`, params);
+    })),
+  ]);
+
+  const merged = rowSets.flat().sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  const total = countSets.reduce((sum, c) => sum + Number(c?.total ?? 0), 0);
+  const start = (page - 1) * perPage;
+  const moduleLabel = Object.fromEntries(WO_EVENT_SOURCES.map((s) => [s.module, s.label]));
+  const data = merged.slice(start, start + perPage).map((r) => ({ ...r, module_label: moduleLabel[String(r.module)] ?? r.module }));
+  ok(res, data, 'OK', { page, per_page: perPage, total, total_pages: Math.max(1, Math.ceil(total / perPage)) });
 }));
 
 masterRouter.get('/master/:resource', authenticate, asyncHandler(async (req, res) => {

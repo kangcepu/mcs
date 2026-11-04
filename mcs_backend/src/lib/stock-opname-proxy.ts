@@ -19,10 +19,19 @@ interface SoFetchResult {
   body: unknown;
 }
 
+// Satu halaman report bisa narik sampai ~25 request paralel ke service SO
+// (lihat getStockOpnameReport) — tanpa batas waktu sendiri, satu request yang
+// nyangkut bisa bikin seluruh halaman nunggu sampai gateway (nginx/pm2) nyerah
+// duluan dan balikin 502, padahal sisanya udah selesai dari tadi.
+const SO_FETCH_TIMEOUT_MS = 8000;
+
 async function soGet(path: string, token: string): Promise<SoFetchResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SO_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(`${SO_BASE_URL}${path}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: controller.signal,
     });
     const text = await res.text();
     let body: unknown = [];
@@ -32,6 +41,8 @@ async function soGet(path: string, token: string): Promise<SoFetchResult> {
     return { ok: res.ok, status: res.status, body };
   } catch {
     return { ok: false, status: 0, body: [] };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -205,18 +216,30 @@ export async function getStockOpnameReport(token: string, params: StockOpnameLis
     });
   }
 
-  // Sama kayak mobile: hindari badai request N+1 ke service SO kalau hasil
-  // filternya masih banyak baris dan user belum nyari No. SO spesifik —
-  // count-nya tampil 0 dulu, baru lengkap begitu user mempersempit filter.
-  const shouldFetchSummary = prepared.length <= 20 || noSoFilter !== '';
+  prepared.sort((a, b) => String(b.tanggal ?? '').localeCompare(String(a.tanggal ?? '')));
+  const total = prepared.length;
+  const start = (params.page - 1) * params.perPage;
+  const pageItems = prepared.slice(start, start + params.perPage);
 
-  const rows: Record<string, unknown>[] = [];
-  for (const p of prepared) {
+  // Hindari badai request N+1 ke service SO — tapi keputusannya berdasarkan
+  // jumlah baris yang BENERAN mau ditampilkan (satu halaman), bukan total
+  // hasil filter. Sebelumnya dicek dari total filter, jadi begitu hasil
+  // filter lewat 20 baris (termasuk kasus biasa: tampilan default 25/halaman
+  // tanpa filter No. SO), summary SELALU 0 walau cuma 1 halaman yang
+  // ditampilkan — exporter (yang narik ratusan baris per request) tetap
+  // aman karena ukuran halamannya sendiri yang dicek, bukan jumlah ini.
+  const shouldFetchSummary = pageItems.length <= 25 || noSoFilter !== '';
+
+  // Paralel, bukan satu-satu — 25 request berurutan ke service SO gampang
+  // melewati batas waktu gateway (ini yang bikin "502 Bad Gateway" muncul
+  // terus di report). Masing-masing juga sudah dibatasi SO_FETCH_TIMEOUT_MS
+  // jadi satu SO yang lambat gak nahan baris lainnya.
+  const rows = await Promise.all(pageItems.map(async (p) => {
     let summary = extractSummaryFromHeader(p.header);
     if (shouldFetchSummary && summary.asset_total === 0 && summary.bom_total === 0) {
       summary = await fetchSummaryByNoSo(p.no_so, p.type, token);
     }
-    rows.push({
+    return {
       no_so: p.no_so,
       tanggal: p.tanggal,
       type: p.type,
@@ -225,14 +248,10 @@ export async function getStockOpnameReport(token: string, params: StockOpnameLis
       asset_checked: summary.asset_checked,
       bom_total: summary.bom_total,
       bom_checked: summary.bom_checked,
-    });
-  }
+    };
+  }));
 
-  rows.sort((a, b) => String(b.tanggal ?? '').localeCompare(String(a.tanggal ?? '')));
-
-  const total = rows.length;
-  const start = (params.page - 1) * params.perPage;
-  return { rows: rows.slice(start, start + params.perPage), total };
+  return { rows, total };
 }
 
 export interface StockOpnamePdf { buffer: Buffer; contentType: string; fileName: string }
@@ -247,8 +266,116 @@ export async function getStockOpnamePdf(token: string, noSo: string): Promise<St
     ? `/api/report-so-bom/${encodeURIComponent(noSo)}/pdf`
     : `/api/report/${encodeURIComponent(noSo)}/pdf`;
 
-  const res = await fetch(`${SO_BASE_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  // Laporan ASSET (bukan BOM) baca Tanggal/Perusahaan/LockedDate dari query string,
+  // bukan dari DB sendiri (beda dari laporan BOM yang self-sufficient) — tanpa ini
+  // header PDF-nya selalu nampilin "-" walau datanya sendiri ada.
+  const query = new URLSearchParams();
+  const tanggal = readValue(header, ['Tanggal', 'tanggal']);
+  const lockedDate = readValue(header, ['LockedDate', 'locked_date']);
+  const companies = readListValue(header, ['companies', 'Companies', 'company']);
+  const locations = readListValue(header, ['locations', 'Locations', 'location']);
+  if (tanggal) query.set('tanggal', tanggal);
+  if (lockedDate) query.set('lockeddate', lockedDate);
+  if (companies.length) query.set('perusahaan', companies.join(', '));
+  if (locations.length) query.set('lokasi', locations.join(', '));
+  const qs = query.toString();
+
+  const res = await fetch(`${SO_BASE_URL}${path}${qs ? `?${qs}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error('SO_PDF_FAILED');
   const buffer = Buffer.from(await res.arrayBuffer());
   return { buffer, contentType: res.headers.get('content-type') ?? 'application/pdf', fileName: `Laporan_SO_${noSo}.pdf` };
+}
+
+export interface StockOpnameAssetDetailRow {
+  asset_code: string;
+  asset_name: string;
+  company: string;
+  category: string;
+  location: string;
+  status: string;
+  username: string;
+  parts_count: number | null;
+  qty_found: number | null;
+}
+
+export interface StockOpnameAssetDetail {
+  no_so: string;
+  type: 'ASSET' | 'BOM';
+  rows: StockOpnameAssetDetailRow[];
+}
+
+/**
+ * Daftar aset yang sudah/sedang di-cek untuk satu No. SO — sama kayak yang
+ * bisa dilihat user di mobile (`ReportSoRepository.getDetail()`), sebelumnya
+ * cuma ada ringkasan angka doang di web, gak ada cara buka daftar asetnya.
+ */
+export async function getStockOpnameAssetDetail(token: string, noSo: string): Promise<StockOpnameAssetDetail> {
+  const listR = await soGet('/api/no-stock-opname', token);
+  if (!listR.ok) throw new Error('SO_SERVICE_UNREACHABLE');
+  const header = extractList(listR.body).find((row) => readValue(row, ['NoSO', 'no_so', 'noso']) === noSo);
+  if (!header) throw new Error('SO_NOT_FOUND');
+  const isBom = isTruthy(readValue(header, ['IsBOM', 'is_bom']));
+
+  if (isBom) {
+    const r = await soGet(`/api/no-stock-opname-current-bom/${encodeURIComponent(noSo)}`, token);
+    const rows = r.ok ? extractList(r.body) : [];
+    return {
+      no_so: noSo,
+      type: 'BOM',
+      rows: rows.map((row) => ({
+        asset_code: readValue(row, ['AssetCode', 'asset_code']),
+        asset_name: readValue(row, ['AssetName', 'asset_name']),
+        company: readValue(row, ['CompanyName', 'company_name']),
+        category: readValue(row, ['CategoryAsset', 'category_asset']),
+        location: readValue(row, ['LocationAsset', 'location_asset']),
+        status: readValue(row, ['status', 'Status']),
+        username: readValue(row, ['username', 'Username']),
+        parts_count: toInt(readValue(row, ['partsCount', 'parts_count'])),
+        qty_found: toInt(readValue(row, ['qtyFound', 'qty_found'])),
+      })),
+    };
+  }
+
+  const [checkedR, pendingR] = await Promise.all([
+    soGet(`/api/no-stock-opname/${encodeURIComponent(noSo)}`, token),
+    soGet(`/api/no-stock-opname-current/${encodeURIComponent(noSo)}`, token),
+  ]);
+  const checked = checkedR.ok ? extractList(checkedR.body) : [];
+  const pending = pendingR.ok ? extractList(pendingR.body) : [];
+
+  const map = new Map<string, StockOpnameAssetDetailRow>();
+  for (const row of checked) {
+    const code = readValue(row, ['AssetCode', 'asset_code']);
+    if (!code) continue;
+    map.set(code, {
+      asset_code: code,
+      asset_name: readValue(row, ['AssetName', 'asset_name']),
+      company: readValue(row, ['CompanyName', 'company_name']),
+      category: readValue(row, ['CategoryAsset', 'category_asset']),
+      location: readValue(row, ['LocationAsset', 'location_asset']),
+      status: 'CHECKED',
+      username: readValue(row, ['username', 'Username']),
+      parts_count: null,
+      qty_found: null,
+    });
+  }
+  for (const row of pending) {
+    const code = readValue(row, ['AssetCode', 'asset_code']);
+    if (!code) continue;
+    const existing = map.get(code);
+    const status = readValue(row, ['status', 'Status']);
+    map.set(code, {
+      asset_code: code,
+      asset_name: readValue(row, ['AssetName', 'asset_name']) || existing?.asset_name || '',
+      company: readValue(row, ['CompanyName', 'company_name']) || existing?.company || '',
+      category: readValue(row, ['CategoryAsset', 'category_asset']) || existing?.category || '',
+      location: readValue(row, ['LocationAsset', 'location_asset']) || existing?.location || '',
+      status: status || existing?.status || 'PENDING',
+      username: readValue(row, ['username', 'Username']) || existing?.username || '',
+      parts_count: null,
+      qty_found: null,
+    });
+  }
+
+  return { no_so: noSo, type: 'ASSET', rows: Array.from(map.values()) };
 }

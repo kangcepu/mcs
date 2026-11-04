@@ -71,6 +71,11 @@ export function normalizeScheduleDetailChooseDayForType(type: unknown, chooseDay
     return 'saturday';
   }
 
+  // 3-bulanan/6-bulanan/tahunan selalu tanggal 1 awal bulan (kalau libur,
+  // `isNonWorkingDate` di createWoNew yang dorong ke hari kerja berikutnya)
+  // — gak ikut `choose_day`/`start_date` item-nya kayak bulanan biasa.
+  if (t === '3 bulanan' || t === '6 bulanan' || t === 'tahunan') return '1';
+
   if (/^\d{1,2}$/.test(cd) && Number(cd) >= 1 && Number(cd) <= 31) return cd;
   const start = startDate ? new Date(startDate) : null;
   if (start && !isNaN(start.getTime())) return String(start.getDate());
@@ -137,6 +142,27 @@ function getScheduleTargetMonth(lastUpdate: string, monthsToAdd: number): string
   return `${y}-${m}-01`;
 }
 
+/**
+ * Target Desember buat item tahunan — SELALU bulan 12, bukan "last_update +
+ * 12 bulan" (itu bisa jatuh ke bulan apapun, ngikutin kapan item-nya
+ * pertama kali dibuat/fire — bukan yang diminta: "tahunan keluarnya di
+ * bulan 12 tiap tahun"). Kalau item belum pernah due persis di Desember
+ * (termasuk item baru/belum pernah fire sama sekali), ancer-nya dari
+ * SEKARANG — Desember terdekat dari hari ini — biar item baru nggak nunggu
+ * nyampe ke Desember yang ke berapa taun dulu (sama prinsipnya kayak
+ * pengecualian "due pertama" di cabang mingguan di bawah).
+ */
+function getDecemberTarget(effectiveLastUpdate: string): string {
+  const last = new Date(effectiveLastUpdate);
+  const everFiredInDecember = !isNaN(last.getTime()) && last.getMonth() === 11;
+  if (everFiredInDecember) {
+    return `${last.getFullYear() + 1}-12-01`;
+  }
+  const now = new Date();
+  const decThisYear = `${now.getFullYear()}-12-01`;
+  return todayDateOnly() <= decThisYear ? decThisYear : `${now.getFullYear() + 1}-12-01`;
+}
+
 function daysInMonth(year: number, month1based: number): number {
   return new Date(year, month1based, 0).getDate();
 }
@@ -152,6 +178,24 @@ export function isScheduleDue(scheduleType: unknown, chooseDay: unknown, lastUpd
 
   const effectiveLastUpdate = lastUpdate ? String(lastUpdate) : '2000-01-01 00:00:00';
   const monthsByType: Record<string, number> = { bulanan: 1, '3 bulanan': 3, '6 bulanan': 6, tahunan: 12 };
+
+  // 3-bulanan/6-bulanan: selalu tanggal 1 di bulan targetnya, gak peduli
+  // choose_day item-nya (lihat normalizeScheduleDetailChooseDayForType) —
+  // kalau tanggal 1 jatuh di hari libur, isNonWorkingDate() di createWoNew
+  // yang nge-skip generate-nya hari itu; karena pengecekan due di sini pakai
+  // `>=` (bukan exact match), begitu hari kerja berikutnya cron jalan lagi,
+  // tetap kebaca due — otomatis maju ke hari kerja terdekat tanpa kode baru.
+  if (normalizedType === '3 bulanan' || normalizedType === '6 bulanan') {
+    return today >= getScheduleTargetMonth(effectiveLastUpdate, monthsByType[normalizedType]);
+  }
+
+  // Tahunan: SELALU bulan 12, bukan "last_update + 12 bulan" (itu masih
+  // ngikutin bulan kapan item-nya dulu pertama dibuat/fire). Sama kayak di
+  // atas, libur di tanggal 1 Desember otomatis maju ke hari kerja
+  // berikutnya lewat isNonWorkingDate(), bukan logic di sini.
+  if (normalizedType === 'tahunan') {
+    return today >= getDecemberTarget(effectiveLastUpdate);
+  }
 
   let targetDate: string | null = null;
   if (normalizedType === 'mingguan') {
@@ -302,16 +346,69 @@ function parseExecutorCodes(items: ScheduleDetail[]): { codes: string[]; categor
       if (code) codes.add(code.toUpperCase());
     }
   }
-  if (!codes.size) codes.add('MTC');
+  // Dulu kalau kosong fallback diam-diam ke 'MTC' — tapi 'MTC' bukan kategori
+  // MESO yang sah (ELC/MKL/SPL/OTO), jadi WO MESO yang ke-label 'MTC' gak
+  // match aturan visibility `job_executor LIKE '%kode_divisi%'` buat SIAPAPUN
+  // executor_admin — WO-nya kebuat tapi jadi gak kelihatan buat tim yang
+  // seharusnya ngerjain (199 WO MESO kena ini, root cause-nya: jadwal master
+  // `tbl_schedules_detail.executor` kosong). Biarkan kosong di sini —
+  // caller yang nentuin cara nanganinnya (lihat createWoMesoGrouped).
   return { codes: [...codes], category };
 }
 
-async function findExistingWoForToday(table: string, assetId: number): Promise<string | null> {
-  const hasAutoGenerate = await hasColumn(table, 'auto_generate');
-  const clause = hasAutoGenerate ? "(auto_generate='yes' OR job_requirement LIKE 'AUTO FROM SCHEDULE:%')" : "job_requirement LIKE 'AUTO FROM SCHEDULE:%'";
+/**
+ * Item harian/mingguan/bulanan tetap digabung jadi 1 WO (kayak sebelumnya —
+ * sering jadi due bareng buat asset yang sama, 1 WO per hari cukup). Item
+ * 3-bulanan/6-bulanan/tahunan masing-masing dipisah jadi WO SENDIRI-SENDIRI
+ * — gak digabung ke WO harian/mingguan/bulanan, dan gak digabung satu sama
+ * lain juga — karena jaraknya jauh & biasanya butuh penanganan/perhatian
+ * beda dari pengecekan rutin biasa.
+ */
+const BUCKET_ORDER = ['combined', '3bulanan', '6bulanan', 'tahunan'] as const;
+type BucketKey = (typeof BUCKET_ORDER)[number];
+const BUCKET_TYPES: Record<BucketKey, string[]> = {
+  combined: ['harian', 'mingguan', 'bulanan', ''],
+  '3bulanan': ['3 bulanan'],
+  '6bulanan': ['6 bulanan'],
+  tahunan: ['tahunan'],
+};
+
+function bucketOf(type: unknown): BucketKey {
+  const t = String(type ?? '');
+  if (t === '3 bulanan') return '3bulanan';
+  if (t === '6 bulanan') return '6bulanan';
+  if (t === 'tahunan') return 'tahunan';
+  return 'combined';
+}
+
+function groupIntoBuckets<T extends { type_schedule: string }>(items: T[]): [BucketKey, T[]][] {
+  const map = new Map<BucketKey, T[]>();
+  for (const item of items) {
+    const key = bucketOf(item.type_schedule);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(item);
+  }
+  return BUCKET_ORDER.filter((k) => map.has(k)).map((k) => [k, map.get(k)!]);
+}
+
+/**
+ * Cari WO auto-generate hari ini buat asset ini YANG ISINYA SEBUCKET —
+ * dicek lewat tabel detail (yang nyimpen type_schedule per baris), bukan
+ * cuma asset+tanggal — supaya item 3-bulanan/6-bulanan/tahunan gak numpuk ke
+ * WO harian/mingguan/bulanan yang kebetulan udah ada buat asset yang sama
+ * hari itu, dan sebaliknya.
+ */
+async function findExistingWoForBucketToday(woTable: string, detailTable: string, assetId: number, bucket: BucketKey): Promise<string | null> {
+  const hasAutoGenerate = await hasColumn(woTable, 'auto_generate');
+  const clause = hasAutoGenerate ? "(w.auto_generate='yes' OR w.job_requirement LIKE 'AUTO FROM SCHEDULE:%')" : "w.job_requirement LIKE 'AUTO FROM SCHEDULE:%'";
+  const types = BUCKET_TYPES[bucket];
+  const placeholders = types.map(() => '?').join(',');
   const row = await one<{ wo_number: string }>(
-    `SELECT wo_number FROM ${table} WHERE date=CURDATE() AND id_equipment=? AND ${clause} ORDER BY created_at DESC LIMIT 1`,
-    [assetId],
+    `SELECT w.wo_number FROM \`${woTable}\` w
+     JOIN \`${detailTable}\` d ON d.wo_number = w.wo_number
+     WHERE w.date=CURDATE() AND w.id_equipment=? AND ${clause} AND d.type_schedule IN (${placeholders})
+     ORDER BY w.created_at DESC LIMIT 1`,
+    [assetId, ...types],
   );
   return row?.wo_number ?? null;
 }
@@ -347,18 +444,28 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
     d.is_pause === 'started' && !existingDetailIds.has(d.id) && (forceDue || isScheduleDue(d.type_schedule, d.choose_day, d.last_update)));
   if (!dueItems.length) return [];
 
+  const results: GeneratedWo[] = [];
+  for (const [bucket, items] of groupIntoBuckets(dueItems)) {
+    const generated = await createWoMesoForBucket(header, bucket, items);
+    if (generated) results.push(generated);
+  }
+  return results;
+}
+
+async function createWoMesoForBucket(header: ScheduleHeader, bucket: BucketKey, dueItems: ScheduleDetail[]): Promise<GeneratedWo | null> {
   const { codes: executorCodes, category: mesoCategory } = parseExecutorCodes(dueItems);
+  const noTradeAssigned = executorCodes.length === 0;
   const first = dueItems[0];
   const user = await getFirstAdmin(first.id_division);
-  if (!user || !user.fullname) return [];
+  if (!user || !user.fullname) return null;
 
   const assetId = header.AssetID;
   const assetCode = header.AssetCode ?? '';
-  let woNumber = await findExistingWoForToday('tb_wo_mtc', assetId);
+  let woNumber = await findExistingWoForBucketToday('tb_wo_mtc', 'tb_wo_meso_detail', assetId, bucket);
   const creatingNew = !woNumber;
   if (creatingNew) {
     woNumber = await generateWoNumberByDivisionCode('WO', 'tb_wo_mtc', categoryDivisionCode(mesoCategory));
-    if (!woNumber || woNumber === '-') return [];
+    if (!woNumber || woNumber === '-') return null;
   }
   const finalWoNumber = woNumber as string;
 
@@ -373,8 +480,20 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
         // eksekutor bisa langsung isi checklist-nya sendiri, gak perlu
         // nunggu EXECUTOR_ADMIN approve dulu (sebelumnya start di
         // WAIT_EXECUTOR_ADMIN, beda sendiri dari modul Maintenance).
+        // Jadwal masternya gak punya trade (ELC/MKL/SPL/OTO) buat asset ini —
+        // tetap buat WO-nya (jangan sampai pengecekan preventive-nya hilang
+        // begitu aja), tapi job_executor dikosongkan (bukan 'MTC') dan
+        // job_title ditandai jelas biar Kadept MESO (yang masih bisa lihat
+        // WO ini lewat id_division) sadar harus assign trade manual lewat
+        // Edit WO — bukan nyangkut gak kelihatan selamanya kayak sebelumnya.
+        if (noTradeAssigned) {
+          console.warn(`[preventive-schedule] WO MESO ${finalWoNumber} dibuat tanpa trade/executor — jadwal master asset ${assetCode} (id=${assetId}) belum di-assign ELC/MKL/SPL/OTO.`);
+        }
+        const title = noTradeAssigned
+          ? `[TRADE BELUM DITENTUKAN] ${buildTitle(assetCode, dueItems.length, 'PREVENTIVE', 'PREVENTIVE MESO')}`
+          : buildTitle(assetCode, dueItems.length, 'PREVENTIVE', 'PREVENTIVE MESO');
         const vals: unknown[] = [finalWoNumber, todayDateOnly(), resolveCompanyCode(header.CompanyName ?? ''), first.shift, first.type_wo || 'PREVENTIVE', first.id_division, assetId,
-          buildTitle(assetCode, dueItems.length, 'PREVENTIVE', 'PREVENTIVE MESO'), null, `AUTO FROM SCHEDULE: ${dueItems.length} ITEM`, 'NORMAL', '#', user.fullname, null,
+          title, null, `AUTO FROM SCHEDULE: ${dueItems.length} ITEM`, 'NORMAL', '#', user.fullname, null,
           'IN_PROGRESS_EXECUTOR', executorCodes.join(','), executorCodes.join(',')];
         let sql = `INSERT INTO tb_wo_mtc (${cols.join(',')}) VALUES (${cols.map((c) => c === 'created_at' ? 'NOW()' : '?').join(',')})`;
         const bound = vals.filter((_v, i) => cols[i] !== 'created_at');
@@ -405,12 +524,15 @@ async function createWoMesoGrouped(dataAsset: ScheduleWithDetails, forceDue: boo
       // kesimpen "(0 ITEM)" walau detail-nya sudah beneran ke-insert.
       const [totalRows] = await connection.query<Array<{ total: number }> & RowDataPacket[]>('SELECT COUNT(*) AS total FROM tb_wo_meso_detail WHERE wo_number=?', [finalWoNumber]);
       const total = Number(totalRows[0]?.total ?? inserted);
-      await connection.execute('UPDATE tb_wo_mtc SET job_title=?, job_requirement=? WHERE wo_number=?', [buildTitle(assetCode, total, 'PREVENTIVE', 'PREVENTIVE MESO'), `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber]);
+      const finalTitle = noTradeAssigned
+        ? `[TRADE BELUM DITENTUKAN] ${buildTitle(assetCode, total, 'PREVENTIVE', 'PREVENTIVE MESO')}`
+        : buildTitle(assetCode, total, 'PREVENTIVE', 'PREVENTIVE MESO');
+      await connection.execute('UPDATE tb_wo_mtc SET job_title=?, job_requirement=? WHERE wo_number=?', [finalTitle, `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber]);
 
-      return [{ wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted }];
+      return { wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted };
     });
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -423,23 +545,32 @@ async function createWoOperationalGrouped(dataAsset: ScheduleWithDetails, forceD
   );
   const existingDetailIds = new Set(existingIdsRows.map((r) => r.schedule_detail_id));
 
-  const items = dataAsset.schedule_detail.filter((d) =>
+  const dueItems = dataAsset.schedule_detail.filter((d) =>
     d.is_pause === 'started' && !existingDetailIds.has(d.id) && (forceDue || isScheduleDue(d.type_schedule, d.choose_day, d.last_update)));
-  if (!items.length) return [];
+  if (!dueItems.length) return [];
 
+  const results: GeneratedWo[] = [];
+  for (const [bucket, items] of groupIntoBuckets(dueItems)) {
+    const generated = await createWoOperationalForBucket(header, bucket, items);
+    if (generated) results.push(generated);
+  }
+  return results;
+}
+
+async function createWoOperationalForBucket(header: ScheduleHeader, bucket: BucketKey, items: ScheduleDetail[]): Promise<GeneratedWo | null> {
   const first = items[0];
   const { category } = parseExecutorCodes([first]);
   const executorBase = (String(first.executor ?? '').split(',')[0].split('|')[0].trim() || 'MTC').toUpperCase();
   const user = await getFirstAdmin(first.id_division);
-  if (!user || !user.fullname) return [];
+  if (!user || !user.fullname) return null;
 
   const assetId = header.AssetID;
   const assetCode = header.AssetCode ?? '';
-  let woNumber = await findExistingWoForToday('tb_wo_mtc_operational', assetId);
+  let woNumber = await findExistingWoForBucketToday('tb_wo_mtc_operational', 'tb_wo_mtc_operational_detail', assetId, bucket);
   const creatingNew = !woNumber;
   if (creatingNew) {
     woNumber = await generateWoNumberByDivisionCode('WOPR', 'tb_wo_mtc_operational', categoryDivisionCode(category));
-    if (!woNumber || woNumber === '-') return [];
+    if (!woNumber || woNumber === '-') return null;
   }
   const finalWoNumber = woNumber as string;
 
@@ -486,10 +617,10 @@ async function createWoOperationalGrouped(dataAsset: ScheduleWithDetails, forceD
         await connection.execute('UPDATE tb_wo_mtc_operational SET job_title=?, job_requirement=? WHERE wo_number=?', [buildTitle(assetCode, total, 'MAINTENANCE', 'MAINTENANCE SCHEDULE'), `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber]);
       }
 
-      return [{ wo_number: finalWoNumber, asset_code: assetCode, total_items: items.length }];
+      return { wo_number: finalWoNumber, asset_code: assetCode, total_items: items.length };
     });
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -500,22 +631,31 @@ async function createWoPreventiveGrouped(dataAsset: ScheduleWithDetails, forceDu
   );
   const existingDetailIds = new Set(existingIdsRows.map((r) => r.schedule_detail_id));
 
-  const items = dataAsset.schedule_detail.filter((d) =>
+  const dueItems = dataAsset.schedule_detail.filter((d) =>
     d.is_pause === 'started' && (forceDue || isScheduleDue(d.type_schedule, d.choose_day, d.last_update)));
-  if (!items.length) return [];
+  if (!dueItems.length) return [];
 
+  const results: GeneratedWo[] = [];
+  for (const [bucket, items] of groupIntoBuckets(dueItems)) {
+    const generated = await createWoPreventiveForBucket(header, bucket, items, existingDetailIds);
+    if (generated) results.push(generated);
+  }
+  return results;
+}
+
+async function createWoPreventiveForBucket(header: ScheduleHeader, bucket: BucketKey, items: ScheduleDetail[], existingDetailIds: Set<number>): Promise<GeneratedWo | null> {
   const first = items[0];
   const { category } = parseExecutorCodes([first]);
   const user = await getFirstAdmin(first.id_division);
-  if (!user || !user.division_code) return [];
+  if (!user || !user.division_code) return null;
 
   const assetId = header.AssetID;
   const assetCode = header.AssetCode ?? '';
-  let woNumber = await findExistingWoForToday('tb_wo_preventive', assetId);
+  let woNumber = await findExistingWoForBucketToday('tb_wo_preventive', 'tb_wo_preventive_detail', assetId, bucket);
   const creatingNew = !woNumber;
   if (creatingNew) {
     woNumber = await generateWoNumber('PREV', 'tb_wo_preventive', first.id_division);
-    if (!woNumber || woNumber === '-') return [];
+    if (!woNumber || woNumber === '-') return null;
   }
   const finalWoNumber = woNumber as string;
 
@@ -578,11 +718,11 @@ async function createWoPreventiveGrouped(dataAsset: ScheduleWithDetails, forceDu
         if (divHead?.email) await connection.execute('INSERT INTO tb_queue_email (email, wo_number, created_at) VALUES (?,?,NOW())', [divHead.email, finalWoNumber]).catch(() => undefined);
       }
 
-      return inserted > 0 || !creatingNew ? [{ wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted }] : [];
+      return inserted > 0 || !creatingNew ? { wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted } : null;
     });
     return result;
   } catch {
-    return [];
+    return null;
   }
 }
 

@@ -738,7 +738,15 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
 
   const header = (await getWoDetail(woNumber, user)) ?? (await getHeader(woNumber));
   if (!header) throw new HttpError(404, 'Work Order not found');
-  if (['CLOSED', 'VOID', 'NEED_CLOSED'].includes(String(header.status))) throw new HttpError(409, 'WO sudah selesai dan tidak dapat diperbarui.');
+  // COMPLETE_EXECUTOR berarti SEMUA executor sudah menandai selesai dan WO
+  // tinggal menunggu pembuat WO/Kadept MESO menutupnya — submit lagi dari
+  // sini (mis. executor klik "Tandai Selesai" berkali-kali) sebelumnya
+  // selalu diterima & bikin entri approval/evidence duplikat padahal
+  // statusnya tetap diam di COMPLETE_EXECUTOR, berlaku sama di mobile & web
+  // karena satu endpoint ini dipakai keduanya.
+  if (['CLOSED', 'VOID', 'NEED_CLOSED', 'COMPLETE_EXECUTOR'].includes(String(header.status))) {
+    throw new HttpError(409, 'WO sudah ditandai selesai dan menunggu ditutup — tidak bisa diperbarui lagi.');
+  }
 
   const isPreventive = isPreventiveType(header.type_wo);
   const assetCode = String(header.AssetCode ?? '');

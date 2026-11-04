@@ -323,7 +323,12 @@ export default function WorkOrderDetailPage({
                     },
                     {
                       label: "Kode Aset",
-                      value: dash(pick(wo, ["asset_code", "AssetCode"])),
+                      value: (() => {
+                        const code = pick(wo, ["asset_code", "AssetCode"]);
+                        const name = pick(wo, ["asset_name", "AssetName"]);
+                        if (code && name) return `${code} — ${name}`;
+                        return dash(code || name);
+                      })(),
                     },
                     {
                       label: "Diminta oleh",

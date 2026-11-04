@@ -11,7 +11,7 @@ import { deleteSetting, ensureAppSettingTable, getSetting, putSetting } from '..
 import { encryptSecret } from '../lib/crypto-secrets.js';
 import { FIREBASE_CREDENTIAL_SETTING_KEY } from '../lib/fcm.js';
 import { getAssetReportList, getAssetsHistoryReport, getQrReport, recapWorkOrderOptions } from '../lib/reports.js';
-import { getStockOpnameReport, getStockOpnamePdf } from '../lib/stock-opname-proxy.js';
+import { getStockOpnameReport, getStockOpnamePdf, getStockOpnameAssetDetail } from '../lib/stock-opname-proxy.js';
 import { getNotificationDetail, getNotificationSummary } from '../lib/notifications.js';
 import { nowInJakarta } from '../lib/daily-control.js';
 import { runPreventiveAlarmCron } from '../lib/preventive-alarm.js';
@@ -349,6 +349,19 @@ miscRouter.get('/reports/stock-opname/print', authenticate, asyncHandler(async (
   } catch (e) {
     if (e instanceof Error && e.message === 'SO_NOT_FOUND') throw new HttpError(404, 'No. SO tidak ditemukan.', 'SO_NOT_FOUND');
     throw new HttpError(502, 'Gagal mengambil PDF Stock Opname.', 'SO_PDF_FAILED');
+  }
+}));
+
+miscRouter.get('/reports/stock-opname/assets', authenticate, asyncHandler(async (req, res) => {
+  const noSo = String(req.query.no_so ?? '').trim();
+  if (!noSo) throw new HttpError(400, 'no_so is required');
+  const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  try {
+    const detail = await getStockOpnameAssetDetail(token, noSo);
+    ok(res, detail);
+  } catch (e) {
+    if (e instanceof Error && e.message === 'SO_NOT_FOUND') throw new HttpError(404, 'No. SO tidak ditemukan.', 'SO_NOT_FOUND');
+    throw new HttpError(502, 'Gagal mengambil daftar aset Stock Opname.', 'SO_SERVICE_UNREACHABLE');
   }
 }));
 const MOBILE_RELEASE_DEFAULT = {

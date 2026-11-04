@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  ListTodo,
   ClipboardList,
   CalendarCheck2,
   Boxes,
@@ -54,6 +55,12 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     icon: LayoutDashboard,
     area: "dashboard",
+  },
+  {
+    label: "My Work",
+    href: "/my-work",
+    icon: ListTodo,
+    area: "myWork",
   },
   {
     label: "Work Order",
@@ -115,7 +122,7 @@ export const NAV_ITEMS: NavItem[] = [
     match: "/preventive-schedules",
   },
   {
-    label: "MCS Mobile",
+    label: "Mobile & Tablet",
     href: "/mcs-mobile",
     icon: Smartphone,
     match: "/mcs-mobile",
@@ -194,7 +201,7 @@ export const NAV_ITEMS: NavItem[] = [
         area: "masterBranding",
       },
       {
-        label: "Activity Log",
+        label: "Log Event",
         href: "/master-data/activity-log",
         icon: History,
         area: "masterUser",
@@ -210,6 +217,12 @@ export const NAV_ITEMS: NavItem[] = [
         href: "/master-data/db-backup",
         icon: Database,
         area: "masterBackup",
+      },
+      {
+        label: "Release & Device Mobile",
+        href: "/master-data/mobile-devices",
+        icon: Smartphone,
+        area: "masterMobileDevices",
       },
     ],
   },

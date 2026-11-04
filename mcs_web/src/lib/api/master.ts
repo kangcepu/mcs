@@ -79,6 +79,46 @@ export function listMasterActivity(
   return apiV2.get<MasterActivityItem[]>("/system-activity-log", { params, signal });
 }
 
+export interface MasterDataChangeItem {
+  id: number | string;
+  resource: string;
+  action: "create" | "update" | "delete" | string;
+  record_id?: string | null;
+  record_label?: string | null;
+  actor_username?: string | null;
+  actor_fullname?: string | null;
+  before_data?: string | null;
+  after_data?: string | null;
+  created_at: string;
+}
+
+/** Log Event — "Perubahan Master Data": riwayat create/update/delete resource master (user, company, dll) lengkap before/after. */
+export function listMasterDataChanges(
+  params: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<ApiResponse<MasterDataChangeItem[]>> {
+  return apiV2.get<MasterDataChangeItem[]>("/master/activity-log", { params, signal });
+}
+
+export interface WorkOrderEventItem {
+  module: string;
+  module_label: string;
+  wo_number: string;
+  fullname?: string | null;
+  id_position?: string | null;
+  id_division?: string | number | null;
+  comment?: string | null;
+  created_at: string;
+}
+
+/** Log Event — "Perubahan Work Order": gabungan approval/komentar WO lintas modul (MESO/Maintenance/IS/GA/Production). */
+export function listWorkOrderEvents(
+  params: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<ApiResponse<WorkOrderEventItem[]>> {
+  return apiV2.get<WorkOrderEventItem[]>("/work-order-events", { params, signal });
+}
+
 export interface EmployeeHit {
   employee_id?: number | string | null;
   employee_code: string;
