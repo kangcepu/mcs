@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/primitives";
 import { useAssetSearch } from "@/hooks/use-assets";
@@ -23,6 +23,7 @@ export function AssetPicker({
   autoFocus,
   includeInactive = false,
   forWorkOrder = false,
+  excludeLinked = false,
 }: {
   selectedName: string;
   selectedCode: string;
@@ -38,12 +39,39 @@ export function AssetPicker({
   includeInactive?: boolean;
   /** Lookup aset untuk create WO tanpa mensyaratkan akses Asset Manage. */
   forWorkOrder?: boolean;
+  /** Hanya tampilkan aset yang belum mempunyai parent (untuk aksi Tautkan). */
+  excludeLinked?: boolean;
 }) {
   const [term, setTerm] = useState("");
+  const [submittedTerm, setSubmittedTerm] = useState("");
   const [open, setOpen] = useState(false);
-  const q = useDebouncedValue(term.trim(), 300);
-  const { data, isFetching } = useAssetSearch(q, includeInactive, forWorkOrder);
+  const debouncedTerm = useDebouncedValue(term.trim(), 300);
+  const q = submittedTerm || debouncedTerm;
+  const { data, isFetching } = useAssetSearch(q, includeInactive, forWorkOrder, excludeLinked);
   const rows = (data?.data ?? []) as Array<Record<string, unknown>>;
+
+  const selectRow = useCallback((r: Record<string, unknown>) => {
+    const code = String(pick(r, ["asset_code", "AssetCode", "AssetID"]));
+    const id = String(pick(r, ["AssetID", "asset_id", "id"]));
+    const name = pick(r, ["asset_name", "name", "AssetName"]);
+    const company = pick(r, ["company", "company_name", "CompanyName"]);
+    const photoUrl = toAbsoluteUploadUrl(pick(r, ["photo_url"]));
+    const photoUrls = (
+      Array.isArray(r.photo_urls)
+        ? (r.photo_urls as unknown[]).filter((u): u is string => typeof u === "string")
+        : []
+    ).map(toAbsoluteUploadUrl);
+    onSelect(code, name, company, photoUrl || null, photoUrls, id);
+    setOpen(false);
+    setTerm("");
+    setSubmittedTerm("");
+  }, [onSelect]);
+
+  // Scanner QR umumnya mengirim Enter setelah payload. Jika hasilnya tepat
+  // satu aset, pilih otomatis sehingga URL QR lama juga langsung bekerja.
+  useEffect(() => {
+    if (submittedTerm && !isFetching && rows.length === 1) selectRow(rows[0]!);
+  }, [isFetching, rows, selectRow, submittedTerm]);
 
   if (selectedCode) {
     const gallery = selectedPhotoUrls ?? (selectedPhotoUrl ? [selectedPhotoUrl] : []);
@@ -105,7 +133,15 @@ export function AssetPicker({
           value={term}
           onChange={(e) => {
             setTerm(e.target.value);
+            setSubmittedTerm("");
             setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && term.trim().length >= 2) {
+              e.preventDefault();
+              setSubmittedTerm(term.trim());
+              setOpen(true);
+            }
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
@@ -128,25 +164,17 @@ export function AssetPicker({
           ) : (
             rows.map((r, i) => {
               const code = String(pick(r, ["asset_code", "AssetCode", "AssetID"]));
-              const id = String(pick(r, ["AssetID", "asset_id", "id"]));
               const name = pick(r, ["asset_name", "name", "AssetName"]);
               const company = pick(r, ["company", "company_name", "CompanyName"]);
               const loc = pick(r, ["location", "location_name", "LocationAsset"]);
               const photoUrl = toAbsoluteUploadUrl(pick(r, ["photo_url"]));
-              const photoUrls = (
-                Array.isArray(r.photo_urls)
-                  ? (r.photo_urls as unknown[]).filter((u): u is string => typeof u === "string")
-                  : []
-              ).map(toAbsoluteUploadUrl);
               return (
                 <button
                   type="button"
                   key={code || i}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    onSelect(code, name, company, photoUrl || null, photoUrls, id);
-                    setOpen(false);
-                    setTerm("");
+                    selectRow(r);
                   }}
                   className="flex w-full items-center gap-2 border-b border-slate-50 px-3 py-2 text-left last:border-0 hover:bg-slate-50"
                 >

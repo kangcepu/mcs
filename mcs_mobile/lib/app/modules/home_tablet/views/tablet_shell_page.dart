@@ -1,0 +1,744 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:get/get.dart';
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../data/tablet_nav_data.dart';
+import 'tablet_dashboard_page.dart';
+import 'tablet_work_orders_page.dart';
+import 'tablet_asset_manage_page.dart';
+import 'tablet_approval_center_page.dart';
+import '../../../data/models/user_model.dart';
+import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/notification_repository.dart';
+
+/// Shell tablet: sidebar + top bar yang meniru 1:1 `template/sidebar.tsx`
+/// dan `template/navbar.tsx` web (warna, struktur, label "Menu Utama",
+/// tombol collapse, jam/tanggal, lonceng notifikasi, avatar+nama). Item
+/// yang sudah punya layar native (`route` terisi) dibuka dengan
+/// `Get.toNamed` sebagai halaman penuh gaya-HP sementara (fallback tahap
+/// awal, sesuai rencana porting modul demi modul). Item yang belum
+/// di-porting ditampilkan sebagai placeholder di panel konten ini.
+class TabletShellPage extends StatefulWidget {
+  const TabletShellPage({super.key});
+
+  @override
+  State<TabletShellPage> createState() => _TabletShellPageState();
+}
+
+// Warna disalin langsung dari token Tailwind yang dipakai sidebar/navbar
+// web, supaya tablet terlihat identik dengan web (bukan cuma struktur serupa).
+const _kSidebarBg = Color(0xFF0A0F1C); // bg-[#0a0f1c]
+const _kActiveBg = Color(0xFF2563EB); // bg-blue-600
+const _kHoverBg = Color(0x0DFFFFFF); // bg-white/5
+const _kBorder = Color(0x1AFFFFFF); // border-white/10
+const _kTextSlate300 = Color(0xFFCBD5E1);
+const _kTextSlate400 = Color(0xFF94A3B8);
+const _kTextSlate500 = Color(0xFF64748B);
+const _kBrand100 = Color(0xFFDCE8FF);
+const _kBrand700 = Color(0xFF1D4ED8);
+
+// Di bawah ambang ini web sendiri tidak menampilkan sidebar penuh inline —
+// dia jadi overlay (hamburger). Tablet portrait (umumnya ~800-840dp) jatuh
+// di bawah ambang ini, jadi harus ikut overlay juga, bukan sidebar desktop
+// yang dipepetkan — itu sumber kesan "tetap kayak web" walau sudah portrait.
+const double _kDesktopBreakpoint = 1024;
+const Duration _kSidebarAnimDuration = Duration(milliseconds: 200);
+
+class _TabletShellPageState extends State<TabletShellPage> {
+  String _selectedKey = kTabletDashboardKey;
+  String _selectedTitle = 'Dashboard';
+  final Set<String> _expanded = {'work_order'};
+  // null = belum di-override user, ikut default (expanded di layar desktop).
+  bool? _manualCollapsed;
+  bool _isDesktopWidth = true;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  User? _user;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('user_data');
+      if (raw == null) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      if (mounted) setState(() => _user = User.fromJson(map));
+    } catch (_) {
+      // Non-fatal — top bar tetap tampil tanpa nama user.
+    }
+  }
+
+  String get _initials {
+    final letters = (_user?.fullname ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .take(3)
+        .map((w) => w[0].toUpperCase())
+        .join();
+    return letters.isEmpty ? '?' : letters;
+  }
+
+  void _selectInline(String key, String title) {
+    setState(() {
+      _selectedKey = key;
+      _selectedTitle = title;
+    });
+    _closeOverlayDrawerIfAny();
+  }
+
+  void _openRoute(String key, String title, String route) {
+    setState(() {
+      _selectedKey = key;
+      _selectedTitle = title;
+    });
+    _closeOverlayDrawerIfAny();
+    Get.toNamed(route);
+  }
+
+  void _closeOverlayDrawerIfAny() {
+    if (!_isDesktopWidth) _scaffoldKey.currentState?.closeDrawer();
+  }
+
+  void _confirmLogout() {
+    Get.dialog(
+      AlertDialog(
+        title: const Text('Konfirmasi'),
+        content: const Text('Apakah Anda yakin ingin logout?'),
+        actions: [
+          TextButton(onPressed: () => Get.back(), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              await AuthRepository().logout();
+              Get.offAllNamed('/login');
+            },
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      _isDesktopWidth = constraints.maxWidth >= _kDesktopBreakpoint;
+      final collapsed = _isDesktopWidth && (_manualCollapsed ?? false);
+      return Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: const Color(0xFFF8FAFC),
+        drawer: _isDesktopWidth
+            ? null
+            : Drawer(
+                backgroundColor: _kSidebarBg,
+                width: 280,
+                child: SafeArea(child: _buildSidebarContent(false)),
+              ),
+        body: SafeArea(
+          child: Row(
+            children: [
+              if (_isDesktopWidth) _buildSidebar(collapsed),
+              Expanded(
+                child: Column(
+                  children: [
+                    _buildTopBar(collapsed),
+                    Expanded(child: _buildContent()),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  // --- Top bar: padanan persis template/navbar.tsx ---
+
+  Widget _buildTopBar(bool collapsed) {
+    final isDashboard = _selectedKey == kTabletDashboardKey;
+    final subtitle = isDashboard ? 'Dashboard' : 'Dashboard → $_selectedTitle';
+    return Container(
+      height: 64,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: Row(
+        children: [
+          _isDesktopWidth ? _buildCollapseButton(collapsed) : _buildHamburgerButton(),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _selectedTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                ),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: _kTextSlate400),
+                ),
+              ],
+            ),
+          ),
+          const _LiveClock(),
+          const _NotifBell(),
+          const SizedBox(width: 8),
+          _buildAvatarMenu(),
+          const SizedBox(width: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHamburgerButton() {
+    return IconButton(
+      icon: const Icon(Icons.menu, size: 22, color: Color(0xFF1E293B)),
+      onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+    );
+  }
+
+  Widget _buildCollapseButton(bool collapsed) {
+    return GestureDetector(
+      onTap: () => setState(() => _manualCollapsed = !collapsed),
+      child: Container(
+        height: 64,
+        width: 40,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF09111F), Color(0xFF070D18)],
+          ),
+          borderRadius: BorderRadius.horizontal(right: Radius.circular(32)),
+        ),
+        alignment: Alignment.center,
+        child: AnimatedRotation(
+          turns: collapsed ? 0.5 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: const Icon(Icons.chevron_left, size: 18, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarMenu() {
+    final name = _user?.fullname.isNotEmpty == true ? _user!.fullname : 'Memuat…';
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 44),
+      onSelected: (v) {
+        if (v == 'logout') _confirmLogout();
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: SizedBox(
+            width: 180,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                if (_user?.email.isNotEmpty == true)
+                  Text(_user!.email, style: const TextStyle(fontSize: 11, color: _kTextSlate400)),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: Text('Logout', style: TextStyle(fontSize: 13, color: Color(0xFFE11D48))),
+        ),
+      ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 17,
+            backgroundColor: _kBrand100,
+            child: Text(
+              _initials,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _kBrand700),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1E293B)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const Map<String, String> _kWoChildModule = {
+    'MESO': 'meso',
+    'Maintenance': 'maintenance',
+    'Production': 'production',
+    'IS': 'is',
+    'GA': 'ga',
+  };
+
+  Widget _buildContent() {
+    if (_selectedKey == kTabletDashboardKey) {
+      return const TabletDashboardPage();
+    }
+    if (_selectedKey == 'work_order' || _selectedKey.startsWith('work_order:')) {
+      final childTitle = _selectedKey.startsWith('work_order:') ? _selectedKey.substring('work_order:'.length) : '';
+      return TabletWorkOrdersPage(
+        key: ValueKey(_selectedKey),
+        initialModule: _kWoChildModule[childTitle] ?? '',
+      );
+    }
+    if (_selectedKey == 'asset_manage') {
+      return const TabletAssetManagePage();
+    }
+    if (_selectedKey == 'approval_center') {
+      return const TabletApprovalCenterPage();
+    }
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.hourglass_top_outlined, size: 40, color: Color(0xFFCBD5E1)),
+          const SizedBox(height: 12),
+          Text(
+            '$_selectedTitle belum tersedia di tampilan tablet.',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Modul ini akan di-porting bertahap pada rilis berikutnya.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Sidebar: padanan persis template/sidebar.tsx ---
+
+  Widget _buildSidebar(bool collapsed) {
+    return AnimatedContainer(
+      duration: _kSidebarAnimDuration,
+      width: collapsed ? 72 : 256, // w-64 / lg:w-16
+      color: _kSidebarBg,
+      child: _buildSidebarContent(collapsed),
+    );
+  }
+
+  // Dipakai baik sebagai sidebar inline (desktop/landscape lebar) maupun
+  // sebagai isi Drawer overlay (tablet portrait / layar < 1024dp, sama
+  // seperti web sendiri tidak menaruh sidebar penuh di lebar segitu).
+  Widget _buildSidebarContent(bool collapsed) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBrandHeader(collapsed),
+        Container(
+          margin: EdgeInsets.symmetric(horizontal: collapsed ? 12 : 20),
+          height: 1,
+          color: _kBorder,
+        ),
+        if (collapsed) const SizedBox(height: 12),
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 8 : 12, vertical: 0),
+            children: [
+              for (var i = 0; i < tabletNavSections.length; i++) ...[
+                if (!collapsed)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(8, i == 0 ? 8 : 18, 8, 8),
+                    child: Text(
+                      tabletNavSections[i].title.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  )
+                else if (i > 0)
+                  const SizedBox(height: 10),
+                ...tabletNavSections[i].items.map((item) => _buildNavItem(item, collapsed)),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildBrandHeader(bool collapsed) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(collapsed ? 16 : 20, 20, collapsed ? 16 : 20, 16),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _kBorder),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.build, size: 20, color: Colors.white),
+          ),
+          // AnimatedCrossFade (bukan `if` yang langsung lenyap) supaya label
+          // ikut fade+resize selaras dengan animasi lebar AnimatedContainer
+          // sidebar — itu sumber kesan "ga smooth" saat collapse sebelumnya.
+          AnimatedCrossFade(
+            duration: _kSidebarAnimDuration,
+            crossFadeState: collapsed ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            firstChild: const Padding(
+              padding: EdgeInsets.only(left: 12),
+              child: SizedBox(
+                width: 164,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('MCS', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                    SizedBox(height: 2),
+                    Text(
+                      'Maintenance Control System',
+                      style: TextStyle(fontSize: 10.5, color: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            secondChild: const SizedBox(width: 0),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(TabletNavItem item, bool collapsed) {
+    final hasChildren = item.children != null && item.children!.isNotEmpty;
+    final isActive = hasChildren ? false : _selectedKey == item.key;
+    final expanded = _expanded.contains(item.key);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: isActive ? _kActiveBg : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              hoverColor: _kHoverBg,
+              splashColor: _kHoverBg,
+              onTap: () {
+                if (collapsed && hasChildren) {
+                  setState(() => _manualCollapsed = false);
+                  _expanded.add(item.key);
+                  return;
+                }
+                if (hasChildren) {
+                  setState(() {
+                    if (expanded) {
+                      _expanded.remove(item.key);
+                    } else {
+                      _expanded.add(item.key);
+                    }
+                    // Tap parent juga membuka kontennya sendiri (tab "Semua"),
+                    // bukan cuma expand/collapse — sama seperti link di web.
+                    if (item.route == null) {
+                      _selectedKey = item.key;
+                      _selectedTitle = item.title;
+                    }
+                  });
+                } else if (item.route != null) {
+                  _openRoute(item.key, item.title, item.route!);
+                } else {
+                  _selectInline(item.key, item.title);
+                }
+              },
+              child: AnimatedPadding(
+                duration: _kSidebarAnimDuration,
+                padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12, vertical: 11),
+                child: AnimatedAlign(
+                  duration: _kSidebarAnimDuration,
+                  alignment: collapsed ? Alignment.center : Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(item.icon, size: 18, color: isActive ? Colors.white : _kTextSlate300),
+                      // AnimatedCrossFade (bukan `if` yang lenyap instan)
+                      // supaya label+posisi icon ikut meluncur selaras
+                      // dengan animasi lebar sidebar, tidak "patah".
+                      AnimatedCrossFade(
+                        duration: _kSidebarAnimDuration,
+                        crossFadeState: collapsed ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                        firstChild: Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: SizedBox(
+                            width: 150,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.title,
+                                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: Colors.white),
+                                  ),
+                                ),
+                                if (item.comingSoon)
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: const Text(
+                                      'SEGERA',
+                                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: .3),
+                                    ),
+                                  ),
+                                if (hasChildren)
+                                  AnimatedRotation(
+                                    turns: expanded ? 0.5 : 0,
+                                    duration: const Duration(milliseconds: 150),
+                                    child: const Icon(Icons.keyboard_arrow_down, size: 18, color: _kTextSlate500),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        secondChild: const SizedBox(width: 0),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (!collapsed && hasChildren && expanded)
+            Padding(
+              padding: const EdgeInsets.only(left: 13, top: 4),
+              child: Container(
+                padding: const EdgeInsets.only(left: 12),
+                decoration: const BoxDecoration(
+                  border: Border(left: BorderSide(color: _kBorder)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: item.children!.map((child) => _buildNavChild(item.key, child)).toList(),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavChild(String parentKey, TabletNavChild child) {
+    final childKey = '$parentKey:${child.title}';
+    final childSelected = _selectedKey == childKey;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        hoverColor: _kHoverBg,
+        onTap: () {
+          if (child.route != null) {
+            _openRoute(childKey, child.title, child.route!);
+          } else {
+            _selectInline(childKey, child.title);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(
+            children: [
+              Icon(child.icon, size: 14, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  child.title,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: childSelected ? FontWeight.w700 : FontWeight.w400,
+                    color: Colors.white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Jam berjalan terisolasi di widget-nya sendiri — tick tiap 30s hanya
+/// me-rebuild dirinya sendiri, bukan seluruh shell (sidebar 13 item +
+/// konten dashboard), itu sumber "ga smooth" sebelumnya.
+class _LiveClock extends StatefulWidget {
+  const _LiveClock();
+
+  @override
+  State<_LiveClock> createState() => _LiveClockState();
+}
+
+class _LiveClockState extends State<_LiveClock> {
+  String _time = '';
+  String _date = '';
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _tick() {
+    final now = DateTime.now();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec',
+    ];
+    if (!mounted) return;
+    setState(() {
+      _time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      _date = '${now.day.toString().padLeft(2, '0')} ${months[now.month - 1]} ${now.year}';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.only(right: 16),
+      decoration: const BoxDecoration(
+        border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.access_time, size: 16, color: _kTextSlate400),
+          const SizedBox(width: 6),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                _time.isEmpty ? '--:--' : _time,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+              ),
+              Text(
+                _date.isEmpty ? '-- --- ----' : _date,
+                style: const TextStyle(fontSize: 10, color: _kTextSlate400),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lonceng notifikasi terisolasi juga — polling 45s hanya me-rebuild badge
+/// ini sendiri, tidak memicu rebuild sidebar/konten di sekitarnya.
+class _NotifBell extends StatefulWidget {
+  const _NotifBell();
+
+  @override
+  State<_NotifBell> createState() => _NotifBellState();
+}
+
+class _NotifBellState extends State<_NotifBell> {
+  int _count = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _timer = Timer.periodic(const Duration(seconds: 45), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await NotificationRepository().getNotificationSummary();
+      if (result.status && result.data != null && mounted) {
+        setState(() => _count = result.data!.totalNotifications);
+      }
+    } catch (_) {
+      // Non-fatal — badge cukup tidak tampil kalau gagal memuat.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined, size: 22, color: Color(0xFF64748B)),
+          onPressed: () {},
+        ),
+        if (_count > 0)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 16),
+              decoration: BoxDecoration(color: const Color(0xFFF43F5E), borderRadius: BorderRadius.circular(999)),
+              alignment: Alignment.center,
+              child: Text(
+                _count > 99 ? '99+' : '$_count',
+                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

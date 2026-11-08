@@ -605,6 +605,20 @@ masterRouter.get('/master/:resource', authenticate, asyncHandler(async (req, res
       params.push(Number(activeParam));
     }
   }
+  if (resource === 'users' && fields.includes('permission_group_id')) {
+    const groupParam = req.query.permission_group_id;
+    if (groupParam !== undefined && groupParam !== '') {
+      where += where ? ' AND `permission_group_id` = ?' : 'WHERE `permission_group_id` = ?';
+      params.push(Number(groupParam));
+    }
+  }
+  if (resource === 'users' && fields.includes('id_company')) {
+    const companyParam = req.query.id_company;
+    if (companyParam !== undefined && companyParam !== '') {
+      where += where ? ' AND `id_company` = ?' : 'WHERE `id_company` = ?';
+      params.push(companyParam);
+    }
+  }
   const total = await one<{ total: number }>(`SELECT COUNT(*) total FROM \`${table}\` ${where}`, params);
   const columnList = fields.map((f) => `\`${f}\``).join(',');
   let data = await rows<Record<string, unknown>>(`SELECT ${columnList} FROM \`${table}\` ${where} ORDER BY \`${key}\` DESC LIMIT ? OFFSET ?`, [...params, perPage, offset]);

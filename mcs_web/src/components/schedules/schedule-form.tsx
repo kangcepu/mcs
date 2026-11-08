@@ -11,12 +11,14 @@ import { Button, Field, Input, Select } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import {
   usePreventiveMutations,
+  useScheduleChildAssetRows,
   useScheduleCustomDetailRows,
 } from "@/hooks/use-preventive-schedules";
 import { AssetPicker } from "@/components/assets/asset-picker";
 import {
   listPreventiveSchedules,
   type ScheduleCustomDetailRow,
+  type ScheduleChildAssetRow,
 } from "@/lib/api/preventive-schedules";
 import { SCHEDULE_GROUPS, toScheduleGroup } from "@/types/preventive";
 import { ApiError } from "@/types/api";
@@ -89,6 +91,7 @@ const TOWO = [
   { value: "wo_mtc", label: "WO MESO" },
   { value: "wo_mtc_operational", label: "WO Maintenance" },
   { value: "wo_it", label: "WO IT" },
+  { value: "wo_ga", label: "WO GA" },
   { value: "wo_preventive", label: "WO Produksi" },
 ];
 
@@ -106,6 +109,7 @@ const TOWO_ALIAS: Record<string, string> = {
   maintenance: "wo_mtc_operational",
   production: "wo_preventive",
   is: "wo_it",
+  ga: "wo_ga",
 };
 
 const FREQ = SCHEDULE_GROUPS.filter((g) => g.key !== "unscheduled").map((g) => ({
@@ -152,6 +156,19 @@ function customRowToDetail(row: ScheduleCustomDetailRow) {
     choose_day: "",
     condition: row.category_maintenance || "",
     custom_detail_id: row.custom_detail_id || undefined,
+  };
+}
+
+function childRowToDetail(row: ScheduleChildAssetRow) {
+  const part = row.part_mesin || row.child_asset_code || "";
+  return {
+    part,
+    activity: row.job_title || row.kondisi || (part ? `Pengecekan ${part}` : ""),
+    // Child asset tidak punya sumber interval. User wajib memilih frekuensi.
+    frequency: row.type_schedule ? frequencyLabelFromBackend(row.type_schedule) : "",
+    choose_day: "",
+    condition: "",
+    custom_detail_id: undefined,
   };
 }
 
@@ -237,6 +254,8 @@ export function ScheduleFormModal({
   const assetCode = watch("asset_code") ?? "";
   const towo = watch("towo");
   const isMeso = towo === "wo_mtc";
+  const usesChildAssets = towo === "wo_it" || towo === "wo_ga";
+  const autoFillKey = `${assetCode}|${towo || ""}`;
   const [assetName, setAssetName] = useState("");
   const [assetId, setAssetId] = useState("");
 
@@ -266,34 +285,52 @@ export function ScheduleFormModal({
   // Baris Custom Detail aset (create mode) — untuk mengisi form otomatis.
   const cdRows = useScheduleCustomDetailRows(
     assetCode,
-    mode === "create" && assetCode.trim().length > 0,
+    mode === "create" && assetCode.trim().length > 0 && Boolean(towo) && !usesChildAssets,
   );
   const customRows = cdRows.data?.data?.rows ?? [];
+  const childRowsQuery = useScheduleChildAssetRows(
+    assetCode,
+    towo || "",
+    mode === "create" && assetCode.trim().length > 0 && usesChildAssets,
+  );
+  const childRows = childRowsQuery.data?.data?.rows ?? [];
   const [autoFilledFor, setAutoFilledFor] = useState<string>("");
 
   const fillFromCustomDetail = () => {
     if (customRows.length === 0) return;
     replace(customRows.map(customRowToDetail));
-    setAutoFilledFor(assetCode);
+    setAutoFilledFor(autoFillKey);
     toast.success(
       "Detail terisi dari Custom Detail",
       `${customRows.length} part dimuat. Periksa frekuensi & kondisi tiap baris.`,
     );
   };
 
+  const fillFromChildAssets = () => {
+    if (childRows.length === 0) return;
+    replace(childRows.map(childRowToDetail));
+    setAutoFilledFor(autoFillKey);
+    toast.success(
+      "Detail terisi dari aset anak",
+      `${childRows.length} aset dimuat. Pilih frekuensi dan hari/tanggal tiap baris.`,
+    );
+  };
+
   // Auto-isi sekali saat aset baru dipilih & grid masih baris kosong bawaan.
   useEffect(() => {
-    if (mode !== "create" || customRows.length === 0) return;
-    if (autoFilledFor === assetCode) return;
+    if (mode !== "create" || (childRows.length === 0 && customRows.length === 0)) return;
+    if (childRowsQuery.isFetching || cdRows.isFetching) return;
+    if (autoFilledFor === autoFillKey) return;
     const pristine =
       fields.length === 1 &&
       !watch("details.0.part") &&
       !watch("details.0.activity");
-    if (!pristine) return;
-    replace(customRows.map(customRowToDetail));
-    setAutoFilledFor(assetCode);
+    const replacingPreviousAutoFill = Boolean(autoFilledFor) && autoFilledFor.startsWith(`${assetCode}|`);
+    if (!pristine && !replacingPreviousAutoFill) return;
+    replace(childRows.length > 0 ? childRows.map(childRowToDetail) : customRows.map(customRowToDetail));
+    setAutoFilledFor(autoFillKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customRows, assetCode, mode]);
+  }, [childRows, customRows, assetCode, towo, autoFillKey, mode, childRowsQuery.isFetching, cdRows.isFetching]);
 
   useEffect(() => {
     if (!open) return;
@@ -466,6 +503,18 @@ export function ScheduleFormModal({
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium text-slate-700">Detail Schedule</p>
             <div className="flex items-center gap-2">
+              {mode === "create" && childRows.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-8 px-2 text-xs"
+                  onClick={fillFromChildAssets}
+                  title="Isi ulang seluruh baris detail dari aset anak"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Isi dari Child Asset ({childRows.length})
+                </Button>
+              ) : null}
               {mode === "create" && customRows.length > 0 ? (
                 <Button
                   type="button"
@@ -497,14 +546,14 @@ export function ScheduleFormModal({
               </Button>
             </div>
           </div>
-          {mode === "create" && assetCode && cdRows.isFetching ? (
+          {mode === "create" && assetCode && (cdRows.isFetching || childRowsQuery.isFetching) ? (
             <p className="mb-2 text-xs text-slate-400">
-              Memeriksa Custom Detail aset…
+              Memeriksa Custom Detail dan aset anak…
             </p>
           ) : null}
-          {mode === "create" && assetCode && !cdRows.isFetching && customRows.length === 0 ? (
+          {mode === "create" && assetCode && !cdRows.isFetching && !childRowsQuery.isFetching && customRows.length === 0 && childRows.length === 0 ? (
             <p className="mb-2 text-xs text-slate-400">
-              Aset ini belum punya Custom Detail — isi baris detail manual.
+              Aset ini belum punya Custom Detail atau aset anak — isi baris detail manual.
             </p>
           ) : null}
           {errors.details?.message ? (

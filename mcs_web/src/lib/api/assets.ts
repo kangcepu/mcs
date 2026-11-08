@@ -51,6 +51,107 @@ export function setAssetStatus(body: { asset: string; is_active: boolean; note?:
   return apiV2.post<AssetDetail>("/assets/status", body);
 }
 
+export function attachChildAsset(parentAsset: string, childAsset: string) {
+  return apiV2.post<null>("/assets/children", {
+    parent_asset: parentAsset,
+    child_asset: childAsset,
+  });
+}
+
+export function detachChildAsset(childAsset: string) {
+  return apiV2.post<null>("/assets/children/detach", { child_asset: childAsset });
+}
+
+export function moveChildAsset(childAsset: string, newParentAsset: string) {
+  return apiV2.post<null>("/assets/children/move", {
+    child_asset: childAsset,
+    new_parent_asset: newParentAsset,
+  });
+}
+
+export function linkPendingChildAsset(pendingId: number, childAsset: string) {
+  return apiV2.post<null>("/assets/children/pending/link", {
+    pending_id: pendingId,
+    child_asset: childAsset,
+  });
+}
+
+export function deletePendingChildAsset(pendingId: number) {
+  return apiV2.post<null>("/assets/children/pending/delete", { pending_id: pendingId });
+}
+
+export interface ChildAssetImportRow {
+  row: number;
+  child_name: string;
+  lookup_value: string;
+  identifier: string;
+  items: Array<{
+    row: number;
+    item_name: string;
+    lookup_value: string;
+    identifier: string;
+    condition_text: string;
+    frequency: string;
+    pic: string;
+    resolved_code?: string;
+    resolved_name?: string;
+    previous_parent?: string | null;
+    status: "ready" | "pending" | "warning" | "unchanged" | "error";
+    message: string;
+  }>;
+  resolved_code?: string;
+  resolved_name?: string;
+  previous_parent?: string | null;
+  status: "ready" | "pending" | "warning" | "reassigned" | "unchanged" | "error";
+  message: string;
+}
+
+export interface ChildAssetImportResult {
+  summary: {
+    sheet: string;
+    groups: number;
+    items: number;
+    valid: number;
+    attached: number;
+    pending: number;
+    pending_imported: number;
+    skipped_existing: number;
+    unchanged: number;
+    reassigned: number;
+    warnings: number;
+    errors: number;
+    dry_run: boolean;
+    applied: boolean;
+  };
+  rows: ChildAssetImportRow[];
+}
+
+export function importChildAssets(parentAsset: string, file: File, dryRun: boolean) {
+  const formData = new FormData();
+  formData.append("parent_asset", parentAsset);
+  formData.append("dry_run", dryRun ? "1" : "0");
+  formData.append("file", file);
+  return apiV2.post<ChildAssetImportResult>("/assets/children/import", undefined, { formData });
+}
+
+export async function downloadChildAssetImportTemplate(): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`${API_V2_URL}/assets/children/import-template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
+  });
+  if (!response.ok) throw new ApiError(`Gagal mengunduh template (HTTP ${response.status}).`, response.status);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "Form Preventive Audit - Siap Import.xlsx";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function getAssetOptions(signal?: AbortSignal): Promise<ApiResponse<AssetOptions>> {
   return apiV2.get<AssetOptions>("/assets/options", { signal });
 }

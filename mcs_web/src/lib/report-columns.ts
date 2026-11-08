@@ -148,6 +148,12 @@ const SO_COLS: ReportCol[] = [
 ];
 
 const ASSET_HISTORY_COLS: ReportCol[] = [
+  {
+    key: "history_type",
+    header: "Riwayat",
+    width: "20mm",
+    render: (r) => String(r.history_type ?? "WORK_ORDER") === "LOCATION" ? "Lokasi" : "Pekerjaan",
+  },
   { key: "wo_number", header: "No. WO", width: "30mm" },
   { key: "date", header: "Tanggal", width: "20mm", render: (r) => fmtDate(r.date) },
   {
@@ -161,6 +167,9 @@ const ASSET_HISTORY_COLS: ReportCol[] = [
     },
   },
   { key: "job_title", header: "Pekerjaan" },
+  { key: "location_from", header: "Lokasi Asal", width: "28mm" },
+  { key: "location_to", header: "Lokasi Tujuan", width: "28mm" },
+  { key: "reference_no", header: "Referensi", width: "28mm" },
   { key: "type_wo", header: "Tipe", width: "26mm" },
   { key: "status", header: "Status", width: "30mm", render: (r) => humanizeStatus(r.status) },
   { key: "pic", header: "PIC", width: "22mm", render: (r) => pickStr(r, ["pic", "job_executor"]) },

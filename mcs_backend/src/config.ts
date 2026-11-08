@@ -5,6 +5,12 @@ const integer = (name: string, fallback: number): number => {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 };
 
+const boolean = (name: string, fallback = false): boolean => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+};
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: integer('PORT', 3000),
@@ -29,6 +35,9 @@ export const config = {
   // nyusul sebelum jam 00:01 berikutnya.
   scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '1 0 * * *',
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
+  // Opt-in supaya deployment fondasi Energy tidak mengubah alur Asset/WO
+  // existing sebelum company pilot siap.
+  energyModuleEnabled: boolean('ENERGY_MODULE_ENABLED', false),
   employeeSyncCronExpr: process.env.EMPLOYEE_SYNC_CRON_EXPR ?? '*/15 * * * *',
   legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),
   // Stock Opname jalan di service terpisah (dipakai mobile langsung, lihat

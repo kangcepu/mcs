@@ -11,6 +11,11 @@ export interface MyWorkItem {
   status?: string;
   date?: string | null;
   asset_name?: string;
+  asset_id?: number;
+  asset_code?: string;
+  location?: string;
+  mtc_area_key?: string;
+  mtc_area_label?: string;
   company?: string;
   // Material request
   request_code?: string;
@@ -23,7 +28,7 @@ export interface MyWorkItem {
 }
 
 export interface MyWorkCategory {
-  key: "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "stock_opname_unlocked";
+  key: "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "preventive_missing" | "stock_opname_unlocked";
   label: string;
   count: number;
   items: MyWorkItem[];

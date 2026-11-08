@@ -7,7 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_ITEMS, type NavChild, type NavItem } from "@/components/layout/nav";
+import { NAV_SECTIONS, type NavChild, type NavItem } from "@/components/layout/nav";
 import { useMe } from "@/hooks/use-auth";
 import { useBranding } from "@/hooks/use-settings";
 import { canRead } from "@/lib/permissions";
@@ -43,8 +43,12 @@ export function AppSidebar({
   const appName = branding?.app_name || "MCS";
   const appSubtitle = branding?.app_subtitle || "Maintenance Control System";
 
-  const items = useMemo(
-    () => NAV_ITEMS.filter((i) => isItemVisible(i, user)),
+  const sections = useMemo(
+    () =>
+      NAV_SECTIONS.map((section) => ({
+        ...section,
+        items: section.items.filter((i) => isItemVisible(i, user)),
+      })).filter((section) => section.items.length > 0),
     [user],
   );
 
@@ -89,7 +93,7 @@ export function AppSidebar({
             )}
             <span className={cn("leading-tight", collapsed && "lg:hidden")}>
               <span className="block text-base font-bold text-white">{appName}</span>
-              <span className="block text-[11px] text-slate-400">{appSubtitle}</span>
+              <span className="block text-[11px] text-white">{appSubtitle}</span>
             </span>
           </Link>
           <button
@@ -103,31 +107,35 @@ export function AppSidebar({
 
         <div className="mx-5 border-t border-white/10" />
 
-        {/* Section label */}
-        <p
-          className={cn(
-            "px-5 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500",
-            collapsed && "lg:hidden",
-          )}
-        >
-          Menu Utama
-        </p>
-
         <nav
           className={cn(
-            "no-scrollbar flex-1 space-y-1 overflow-y-auto pb-4",
+            "no-scrollbar flex-1 overflow-y-auto pb-4",
             collapsed ? "px-3 pt-3 lg:px-2" : "px-3",
           )}
         >
-          {items.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              pathname={pathname}
-              childItems={visibleChildren(item, user)}
-              onNavigate={onClose}
-              collapsed={collapsed}
-            />
+          {sections.map((section, idx) => (
+            <div key={section.title} className={idx > 0 ? "mt-4" : undefined}>
+              <p
+                className={cn(
+                  "px-2 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white",
+                  collapsed && "lg:hidden",
+                )}
+              >
+                {section.title}
+              </p>
+              <div className="space-y-1">
+                {section.items.map((item) => (
+                  <SidebarLink
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    childItems={visibleChildren(item, user)}
+                    onNavigate={onClose}
+                    collapsed={collapsed}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
       </aside>
@@ -179,7 +187,17 @@ function SidebarLink({
               active ? "text-white" : "text-slate-300 group-hover:text-white",
             )}
           />
-          <span className={cn("text-white", collapsed && "lg:hidden")}>{item.label}</span>
+          <span className={cn("flex-1 text-white", collapsed && "lg:hidden")}>{item.label}</span>
+          {item.comingSoon ? (
+            <span
+              className={cn(
+                "rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white",
+                collapsed && "lg:hidden",
+              )}
+            >
+              Segera
+            </span>
+          ) : null}
         </Link>
         {hasChildren ? (
           <button

@@ -29,6 +29,13 @@ export function createMaster<T = Record<string, unknown>>(
   return apiV2.post<T>(`/master/${resource}`, body);
 }
 
+/** POST /v2/master/users/:id/reset-password — kosongkan password & paksa ganti saat login berikutnya. */
+export function resetUserPassword(
+  id: string | number,
+): Promise<ApiResponse<{ id: number }>> {
+  return apiV2.post<{ id: number }>(`/master/users/${id}/reset-password`, {});
+}
+
 export interface MasterOptionItem {
   value: string;
   label: string;

@@ -166,7 +166,7 @@ export default function WorkOrderDetailPage({
     [wo],
   );
   const isPreventive =
-    (mod === "maintenance" || mod === "meso") &&
+    (mod === "maintenance" || mod === "meso" || mod === "is" || mod === "ga") &&
     /prev/i.test(String((wo as Record<string, unknown>)?.type_wo ?? ""));
   const TABS = isPreventive
     ? [

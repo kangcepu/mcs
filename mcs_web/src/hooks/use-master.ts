@@ -15,6 +15,7 @@ import {
   listMasterDataChanges,
   listMaster,
   listWorkOrderEvents,
+  resetUserPassword,
   searchEmployees,
   updateMaster,
 } from "@/lib/api/master";
@@ -74,6 +75,15 @@ export function useMasterMutations(resource: MasterResource) {
       onSuccess: invalidate,
     }),
   };
+}
+
+/** Khusus resource "users" — reset password via endpoint terpisah. */
+export function useResetUserPassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string | number) => resetUserPassword(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["master", "users"] }),
+  });
 }
 
 export function useMasterOptions(enabled = true) {

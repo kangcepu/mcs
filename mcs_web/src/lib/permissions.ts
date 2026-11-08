@@ -57,6 +57,16 @@ export const AREA_PERMISSIONS = {
     read: [PERMISSIONS.listOfAsset, PERMISSIONS.privilageAsset],
     write: [PERMISSIONS.privilageAsset],
   },
+  energy: {
+    // Tahap foundation mengikuti hak Asset existing. Permission Energy khusus
+    // dapat ditambahkan saat rollout tanpa membuka akses bagi user baru.
+    read: [PERMISSIONS.listOfAsset, PERMISSIONS.privilageAsset],
+    write: [PERMISSIONS.privilageAsset],
+  },
+  fleet: {
+    read: [PERMISSIONS.listOfAsset, PERMISSIONS.privilageAsset],
+    write: [PERMISSIONS.privilageAsset],
+  },
   materialUsage: { read: [PERMISSIONS.materialUsage] },
   approvalCenter: { read: [] as string[] },
   voidCenter: {

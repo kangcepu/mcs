@@ -2,6 +2,7 @@ import { one, rows } from '../db.js';
 import { companyFilterVariants, resolveCompanyCode } from './employee-api.js';
 import { normalizeTypeWo } from '../routes/work-orders.js';
 import type { User } from '../types.js';
+import { getPreventiveCoverageSummary } from './preventive-coverage.js';
 
 interface ModuleCfg {
   table: string;
@@ -165,13 +166,14 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
 
   const company = String(filters.company ?? '').trim();
   const onlyModule = String(filters.module ?? '').toLowerCase().trim();
+  const preventiveCoveragePromise = getPreventiveCoverageSummary(user, company);
 
   const selected = Object.entries(MODULES).filter(([key, cfg]) => {
     if (onlyModule !== '' && onlyModule !== 'all' && onlyModule !== key) return false;
     return Number(user[cfg.perm] ?? 0) === 1 || Number(user[cfg.all] ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
   });
 
-  if (!selected.length) return emptyPayload(range, fromStr, toStr);
+  if (!selected.length) return { ...emptyPayload(range, fromStr, toStr), preventive_coverage: await preventiveCoveragePromise };
 
   const totals = { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 };
   let prevTotal = 0;
@@ -438,5 +440,6 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       { bucket: AGING_LABELS[3], count: aging.b3 },
     ],
     preventive_daily: preventiveDaily,
+    preventive_coverage: await preventiveCoveragePromise,
   };
 }

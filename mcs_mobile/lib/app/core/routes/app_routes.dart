@@ -1,7 +1,7 @@
 import 'package:get/get.dart';
 import '../../modules/auth/views/login_page.dart';
 import '../../modules/auth/views/force_password_change_page.dart';
-import '../../modules/home/views/home_page.dart';
+import '../../modules/home/views/home_router_page.dart';
 import '../../modules/wo/views/wo_list_page.dart';
 import '../../modules/wo/views/wo_detail_page.dart';
 import '../../modules/wo/views/wo_create_page.dart';
@@ -128,7 +128,7 @@ class AppRoutes {
     ),
     GetPage(
       name: home,
-      page: () => const HomePage(),
+      page: () => const HomeRouterPage(),
     ),
     GetPage(
       name: woVoid,

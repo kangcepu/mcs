@@ -62,6 +62,20 @@ export interface DashboardData {
     in_progress_pct: number;
     open_pct: number;
   }[];
+  preventive_coverage: {
+    required: number;
+    scheduled: number;
+    missing: number;
+    coverage_percent: number;
+    by_area: Array<{
+      key: string;
+      label: string;
+      required: number;
+      scheduled: number;
+      missing: number;
+      coverage_percent: number;
+    }>;
+  };
 }
 
 /** GET /v2/dashboard — semua agregat dalam satu panggilan. */

@@ -63,6 +63,29 @@ equipmentRouter.post('/equipment/parts/sub', authenticate, canManage, asyncHandl
   created(res, { id: result.insertId }, 'Part created');
 }));
 
+// Edit info part BOM (nama/satuan/company/header) — sengaja TIDAK termasuk
+// qty_on_hand di sini, stok tetap cuma bisa berubah lewat Pakai/Restock
+// (tb_parts_usage_history) biar riwayatnya selalu konsisten sama angkanya.
+equipmentRouter.post('/equipment/parts/update', authenticate, canManage, asyncHandler(async (req, res) => {
+  const b = req.body;
+  const id = b.id;
+  if (!id) throw new HttpError(400, 'id is required');
+
+  const fields: Record<string, unknown> = {};
+  if (b.part !== undefined) fields.part = String(b.part).trim();
+  if (b.header !== undefined) fields.header = String(b.header).trim();
+  if (b.uom !== undefined) fields.uom = String(b.uom).trim();
+  if (b.company !== undefined) fields.company = String(b.company).trim();
+  const keys = Object.keys(fields);
+  if (!keys.length) throw new HttpError(400, 'No changes provided');
+
+  const existing = await one('SELECT id FROM tb_parts_bom WHERE id=?', [id]);
+  if (!existing) throw new HttpError(404, 'Part not found');
+
+  await execute(`UPDATE tb_parts_bom SET ${keys.map((k) => `\`${k}\`=?`).join(',')}, updated_at=NOW() WHERE id=?`, [...keys.map((k) => fields[k]), id]);
+  ok(res, { id }, 'Part updated');
+}));
+
 equipmentRouter.post('/equipment/parts/toggle', authenticate, canManage, asyncHandler(async (req, res) => {
   const { id } = req.body;
   if (!id) throw new HttpError(400, 'id is required');

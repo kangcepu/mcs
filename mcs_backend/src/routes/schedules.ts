@@ -12,6 +12,7 @@ import {
 import {
   generateScheduleNow,
   getAssetCustomDetailScheduleRows,
+  getChildAssetScheduleRows,
   rebuildScheduleDetailsFromCustomDetails,
   removeSchedule,
   runScheduledGeneration,
@@ -122,4 +123,12 @@ scheduleRouter.get('/preventive-schedules/custom-detail-rows', authenticate, can
   if (!assetCode) throw new HttpError(422, 'asset_code is required', 'ASSET_CODE_REQUIRED');
   const rows = await getAssetCustomDetailScheduleRows(assetCode);
   ok(res, { asset_code: assetCode, total: rows.length, rows });
+}));
+
+scheduleRouter.get('/preventive-schedules/child-asset-rows', authenticate, canRead, asyncHandler(async (req, res) => {
+  const assetCode = String(req.query.asset_code ?? req.query.asset ?? '').trim();
+  const targetWo = String(req.query.towo ?? req.query.target_wo ?? '').trim();
+  if (!assetCode) throw new HttpError(422, 'asset_code is required', 'ASSET_CODE_REQUIRED');
+  const childRows = await getChildAssetScheduleRows(assetCode, targetWo);
+  ok(res, { asset_code: assetCode, target_wo: targetWo || null, total: childRows.length, rows: childRows });
 }));

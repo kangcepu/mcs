@@ -16,6 +16,7 @@ import {
   reviewMissingAreaAlert,
   saveAnnotatedImage,
   togglePart,
+  updatePart,
   uploadBomPhoto,
 } from "@/lib/api/equipment";
 
@@ -56,6 +57,10 @@ export function useBomPartMutations(assetCode: string) {
   return {
     addSubPart: useMutation({
       mutationFn: (body: Parameters<typeof addSubPart>[0]) => addSubPart(body),
+      onSuccess: invalidateParts,
+    }),
+    update: useMutation({
+      mutationFn: (body: Parameters<typeof updatePart>[0]) => updatePart(body),
       onSuccess: invalidateParts,
     }),
     toggle: useMutation({

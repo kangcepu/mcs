@@ -64,6 +64,17 @@ export function addSubPart(body: {
   return apiV2.post<{ id: number }>("/equipment/parts/sub", body);
 }
 
+/** Edit info part (nama/satuan/company/header) — stok tetap lewat Pakai/Restock, bukan di sini. */
+export function updatePart(body: {
+  id: number;
+  part?: string;
+  header?: string;
+  uom?: string;
+  company?: string;
+}) {
+  return apiV2.post<{ id: number }>("/equipment/parts/update", body);
+}
+
 export function togglePart(id: number) {
   return apiV2.post<{ id: number; is_active: number }>(
     "/equipment/parts/toggle",

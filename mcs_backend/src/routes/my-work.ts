@@ -8,6 +8,7 @@ import {
 } from '../lib/approval-center.js';
 import { getUnlockedStockOpnames, getWoTodo } from '../lib/my-work.js';
 import type { AuthRequest } from '../types.js';
+import { getPreventiveCoverageAssets } from '../lib/preventive-coverage.js';
 
 export const myWorkRouter = Router();
 
@@ -22,12 +23,13 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
   const user = (req as AuthRequest).user!;
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
-  const [woApprovals, woClosings, materials, woTodo, soUnlocked] = await Promise.all([
+  const [woApprovals, woClosings, materials, woTodo, soUnlocked, preventiveMissing] = await Promise.all([
     getPendingWoApprovals(user),
     getPendingWoClosings(user),
     getPendingMaterialRequests(user),
     getWoTodo(user),
     getUnlockedStockOpnames(token, user),
+    getPreventiveCoverageAssets(user),
   ]);
 
   const categories = [
@@ -56,6 +58,12 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
       items: woTodo.slice(0, PREVIEW_LIMIT),
     },
     {
+      key: 'preventive_missing',
+      label: 'Asset Belum Terjadwal',
+      count: preventiveMissing.length,
+      items: preventiveMissing.slice(0, PREVIEW_LIMIT),
+    },
+    {
       key: 'stock_opname_unlocked',
       label: 'Stock Opname Belum Dikunci',
       count: soUnlocked.length,
@@ -75,6 +83,7 @@ const CATEGORY_SEARCH_KEYS: Record<string, string[]> = {
   materials: ['wo_number', 'job_title', 'request_code', 'requested_by_name'],
   wo_todo: ['wo_number', 'job_title', 'asset_name'],
   stock_opname_unlocked: ['no_so'],
+  preventive_missing: ['asset_code', 'asset_name', 'company', 'location', 'mtc_area_label'],
 };
 
 /** Daftar lengkap (berpaginasi + bisa dicari) untuk 1 kategori — dipakai halaman /my-work saat 1 tab dipilih. */
@@ -93,6 +102,7 @@ myWorkRouter.get('/my-work/list', authenticate, asyncHandler(async (req, res) =>
     case 'materials': items = await getPendingMaterialRequests(user) as unknown as Record<string, unknown>[]; break;
     case 'wo_todo': items = await getWoTodo(user) as unknown as Record<string, unknown>[]; break;
     case 'stock_opname_unlocked': items = await getUnlockedStockOpnames(token, user) as unknown as Record<string, unknown>[]; break;
+    case 'preventive_missing': items = await getPreventiveCoverageAssets(user) as unknown as Record<string, unknown>[]; break;
     default: items = [];
   }
 

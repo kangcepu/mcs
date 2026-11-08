@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 /// Chart mini tanpa dependency (CustomPaint/Container murni) — versi
@@ -46,7 +47,8 @@ class MiniBarItem {
   final String label;
   final int value;
   final Color? color;
-  const MiniBarItem(this.label, this.value, {this.color});
+  final String? sub;
+  const MiniBarItem(this.label, this.value, {this.color, this.sub});
 }
 
 /// Daftar bar horizontal tipis — padanan `BarList` web. Tiap item bisa
@@ -74,8 +76,18 @@ class MiniBarList extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      it.label,
+                    child: Text.rich(
+                      TextSpan(
+                        text: it.label,
+                        children: it.sub != null
+                            ? [
+                                TextSpan(
+                                  text: ' ${it.sub}',
+                                  style: const TextStyle(color: Color(0xFF94A3B8)),
+                                ),
+                              ]
+                            : null,
+                      ),
                       style: const TextStyle(
                         fontSize: 9.5,
                         color: Color(0xFF64748B),
@@ -436,6 +448,31 @@ class _TrendFullPainter extends CustomPainter {
       _drawText(canvas, t.round().toString(), Offset(0, ty - 5), const Color(0xFF94A3B8), 8);
     }
 
+    // Area gradasi di bawah garis "Dibuat" — padanan `<linearGradient>` di
+    // TrendChart web, dibuat sebelum garis-garis lain biar gak menutupinya.
+    final areaPath = Path();
+    for (var i = 0; i < n; i++) {
+      final px = x(i);
+      final py = y(data[i].created);
+      if (i == 0) {
+        areaPath.moveTo(px, py);
+      } else {
+        areaPath.lineTo(px, py);
+      }
+    }
+    areaPath.lineTo(x(n - 1), _padT + ih);
+    areaPath.lineTo(x(0), _padT + ih);
+    areaPath.close();
+    canvas.drawPath(
+      areaPath,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, _padT),
+          Offset(0, _padT + ih),
+          [const Color(0xFF1B54E0).withOpacity(0.20), const Color(0xFF1B54E0).withOpacity(0)],
+        ),
+    );
+
     void drawSolid(double Function(TrendPoint) pick, double Function(double) yFn, Color color, double width) {
       final path = Path();
       for (var i = 0; i < n; i++) {
@@ -542,62 +579,75 @@ class DailyStatusPoint {
   const DailyStatusPoint(this.date, this.closedPct, this.inProgressPct, this.openPct, this.total);
 }
 
-/// Satu bar 100%-tinggi per hari (Selesai/Dikerjakan/Belum Dikerjakan) — versi
-/// ringkas mobile dari `DailyStatusBars` web, dipakai di kartu "Preventive
-/// Harian" buat lihat konsistensi eksekusi harian, bukan cuma rasio total.
+/// Kartu kecil per hari (persentase Selesai + bar segmen tipis) — padanan
+/// persis `DailyStatusBars` web: kotak berbatas, angka % tebal di atas,
+/// bar h-2 tersegmen (Selesai/Dikerjakan/Belum) di tengah, tanggal di bawah.
 class DailyStatusBars extends StatelessWidget {
   final List<DailyStatusPoint> data;
+  /// Dipertahankan untuk kompatibilitas pemanggil lama; tidak lagi dipakai
+  /// langsung karena desain baru memakai tinggi kotak tetap (bukan bar
+  /// setinggi penuh seperti versi sebelumnya).
   final double barHeight;
   const DailyStatusBars({super.key, required this.data, this.barHeight = 40});
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: data
           .map(
             (d) => Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        height: barHeight,
-                        width: double.infinity,
-                        color: const Color(0xFFE5E7EB),
-                        child: d.total > 0
-                            ? Column(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  if (d.openPct > 0)
-                                    Expanded(
-                                      flex: (d.openPct * 10).round().clamp(1, 1000),
-                                      child: Container(color: const Color(0xFFF59E0B)),
-                                    ),
-                                  if (d.inProgressPct > 0)
-                                    Expanded(
-                                      flex: (d.inProgressPct * 10).round().clamp(1, 1000),
-                                      child: Container(color: const Color(0xFF1B54E0)),
-                                    ),
-                                  if (d.closedPct > 0)
-                                    Expanded(
-                                      flex: (d.closedPct * 10).round().clamp(1, 1000),
-                                      child: Container(color: const Color(0xFF16A34A)),
-                                    ),
-                                ],
-                              )
-                            : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        d.total > 0 ? '${d.closedPct.round()}%' : '-',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      d.date.length >= 10 ? d.date.substring(8, 10) : d.date,
-                      style: const TextStyle(fontSize: 8, color: Color(0xFF94A3B8)),
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: SizedBox(
+                          height: 6,
+                          child: d.total > 0
+                              ? Row(
+                                  children: [
+                                    if (d.closedPct > 0)
+                                      Expanded(
+                                        flex: (d.closedPct * 10).round().clamp(1, 1000),
+                                        child: Container(color: const Color(0xFF16A34A)),
+                                      ),
+                                    if (d.inProgressPct > 0)
+                                      Expanded(
+                                        flex: (d.inProgressPct * 10).round().clamp(1, 1000),
+                                        child: Container(color: const Color(0xFF1B54E0)),
+                                      ),
+                                    if (d.openPct > 0)
+                                      Expanded(
+                                        flex: (d.openPct * 10).round().clamp(1, 1000),
+                                        child: Container(color: const Color(0xFFF59E0B)),
+                                      ),
+                                  ],
+                                )
+                              : Container(color: const Color(0xFFE2E8F0)),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        d.date.length >= 10 ? d.date.substring(5, 10) : d.date,
+                        style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

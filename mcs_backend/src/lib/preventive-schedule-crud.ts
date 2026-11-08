@@ -167,6 +167,10 @@ async function executionStatus(target: string, scheduleDetailIds: number[]): Pro
   } else if (target === 'wo_preventive') {
     sql = `SELECT COUNT(*) AS total, SUM(CASE WHEN d.is_done = 1 THEN 1 ELSE 0 END) AS done
            FROM tb_wo_preventive_detail d WHERE d.schedule_detail_id IN (${placeholders})`;
+  } else if (target === 'wo_it' || target === 'wo_ga') {
+    const table = target === 'wo_it' ? 'tb_wo_it_detail' : 'tb_wo_ga_detail';
+    sql = `SELECT COUNT(*) AS total, SUM(CASE WHEN UPPER(TRIM(COALESCE(d.maintenance_status,''))) = 'DONE' THEN 1 ELSE 0 END) AS done
+           FROM ${table} d WHERE d.schedule_detail_id IN (${placeholders})`;
   }
   if (!sql) return { total_items: 0, done_items: 0, percent: 0 };
   const row = await one<{ total: number | string | null; done: number | string | null }>(sql, scheduleDetailIds).catch(() => null);
@@ -182,7 +186,13 @@ async function generationStatus(header: Record<string, unknown>, details: Record
     .filter((id) => id > 0);
 
   const target = String(header.towo ?? '').toLowerCase().trim();
-  const tables: Record<string, string> = { wo_mtc: 'tb_wo_meso_detail', wo_mtc_operational: 'tb_wo_mtc_operational_detail', wo_preventive: 'tb_wo_preventive_detail' };
+  const tables: Record<string, string> = {
+    wo_mtc: 'tb_wo_meso_detail',
+    wo_mtc_operational: 'tb_wo_mtc_operational_detail',
+    wo_preventive: 'tb_wo_preventive_detail',
+    wo_it: 'tb_wo_it_detail',
+    wo_ga: 'tb_wo_ga_detail',
+  };
   const table = tables[target];
 
   const generatedIds = new Set<number>();

@@ -5,15 +5,17 @@ import {
   History,
   ImageIcon,
   MinusCircle,
+  Pencil,
   Plus,
   PlusCircle,
   Power,
   Trash2,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input, Textarea } from "@/components/ui/primitives";
+import { Button, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { LoadingSkeleton, EmptyState, ErrorState } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
+import { useAssetOptions } from "@/hooks/use-assets";
 import {
   useBomPartMutations,
   useBomParts,
@@ -25,7 +27,7 @@ import { ApiError } from "@/types/api";
 import { dash, pick } from "@/lib/display";
 import { toAbsoluteUploadUrl } from "@/lib/env";
 
-type ModalKind = null | "sub" | "use" | "restock" | "history" | "photos";
+type ModalKind = null | "sub" | "edit" | "use" | "restock" | "history" | "photos";
 
 export function BomPartsPanel({
   assetCode,
@@ -148,6 +150,12 @@ export function BomPartsPanel({
                       <td className="whitespace-nowrap px-3 py-2 text-right">
                         <div className="inline-flex items-center gap-1">
                           <IconBtn
+                            title="Edit part"
+                            onClick={() => open("edit", row)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </IconBtn>
+                          <IconBtn
                             title="Pakai part"
                             onClick={() => open("use", row)}
                           >
@@ -194,6 +202,23 @@ export function BomPartsPanel({
             try {
               await m.addSubPart.mutateAsync(body);
               toast.success("Sub-part ditambahkan");
+              close();
+            } catch (e) {
+              err(e);
+            }
+          }}
+        />
+      ) : null}
+
+      {modal === "edit" && active ? (
+        <EditPartModal
+          part={active}
+          pending={m.update.isPending}
+          onClose={close}
+          onSubmit={async (body) => {
+            try {
+              await m.update.mutateAsync({ id: active.id, ...body });
+              toast.success("Part diperbarui");
               close();
             } catch (e) {
               err(e);
@@ -334,6 +359,8 @@ function SubPartModal({
   }) => void;
   pending: boolean;
 }) {
+  const options = useAssetOptions();
+  const companies = options.data?.data?.companies ?? [];
   const [part, setPart] = useState("");
   const [uom, setUom] = useState("PCS");
   const [company, setCompany] = useState("");
@@ -384,8 +411,84 @@ function SubPartModal({
           </Field>
         </div>
         <Field label="Company" hint="Opsional.">
-          <Input value={company} onChange={(e) => setCompany(e.target.value)} />
+          <Select value={company} onChange={(e) => setCompany(e.target.value)}>
+            <option value="">Pilih company</option>
+            {companies.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function EditPartModal({
+  part,
+  onClose,
+  onSubmit,
+  pending,
+}: {
+  part: BomPart;
+  onClose: () => void;
+  onSubmit: (body: { part: string; uom: string; company: string }) => void;
+  pending: boolean;
+}) {
+  const toast = useToast();
+  const options = useAssetOptions();
+  const companies = options.data?.data?.companies ?? [];
+  const [name, setName] = useState(
+    String(pick(part, ["part", "part_name", "nama_part"]) || ""),
+  );
+  const [uom, setUom] = useState(String(part.uom ?? ""));
+  const [company, setCompany] = useState(String(part.company ?? ""));
+
+  const submit = () => {
+    if (!name.trim()) {
+      toast.error("Nama part wajib diisi");
+      return;
+    }
+    onSubmit({ part: name.trim(), uom: uom.trim() || "PCS", company: company.trim() });
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Edit Part — ${partLabel(part)}`}
+      description="Stok tetap diubah lewat Pakai / Restock, bukan di sini."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Batal
+          </Button>
+          <Button onClick={submit} loading={pending}>
+            Simpan
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Nama Part" required>
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Satuan">
+            <Input value={uom} onChange={(e) => setUom(e.target.value)} />
+          </Field>
+          <Field label="Company" hint="Opsional.">
+            <Select value={company} onChange={(e) => setCompany(e.target.value)}>
+              <option value="">Pilih company</option>
+              {companies.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
       </div>
     </Modal>
   );

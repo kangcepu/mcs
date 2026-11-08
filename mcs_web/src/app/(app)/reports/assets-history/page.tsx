@@ -87,7 +87,7 @@ export default function AssetHistoryReportPage() {
   return (
     <PageContainer
       title="Asset History"
-      description="Cari berdasarkan kode atau nama aset untuk menampilkan riwayat pekerjaan."
+      description="Cari dengan nama, kode, atau scan QR untuk melihat riwayat lokasi dan pekerjaan aset."
       actions={
         rows.length > 0 ? (
           <div className="flex gap-2">

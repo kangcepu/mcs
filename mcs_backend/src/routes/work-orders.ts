@@ -9,7 +9,7 @@ import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { companyFilterVariants, resolveCompanyCode } from '../lib/employee-api.js';
 import { normalizeAreaKey } from '../lib/daily-control.js';
 import { saveUploadedFile } from '../lib/storage.js';
-import { getMaintenancePreventiveParts, getMesoPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
+import { getGaPreventiveParts, getItPreventiveParts, getMaintenancePreventiveParts, getMesoPreventiveParts, saveGaPreventiveParts, saveItPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
 import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
 import { visibilityScope as isVisibilityScope } from './wo-is.js';
@@ -360,6 +360,42 @@ workOrderRouter.get('/work-orders/materials', authenticate, asyncHandler(async (
 
 const canMesoParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_mtc ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_meso ?? 0) === 1;
 const canMaintenanceParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_operational ?? 0) === 1 || Number(user.wo_mtc_all ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_maintenance ?? 0) === 1;
+const canItParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_it ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_is ?? 0) === 1;
+const canGaParts = (user: User): boolean => Number(user.wo_executor ?? 0) === 1 || Number(user.wo_ga ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1 || Number(user.wo_cross_access_ga ?? 0) === 1;
+
+function childChecklistRoutes(
+  path: '/work-orders/it-parts' | '/work-orders/ga-parts',
+  allowed: (user: User) => boolean,
+  getter: typeof getItPreventiveParts,
+  saver: typeof saveItPreventiveParts,
+  label: 'IT' | 'GA',
+): void {
+  workOrderRouter.get(path, authenticate, asyncHandler(async (req, res) => {
+    const user = (req as AuthRequest).user!;
+    if (!allowed(user)) throw new HttpError(403, `Butuh permission WO ${label} / eksekutor.`, `WO_${label}_PARTS_DENIED`);
+    const wo = String(req.query.wo_number ?? '').trim();
+    if (!wo) throw new HttpError(422, 'wo_number wajib diisi.', 'WO_NUMBER_REQUIRED');
+    const { data } = await getter(wo);
+    ok(res, data, undefined, { part_request: null });
+  }));
+  workOrderRouter.post(path, authenticate, asyncHandler(async (req, res) => {
+    const user = (req as AuthRequest).user!;
+    if (!allowed(user)) throw new HttpError(403, `Butuh permission WO ${label} / eksekutor.`, `WO_${label}_PARTS_DENIED`);
+    const wo = String(req.body.wo_number ?? '').trim();
+    const inputRows = Array.isArray(req.body.rows) ? req.body.rows : [];
+    if (!wo || !inputRows.length) throw new HttpError(422, 'wo_number dan rows wajib diisi.', `WO_${label}_PARTS_INPUT`);
+    try {
+      ok(res, await saver(wo, user, inputRows), 'Checklist aset disimpan');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'WO_NOT_FOUND') throw new HttpError(404, 'WO tidak ditemukan.', 'WO_NOT_FOUND');
+      if (error instanceof Error && error.message === 'WO_NOT_PREVENTIVE') throw new HttpError(422, 'WO bukan preventive.', 'WO_NOT_PREVENTIVE');
+      throw error;
+    }
+  }));
+}
+
+childChecklistRoutes('/work-orders/it-parts', canItParts, getItPreventiveParts, saveItPreventiveParts, 'IT');
+childChecklistRoutes('/work-orders/ga-parts', canGaParts, getGaPreventiveParts, saveGaPreventiveParts, 'GA');
 
 workOrderRouter.get('/work-orders/meso-parts', authenticate, asyncHandler(async (req, res) => {
   const wo = String(req.query.wo_number ?? '').trim();

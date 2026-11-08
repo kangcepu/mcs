@@ -130,11 +130,14 @@ export interface PreventivePartRequestInfo {
  * gate `wo_executor` — mengikuti web lama yang hanya butuh login):
  *  - maintenance → `/work-orders/maintenance-parts`
  *  - meso        → `/work-orders/meso-parts`
+ *  - is          → `/work-orders/it-parts`
+ *  - ga          → `/work-orders/ga-parts`
  */
 function preventivePath(module: string) {
-  return module === "meso"
-    ? "/work-orders/meso-parts"
-    : "/work-orders/maintenance-parts";
+  if (module === "meso") return "/work-orders/meso-parts";
+  if (module === "is") return "/work-orders/it-parts";
+  if (module === "ga") return "/work-orders/ga-parts";
+  return "/work-orders/maintenance-parts";
 }
 
 /** GET checklist part preventive untuk sebuah WO. */
@@ -167,11 +170,13 @@ export function savePreventiveParts(
     keterangan?: string;
   }>,
 ) {
+  const allowPartRequest = module !== "is" && module !== "ga";
   const payload = rows.map((r) => ({
     ...r,
-    request_qty: r.need_request_part ? 1 : 0,
-    request_part: r.part_mesin,
-    request_uom: "PCS",
+    need_request_part: allowPartRequest && !!r.need_request_part,
+    request_qty: allowPartRequest && r.need_request_part ? 1 : 0,
+    request_part: allowPartRequest ? r.part_mesin : "",
+    request_uom: allowPartRequest ? "PCS" : "",
   }));
   return apiV2.post<{ wo_number: string; requested?: number; updated?: number }>(
     preventivePath(module),

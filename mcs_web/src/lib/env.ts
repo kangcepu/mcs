@@ -23,6 +23,10 @@ export const AUTH_LOGIN_URL = `${API_BASE_URL}/auth/login`;
 /** Nama cookie penyimpanan JWT. */
 export const TOKEN_COOKIE = "mcs_token";
 
+/** Modul Energy opt-in selama masa pilot agar menu existing tidak berubah. */
+export const ENERGY_MODULE_ENABLED =
+  process.env.NEXT_PUBLIC_ENERGY_MODULE_ENABLED === "true";
+
 /**
  * Backend mengembalikan path relatif buat file terunggah (mis. `/uploads/...`).
  * Web app jalan di origin/port terpisah dari backend, jadi path relatif itu

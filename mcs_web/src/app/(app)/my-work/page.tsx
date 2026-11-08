@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  CalendarX2,
   Check,
   ExternalLink,
   Loader2,
@@ -30,6 +31,10 @@ import { DEFAULT_PER_PAGE, ApiError } from "@/types/api";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { dash, pick } from "@/lib/display";
 import { cn } from "@/lib/utils";
+import { useCan } from "@/components/ui/permission-guard";
+import { PERMISSIONS } from "@/lib/permissions";
+import { PreventiveMissingNotice } from "@/components/schedules/preventive-missing-notice";
+import { useMe } from "@/hooks/use-auth";
 
 const CATEGORY_META: Record<
   MyWorkCategoryKey,
@@ -39,6 +44,7 @@ const CATEGORY_META: Record<
   wo_closings: { icon: <Check className="h-4 w-4" />, empty: "Tidak ada WO yang menunggu ditutup." },
   materials: { icon: <Package className="h-4 w-4" />, empty: "Tidak ada request part yang menunggu." },
   wo_todo: { icon: <ListTodo className="h-4 w-4" />, empty: "Tidak ada WO yang belum Anda kerjakan." },
+  preventive_missing: { icon: <CalendarX2 className="h-4 w-4" />, empty: "Semua asset Maintenance di area Anda sudah memiliki jadwal preventive aktif." },
   stock_opname_unlocked: { icon: <Lock className="h-4 w-4" />, empty: "Semua Stock Opname sudah dikunci." },
 };
 
@@ -57,17 +63,20 @@ function moduleRouteOf(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string
 }
 
 function itemKey(categoryKey: MyWorkCategoryKey, item: MyWorkItem, i: number): string {
+  if (categoryKey === "preventive_missing") return String(item.asset_id ?? item.asset_code ?? i);
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? i);
   if (categoryKey === "materials") return String(item.request_code ?? i);
   return `${item.wo_number ?? i}`;
 }
 
 function itemTitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
+  if (categoryKey === "preventive_missing") return String(item.asset_name ?? item.asset_code ?? "-");
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? "-");
   return String(item.wo_number ?? "-");
 }
 
 function itemSubtitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
+  if (categoryKey === "preventive_missing") return [item.asset_code, item.mtc_area_label, item.location].filter(Boolean).join(" · ");
   if (categoryKey === "stock_opname_unlocked") {
     return [item.type, formatDate(item.tanggal)].filter(Boolean).join(" · ");
   }
@@ -84,6 +93,8 @@ const DEFAULTS = { tab: "wo_approvals" as string, q: "", page: 1, per_page: DEFA
 export default function MyWorkPage() {
   const toast = useToast();
   const confirm = useConfirm();
+  const canManageSchedule = useCan(PERMISSIONS.schedule);
+  const { data: user } = useMe();
   const { values, setValues, reset, hasActiveFilters } = useQueryParams(DEFAULTS);
   const tab = values.tab as MyWorkCategoryKey;
 
@@ -148,17 +159,30 @@ export default function MyWorkPage() {
 
   const externalHref = useMemo(() => {
     if (!selected) return "";
+    if (tab === "preventive_missing") {
+      if (canManageSchedule) {
+        const params = new URLSearchParams({
+          create: "1",
+          asset_code: String(selected.asset_code ?? ""),
+          asset_id: String(selected.asset_id ?? ""),
+          asset_name: String(selected.asset_name ?? ""),
+          company: String(selected.company ?? ""),
+        });
+        return `/preventive-schedules?${params.toString()}`;
+      }
+      return `/assets/${String(selected.asset_code ?? "").split("/").map(encodeURIComponent).join("/")}`;
+    }
     if (tab === "materials") return `/material-usage?q=${encodeURIComponent(String(selected.wo_number ?? ""))}`;
     if (tab === "stock_opname_unlocked") return `/reports/stock-opname?q=${encodeURIComponent(String(selected.no_so ?? ""))}`;
     return woHref;
-  }, [selected, tab, woHref]);
+  }, [selected, tab, woHref, canManageSchedule]);
 
   return (
     <PageContainer
       title="My Work"
       description="Daftar pekerjaan yang perlu perhatian Anda — berbeda untuk tiap user sesuai hak akses."
     >
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
         {(categories.length ? categories : (Object.keys(CATEGORY_META) as MyWorkCategoryKey[]).map((key) => ({ key, label: key, count: 0, items: [] }))).map((c) => (
           <button
             key={c.key}
@@ -180,6 +204,13 @@ export default function MyWorkPage() {
       <p className="text-xs text-slate-400">
         {summary.isLoading ? "Memuat ringkasan…" : `${formatNumber(total)} total pekerjaan tertunda di seluruh kategori.`}
       </p>
+
+      <PreventiveMissingNotice
+        scope="my-work"
+        audience={user?.id}
+        missing={categories.find((category) => category.key === "preventive_missing")?.count ?? 0}
+        onReview={() => setValues({ tab: "preventive_missing", q: "" }, { resetPage: true })}
+      />
 
       <FilterBar
         search={values.q}
@@ -286,6 +317,29 @@ export default function MyWorkPage() {
                   </div>
                 </div>
               )
+            ) : tab === "preventive_missing" ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{selected.asset_name || selected.asset_code || "-"}</p>
+                  <p className="mt-1 text-xs text-slate-500">Asset Maintenance wajib memiliki preventive schedule aktif.</p>
+                </div>
+                <DescriptionList
+                  columns={1}
+                  items={[
+                    { label: "Asset Code", value: dash(selected.asset_code) },
+                    { label: "Area Maintenance", value: dash(selected.mtc_area_label) },
+                    { label: "Company", value: dash(selected.company) },
+                    { label: "Lokasi", value: dash(selected.location) },
+                    { label: "Status", value: <StatusBadge status="BELUM TERJADWAL" tone="amber" /> },
+                  ]}
+                />
+                <div className="border-t border-slate-100 pt-4">
+                  <Button onClick={() => window.open(externalHref, "_self")}>
+                    <ExternalLink className="h-4 w-4" />
+                    {canManageSchedule ? "Buat Preventive Schedule" : "Buka Detail Asset"}
+                  </Button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 <p className="text-sm font-semibold text-slate-900">{itemTitle(tab, selected)}</p>

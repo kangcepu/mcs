@@ -1,19 +1,24 @@
 import { getAssetAttachmentRows } from '../lib/asset-attachments.js';
 import { buildAssetWoHistory } from '../lib/asset-history.js';
+import { getAssetLocationHistory, recordAssetHierarchyHistory } from '../lib/asset-location-history.js';
+import { normalizeAssetLookup } from '../lib/asset-lookup.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
-import { execute, one, rows, transaction } from '../db.js';
+import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { buildAssetImportTemplate, importAssetRows, readWorkbookRows } from '../lib/asset-import.js';
+import { parseChildAssetWorkbook } from '../lib/child-asset-import.js';
 import { buildCustomDetailTemplate, discardExtractedImages, parseCustomDetailWorkbook } from '../lib/custom-detail-import.js';
 import { deleteObjectKey, saveUploadedFile } from '../lib/storage.js';
 import type { AuthRequest } from '../types.js';
+import type { PoolConnection } from 'mysql2/promise';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
+const childAssetImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 export const assetRouter = Router();
 
 const assetFields = [
@@ -49,6 +54,36 @@ function normalizeAssetBody(body: Record<string, unknown>): Record<string, unkno
   if (out.is_active !== undefined && out.active === undefined) out.active = out.is_active ? 'active' : 'inactive';
   if (out.it_ownership_status === '') out.it_ownership_status = null;
   return out;
+}
+
+interface HierarchyAssetRow {
+  AssetID: number;
+  AssetCode: string;
+  AssetName: string;
+  CompanyName: string | null;
+  parent_asset_id: number | null;
+}
+
+async function hierarchyAssetByCode(connection: PoolConnection, assetCode: string, lock = false): Promise<HierarchyAssetRow | null> {
+  const [result] = await connection.execute(
+    `SELECT AssetID, AssetCode, AssetName, CompanyName, parent_asset_id
+     FROM asset WHERE AssetCode=? LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+    [assetCode],
+  );
+  return ((result as HierarchyAssetRow[])[0] ?? null);
+}
+
+async function assertHierarchyHasNoCycle(connection: PoolConnection, childId: number, parentId: number): Promise<void> {
+  let cursor: number | null = parentId;
+  const visited = new Set<number>();
+  while (cursor) {
+    if (cursor === childId) throw new HttpError(409, 'Relasi ini akan membuat siklus parent-child.');
+    if (visited.has(cursor)) throw new HttpError(409, 'Struktur parent-child yang dipilih sudah mengandung siklus.');
+    visited.add(cursor);
+    const queryResult: unknown = (await connection.execute('SELECT parent_asset_id FROM asset WHERE AssetID=? LIMIT 1', [cursor]))[0];
+    const row: { parent_asset_id: number | null } | undefined = (queryResult as Array<{ parent_asset_id: number | null }>)[0];
+    cursor = row?.parent_asset_id ? Number(row.parent_asset_id) : null;
+  }
 }
 
 const CUSTOM_DETAIL_DIR = path.join(config.uploadDir, 'customDetails');
@@ -132,7 +167,7 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
   // `total_pages` dibutuhkan Pagination untuk tombol "berikutnya" — tanpa
   // dua ini, list selalu ke-pin 25 baris dan tombol next selalu nonaktif.
   const perPage = Math.min(200, Math.max(1, Number(req.query.per_page ?? 25)));
-  const q = String(req.query.q ?? '').trim();
+  const q = normalizeAssetLookup(req.query.q);
 
   const where: string[] = [];
   const params: unknown[] = [];
@@ -150,6 +185,8 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
   const isActive = String(req.query.is_active ?? '').trim();
   if (isActive === '1') { where.push("active = 'active'"); }
   else if (isActive === '0') { where.push("active = 'inactive'"); }
+  const unlinkedOnly = ['1', 'true', 'yes', 'on'].includes(String(req.query.unlinked_only ?? '').toLowerCase());
+  if (unlinkedOnly) where.push('parent_asset_id IS NULL');
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const total = await one<{ total: number }>(`SELECT COUNT(*) AS total FROM asset ${whereSql}`, params);
@@ -183,13 +220,94 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
 
   const code = String((asset as Record<string, unknown>).AssetCode);
   const assetId = Number((asset as Record<string, unknown>).AssetID ?? 0);
-  const [details, attachments, parts, history] = await Promise.all([
+  const parentId = Number((asset as Record<string, unknown>).parent_asset_id ?? 0);
+  const hasImportedGroups = await tableExists('asset_child_import_group');
+  const hasEnergyProfile = await tableExists('energy_asset_profile');
+  const hasFleetProfile = await tableExists('fleet_vehicle_profile');
+  const [details, attachments, parts, history, locationHistory, parent, children, importedGroups, energyProfile, fleetProfile] = await Promise.all([
     rows('SELECT * FROM asset_custom_details WHERE asset_code = ? ORDER BY row_order, id', [code]),
     getAssetAttachmentRows(code),
     rows('SELECT * FROM tb_parts_bom WHERE AssetCode = ? AND deleted_at IS NULL ORDER BY no_urut, id', [code]),
     assetId ? buildAssetWoHistory(assetId) : Promise.resolve([]),
+    assetId ? getAssetLocationHistory(assetId) : Promise.resolve([]),
+    parentId ? one('SELECT AssetCode, AssetName FROM asset WHERE AssetID = ?', [parentId]) : Promise.resolve(null),
+    assetId
+      ? rows('SELECT AssetID, AssetCode, AssetName, CategoryAsset, LocationAsset, active FROM asset WHERE parent_asset_id = ? ORDER BY AssetName', [assetId])
+      : Promise.resolve([]),
+    assetId && hasImportedGroups
+      ? rows(`SELECT g.id, g.child_name, g.source_row, g.source_file, g.created_at
+              FROM asset_child_import_group g
+              WHERE g.parent_asset_id = ? ORDER BY g.id`, [assetId])
+      : Promise.resolve([]),
+    assetId && hasEnergyProfile
+      ? one(`SELECT p.*, a.AssetCode, a.AssetName, a.CompanyName, a.LocationAsset,
+              a.CategoryAsset, a.active AS asset_status,
+              m.id AS meter_id, m.parent_meter_id, m.meter_number, m.meter_type,
+              m.unit AS meter_unit, m.multiplier AS meter_multiplier, m.digit_count,
+              m.rollover_value, m.reading_frequency,
+              m.effective_from AS meter_effective_from, m.effective_to AS meter_effective_to,
+              g.id AS genset_profile_id, g.serial_number, g.rated_kva, g.rated_kw,
+              g.fuel_type AS genset_fuel_type, g.tank_capacity_liter,
+              g.initial_hour_meter, g.current_hour_meter,
+              t.id AS fuel_tank_id, t.tank_number, t.fuel_type AS tank_fuel_type,
+              t.capacity_liter, t.minimum_level_liter, t.maximum_level_liter,
+              t.reference_balance_liter
+             FROM energy_asset_profile p
+             INNER JOIN asset a ON a.AssetID=p.asset_id
+             LEFT JOIN energy_meter m ON m.energy_profile_id=p.id
+             LEFT JOIN energy_genset_profile g ON g.energy_profile_id=p.id
+             LEFT JOIN energy_fuel_tank t ON t.energy_profile_id=p.id
+             WHERE p.asset_id=? LIMIT 1`, [assetId])
+      : Promise.resolve(null),
+    assetId && hasFleetProfile
+      ? one(`SELECT v.*,
+          CASE
+            WHEN (SELECT MAX(i.inspected_at) FROM fleet_daily_inspection i WHERE i.vehicle_id=v.id AND i.status='APPROVED') IS NULL THEN 1
+            WHEN v.inspection_frequency='WEEKLY' THEN TIMESTAMPDIFF(DAY,(SELECT MAX(i.inspected_at) FROM fleet_daily_inspection i WHERE i.vehicle_id=v.id AND i.status='APPROVED'),NOW()) >= 7
+            WHEN v.inspection_frequency='MONTHLY' THEN TIMESTAMPDIFF(DAY,(SELECT MAX(i.inspected_at) FROM fleet_daily_inspection i WHERE i.vehicle_id=v.id AND i.status='APPROVED'),NOW()) >= 30
+            ELSE TIMESTAMPDIFF(DAY,(SELECT MAX(i.inspected_at) FROM fleet_daily_inspection i WHERE i.vehicle_id=v.id AND i.status='APPROVED'),NOW()) >= 1
+          END AS inspection_due,
+          CASE WHEN
+            (v.preventive_interval_days IS NOT NULL AND (SELECT MAX(s.completed_at) FROM fleet_service_history s WHERE s.vehicle_id=v.id AND s.service_type='PREVENTIVE' AND s.status='COMPLETED') IS NULL)
+            OR (v.preventive_interval_days IS NOT NULL AND TIMESTAMPDIFF(DAY,(SELECT MAX(s.completed_at) FROM fleet_service_history s WHERE s.vehicle_id=v.id AND s.service_type='PREVENTIVE' AND s.status='COMPLETED'),NOW()) >= v.preventive_interval_days)
+            OR (v.preventive_interval_meter IS NOT NULL AND v.current_meter >= COALESCE((SELECT s.meter_value FROM fleet_service_history s WHERE s.vehicle_id=v.id AND s.service_type='PREVENTIVE' AND s.status='COMPLETED' ORDER BY s.completed_at DESC LIMIT 1),0)+v.preventive_interval_meter)
+          THEN 1 ELSE 0 END AS preventive_due
+        FROM fleet_vehicle_profile v WHERE v.asset_id=? LIMIT 1`, [assetId])
+      : Promise.resolve(null),
   ]);
-  ok(res, { ...asset as object, custom_details: details, attachments, parts, history });
+  const importedGroupRows = importedGroups as Array<Record<string, unknown>>;
+  const importedGroupIds = importedGroupRows.map((group) => Number(group.id)).filter(Boolean);
+  const importedDetails = importedGroupIds.length
+    ? await rows<Record<string, unknown>>(
+      `SELECT d.id, d.group_id, d.item_name, d.condition_text, d.frequency, d.pic, d.source_row, d.sort_order,
+              l.linked_asset_id, a.AssetCode, a.AssetName, a.CategoryAsset, a.LocationAsset, a.active
+       FROM asset_child_import_detail d
+       LEFT JOIN asset_child_import_detail_link l ON l.detail_id = d.id
+       LEFT JOIN asset a ON a.AssetID = l.linked_asset_id
+       WHERE d.group_id IN (${importedGroupIds.map(() => '?').join(',')})
+       ORDER BY d.group_id, d.sort_order, d.id`,
+      importedGroupIds,
+    )
+    : [];
+  const relatedGroups = importedGroupRows.map((group) => ({
+    ...group,
+    items: importedDetails.filter((item) => Number(item.group_id) === Number(group.id)),
+  }));
+  const parentRow = parent as Record<string, unknown> | null;
+  ok(res, {
+    ...asset as object,
+    custom_details: details,
+    attachments,
+    parts,
+    history,
+    location_history: locationHistory,
+    parent_asset_code: parentRow?.AssetCode ?? null,
+    parent_asset_name: parentRow?.AssetName ?? null,
+    children,
+    related_groups: relatedGroups,
+    energy_profile: energyProfile,
+    fleet_profile: fleetProfile,
+  });
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
@@ -210,6 +328,444 @@ assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_a
     [...Object.values(fields), (req as AuthRequest).user!.fullname, id, id],
   );
   ok(res, null, 'Asset updated');
+}));
+
+/**
+ * Relasi induk-anak antar aset (mis. "Ruangan IT" sebagai induk, PC-PC di
+ * dalamnya sebagai anak) — beda dari BOM (`tb_parts_bom`, spare part, bukan
+ * aset). Satu aset cuma boleh punya 1 induk (pohon sederhana). Anak tetap
+ * baris mandiri di daftar aset, cuma ditautkan lewat `parent_asset_id`.
+ */
+assetRouter.post('/assets/children', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  const parentCode = String(req.body.parent_asset ?? '').trim();
+  const childCode = String(req.body.child_asset ?? '').trim();
+  if (!parentCode || !childCode) throw new HttpError(400, 'parent_asset and child_asset are required');
+  if (parentCode === childCode) throw new HttpError(400, 'An asset cannot be its own parent');
+
+  const actor = (req as AuthRequest).user!.fullname;
+  await transaction(async (connection) => {
+    const parent = await hierarchyAssetByCode(connection, parentCode, true);
+    if (!parent) throw new HttpError(404, 'Parent asset not found');
+    const child = await hierarchyAssetByCode(connection, childCode, true);
+    if (!child) throw new HttpError(404, 'Child asset not found');
+    if (Number(parent.AssetID) === Number(child.AssetID)) throw new HttpError(400, 'An asset cannot be its own parent');
+    if (child.parent_asset_id) {
+      const [currentResult] = await connection.execute('SELECT AssetCode FROM asset WHERE AssetID=? LIMIT 1', [child.parent_asset_id]);
+      const currentCode = String((currentResult as Array<{ AssetCode: string }>)[0]?.AssetCode ?? 'asset lain');
+      throw new HttpError(409, `Asset sudah tertaut ke ${currentCode}. Gunakan Mutasi/Pindah untuk mengganti parent.`);
+    }
+    await assertHierarchyHasNoCycle(connection, child.AssetID, parent.AssetID);
+    await connection.execute('UPDATE asset SET parent_asset_id=?, updated_at=NOW(), updated_by=? WHERE AssetID=?', [parent.AssetID, actor, child.AssetID]);
+    await recordAssetHierarchyHistory(connection, child, null, parent, actor);
+  });
+  ok(res, null, 'Child asset attached');
+}));
+
+assetRouter.post('/assets/children/detach', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  const childCode = String(req.body.child_asset ?? '').trim();
+  if (!childCode) throw new HttpError(400, 'child_asset is required');
+  const actor = (req as AuthRequest).user!.fullname;
+  const hasImportedDetailLinks = await tableExists('asset_child_import_detail_link');
+  await transaction(async (connection) => {
+    const child = await hierarchyAssetByCode(connection, childCode, true);
+    if (!child) throw new HttpError(404, 'Child asset not found');
+    if (!child.parent_asset_id) throw new HttpError(409, 'Asset ini tidak sedang tertaut ke parent mana pun.');
+    const [parentResult] = await connection.execute(
+      'SELECT AssetID, AssetCode, AssetName, CompanyName, parent_asset_id FROM asset WHERE AssetID=? LIMIT 1',
+      [child.parent_asset_id],
+    );
+    const parent = ((parentResult as HierarchyAssetRow[])[0] ?? null);
+    await connection.execute('UPDATE asset SET parent_asset_id=NULL, updated_at=NOW(), updated_by=? WHERE AssetID=?', [actor, child.AssetID]);
+    if (hasImportedDetailLinks) await connection.execute('DELETE FROM asset_child_import_detail_link WHERE linked_asset_id=?', [child.AssetID]);
+    await recordAssetHierarchyHistory(connection, child, parent, null, actor);
+  });
+  ok(res, null, 'Child asset detached');
+}));
+
+assetRouter.post('/assets/children/move', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  const childCode = String(req.body.child_asset ?? '').trim();
+  const nextParentCode = String(req.body.new_parent_asset ?? req.body.parent_asset ?? '').trim();
+  if (!childCode || !nextParentCode) throw new HttpError(400, 'child_asset and new_parent_asset are required');
+  const actor = (req as AuthRequest).user!.fullname;
+  const hasImportedDetailLinks = await tableExists('asset_child_import_detail_link');
+
+  await transaction(async (connection) => {
+    const child = await hierarchyAssetByCode(connection, childCode, true);
+    if (!child) throw new HttpError(404, 'Child asset not found');
+    if (!child.parent_asset_id) throw new HttpError(409, 'Asset belum memiliki parent. Gunakan Tautkan, bukan Mutasi/Pindah.');
+    const nextParent = await hierarchyAssetByCode(connection, nextParentCode, true);
+    if (!nextParent) throw new HttpError(404, 'Parent tujuan tidak ditemukan');
+    if (child.AssetID === nextParent.AssetID) throw new HttpError(400, 'Asset tidak dapat menjadi parent bagi dirinya sendiri.');
+    if (Number(child.parent_asset_id) === Number(nextParent.AssetID)) throw new HttpError(409, 'Asset sudah tertaut ke parent tujuan tersebut.');
+
+    const [previousResult] = await connection.execute(
+      'SELECT AssetID, AssetCode, AssetName, CompanyName, parent_asset_id FROM asset WHERE AssetID=? LIMIT 1 FOR UPDATE',
+      [child.parent_asset_id],
+    );
+    const previousParent = ((previousResult as HierarchyAssetRow[])[0] ?? null);
+    await assertHierarchyHasNoCycle(connection, child.AssetID, nextParent.AssetID);
+    await connection.execute('UPDATE asset SET parent_asset_id=?, updated_at=NOW(), updated_by=? WHERE AssetID=?', [nextParent.AssetID, actor, child.AssetID]);
+    if (hasImportedDetailLinks) await connection.execute('DELETE FROM asset_child_import_detail_link WHERE linked_asset_id=?', [child.AssetID]);
+    await recordAssetHierarchyHistory(connection, child, previousParent, nextParent, actor);
+  });
+
+  ok(res, null, 'Child asset moved');
+}));
+
+assetRouter.post('/assets/children/pending/link', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  const pendingId = Number(req.body.pending_id ?? 0);
+  const childCode = normalizeAssetLookup(req.body.child_asset);
+  if (!Number.isInteger(pendingId) || pendingId <= 0 || !childCode) {
+    throw new HttpError(422, 'pending_id dan child_asset wajib diisi.');
+  }
+  if (!(await tableExists('asset_child_import_detail_link'))) {
+    throw new HttpError(409, 'Migration asset_child_import_hierarchy belum dijalankan.');
+  }
+
+  const actor = (req as AuthRequest).user!.fullname;
+  await transaction(async (connection) => {
+    const [pendingResult] = await connection.execute(
+      `SELECT d.id, d.item_name, g.parent_asset_id, g.child_name, l.linked_asset_id,
+              a.AssetID AS parent_id, a.AssetCode AS parent_code,
+              a.AssetName AS parent_name, a.CompanyName AS parent_company
+       FROM asset_child_import_detail d
+       JOIN asset_child_import_group g ON g.id = d.group_id
+       JOIN asset a ON a.AssetID = g.parent_asset_id
+       LEFT JOIN asset_child_import_detail_link l ON l.detail_id = d.id
+       WHERE d.id=? LIMIT 1 FOR UPDATE`,
+      [pendingId],
+    );
+    const pending = (pendingResult as Array<{
+      id: number;
+      parent_asset_id: number;
+      child_name: string;
+      item_name: string;
+      linked_asset_id: number | null;
+      parent_id: number;
+      parent_code: string;
+      parent_name: string;
+      parent_company: string | null;
+    }>)[0];
+    if (!pending) throw new HttpError(404, 'Komponen aset terkait tidak ditemukan.');
+    if (pending.linked_asset_id) throw new HttpError(409, 'Komponen ini sudah tertaut ke asset. Lepas tautannya terlebih dahulu.');
+
+    const child = await hierarchyAssetByCode(connection, childCode, true);
+    if (!child) throw new HttpError(404, 'Asset Code / QR tidak ditemukan.');
+    if (Number(child.AssetID) === Number(pending.parent_id)) throw new HttpError(400, 'Aset induk tidak dapat menjadi anak dari dirinya sendiri.');
+    if (child.parent_asset_id) {
+      const [currentResult] = await connection.execute('SELECT AssetCode FROM asset WHERE AssetID=? LIMIT 1', [child.parent_asset_id]);
+      const currentCode = String((currentResult as Array<{ AssetCode: string }>)[0]?.AssetCode ?? 'asset lain');
+      throw new HttpError(409, `Asset sudah tertaut ke ${currentCode}. Gunakan Mutasi/Pindah untuk mengganti parent.`);
+    }
+
+    await assertHierarchyHasNoCycle(connection, child.AssetID, pending.parent_id);
+    await connection.execute(
+      'UPDATE asset SET parent_asset_id=?, updated_at=NOW(), updated_by=? WHERE AssetID=?',
+      [pending.parent_id, actor, child.AssetID],
+    );
+    await recordAssetHierarchyHistory(connection, child, null, {
+      AssetID: pending.parent_id,
+      AssetCode: pending.parent_code,
+      AssetName: pending.parent_name,
+      CompanyName: pending.parent_company,
+    }, actor);
+    await connection.execute(
+      `INSERT INTO asset_child_import_detail_link (detail_id, linked_asset_id, created_by, created_at)
+       VALUES (?, ?, ?, NOW())`,
+      [pending.id, child.AssetID, actor],
+    );
+  });
+  ok(res, null, 'Asset Code / QR berhasil ditautkan.');
+}));
+
+assetRouter.post('/assets/children/pending/delete', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  const pendingId = Number(req.body.pending_id ?? 0);
+  if (!Number.isInteger(pendingId) || pendingId <= 0) throw new HttpError(422, 'pending_id wajib diisi.');
+  if (!(await tableExists('asset_child_import_detail_link'))) throw new HttpError(409, 'Migration asset_child_import_hierarchy belum dijalankan.');
+  const removed = await transaction(async (connection) => {
+    const [detailRows] = await connection.execute(
+      `SELECT d.group_id, l.linked_asset_id
+       FROM asset_child_import_detail d
+       LEFT JOIN asset_child_import_detail_link l ON l.detail_id=d.id
+       WHERE d.id=? LIMIT 1 FOR UPDATE`,
+      [pendingId],
+    );
+    const detail = (detailRows as Array<{ group_id: number; linked_asset_id: number | null }>)[0];
+    if (!detail) throw new HttpError(404, 'Komponen aset terkait tidak ditemukan.');
+    if (detail.linked_asset_id) throw new HttpError(409, 'Komponen masih tertaut ke asset. Lepas tautannya terlebih dahulu.');
+    const [result] = await connection.execute('DELETE FROM asset_child_import_detail WHERE id=?', [pendingId]);
+    await connection.execute(
+      'DELETE FROM asset_child_import_group WHERE id=? AND NOT EXISTS (SELECT 1 FROM asset_child_import_detail WHERE group_id=?)',
+      [detail.group_id, detail.group_id],
+    );
+    return Number((result as { affectedRows?: number }).affectedRows ?? 0);
+  });
+  if (!removed) throw new HttpError(404, 'Kelompok tidak ditemukan atau masih tertaut ke asset.');
+  ok(res, null, 'Slot aset terkait dihapus.');
+}));
+
+assetRouter.post(
+  '/assets/children/import',
+  authenticate,
+  requirePermission('privilage_asset'),
+  childAssetImportUpload.single('file'),
+  asyncHandler(async (req, res) => {
+    const parentCode = String(req.body.parent_asset ?? req.body.asset_code ?? '').trim();
+    const dryRun = ['1', 'true', 'yes', 'on'].includes(String(req.body.dry_run ?? '').toLowerCase());
+    if (!parentCode) throw new HttpError(422, 'parent_asset wajib diisi.');
+    if (!req.file) throw new HttpError(422, 'File Excel (.xlsx) wajib diunggah pada field "file".');
+    if (path.extname(req.file.originalname).toLowerCase() !== '.xlsx') throw new HttpError(422, 'Format file harus .xlsx.');
+
+    const parent = await one<HierarchyAssetRow>('SELECT AssetID, AssetCode, AssetName, CompanyName, parent_asset_id FROM asset WHERE AssetCode=? LIMIT 1', [parentCode]);
+    if (!parent) throw new HttpError(404, 'Aset induk tidak ditemukan.');
+    if (!(await tableExists('asset_child_import_group')) || !(await tableExists('asset_child_import_detail')) || !(await tableExists('asset_child_import_detail_link'))) {
+      throw new HttpError(409, 'Migration asset_child_import_hierarchy belum dijalankan.');
+    }
+
+    let parsed;
+    try {
+      parsed = await parseChildAssetWorkbook(req.file.buffer);
+    } catch (error) {
+      throw new HttpError(422, `Gagal membaca file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const resultRows: Array<Record<string, unknown>> = [];
+    const validChildren: Array<{
+      sourceRow: number;
+      AssetID: number;
+      AssetCode: string;
+      AssetName: string;
+      CompanyName: string | null;
+      previousParentId: number | null;
+    }> = [];
+    const seenIds = new Set<number>();
+    let pendingCount = 0;
+    let warnings = 0;
+    let errors = 0;
+    let unchanged = 0;
+
+    for (const group of parsed.rows) {
+      const resultItems: Array<Record<string, unknown>> = [];
+      for (const detail of group.items) {
+        if (!detail.identifier) {
+          pendingCount++;
+          resultItems.push({ ...detail, status: 'pending', message: 'Siap diimport. Asset Code / QR dapat diisi nanti.' });
+          continue;
+        }
+        const numericIdentifier = /^\d+$/.test(detail.identifier);
+        const child = await one<{ AssetID: number; AssetCode: string; AssetName: string; CompanyName: string | null; parent_asset_id: number | null; parent_asset_code: string | null }>(
+          `SELECT a.AssetID, a.AssetCode, a.AssetName, a.CompanyName, a.parent_asset_id, p.AssetCode AS parent_asset_code
+           FROM asset a
+           LEFT JOIN asset p ON p.AssetID = a.parent_asset_id
+           WHERE ${numericIdentifier ? 'a.AssetID = ?' : 'a.AssetCode = ?'}
+           LIMIT 1`,
+          [detail.identifier],
+        );
+        if (!child) {
+          pendingCount++;
+          warnings++;
+          resultItems.push({
+            ...detail,
+            status: 'warning',
+            message: `Asset Code / QR "${detail.lookup_value}" belum ditemukan. Komponen tetap dapat diimport dan ditautkan nanti.`,
+          });
+          continue;
+        }
+        if (Number(child.AssetID) === Number(parent.AssetID)) {
+          pendingCount++;
+          warnings++;
+          resultItems.push({ ...detail, resolved_code: child.AssetCode, status: 'warning', message: 'Aset induk tidak dapat menjadi komponennya sendiri. Komponen diimport tanpa tautan.' });
+          continue;
+        }
+        if (seenIds.has(Number(child.AssetID))) {
+          pendingCount++;
+          warnings++;
+          resultItems.push({ ...detail, resolved_code: child.AssetCode, status: 'warning', message: 'Asset Code / QR yang sama dipakai pada lebih dari satu komponen. Komponen ini diimport tanpa tautan.' });
+          continue;
+        }
+        seenIds.add(Number(child.AssetID));
+
+        const existingComponent = await one<{ child_name: string; item_name: string }>(
+          `SELECT g.child_name, d.item_name
+           FROM asset_child_import_detail_link l
+           JOIN asset_child_import_detail d ON d.id=l.detail_id
+           JOIN asset_child_import_group g ON g.id=d.group_id
+           WHERE l.linked_asset_id=? LIMIT 1`,
+          [child.AssetID],
+        );
+        if (existingComponent && (
+          existingComponent.child_name.trim().toLowerCase() !== group.child_name.trim().toLowerCase()
+          || existingComponent.item_name.trim().toLowerCase() !== detail.item_name.trim().toLowerCase()
+        )) {
+          pendingCount++;
+          warnings++;
+          resultItems.push({
+            ...detail,
+            resolved_code: child.AssetCode,
+            status: 'warning',
+            message: `Asset sudah dipakai oleh ${existingComponent.child_name} / ${existingComponent.item_name}. Komponen tetap diimport tanpa tautan.`,
+          });
+          continue;
+        }
+
+        const alreadyInParent = Number(child.parent_asset_id ?? 0) === Number(parent.AssetID);
+        if (child.parent_asset_id && !alreadyInParent) {
+          pendingCount++;
+          warnings++;
+          resultItems.push({
+            ...detail,
+            resolved_code: child.AssetCode,
+            resolved_name: child.AssetName,
+            previous_parent: child.parent_asset_code,
+            status: 'warning',
+            message: `Sudah tertaut ke ${child.parent_asset_code}. Komponen tetap diimport tanpa tautan; gunakan Mutasi/Pindah bila aset ini akan digunakan.`,
+          });
+          continue;
+        }
+        if (alreadyInParent) unchanged++;
+        resultItems.push({
+          ...detail,
+          resolved_code: child.AssetCode,
+          resolved_name: child.AssetName,
+          previous_parent: child.parent_asset_code,
+          status: alreadyInParent ? 'unchanged' : 'ready',
+          message: alreadyInParent ? 'Sudah berada di aset lokasi ini.' : 'Siap ditautkan.',
+        });
+        validChildren.push({
+          sourceRow: detail.row,
+          AssetID: Number(child.AssetID),
+          AssetCode: child.AssetCode,
+          AssetName: child.AssetName,
+          CompanyName: child.CompanyName,
+          previousParentId: child.parent_asset_id ? Number(child.parent_asset_id) : null,
+        });
+      }
+      const groupHasErrors = resultItems.some((item) => item.status === 'error');
+      const groupHasWarnings = resultItems.some((item) => item.status === 'warning');
+      const groupHasPending = resultItems.some((item) => item.status === 'pending');
+      resultRows.push({
+        ...group,
+        items: resultItems,
+        status: groupHasErrors ? 'error' : (groupHasWarnings ? 'warning' : (groupHasPending ? 'pending' : 'ready')),
+        message: `${resultItems.length} komponen dibaca.`,
+      });
+    }
+
+    let attached = 0;
+    let pendingImported = 0;
+    let skippedExisting = 0;
+
+    if (!dryRun && errors === 0) {
+      await transaction(async (connection) => {
+        // Serialkan import untuk parent yang sama. Selain mencegah race, ini
+        // membuat import file yang sama berulang kali benar-benar idempotent.
+        await connection.execute('SELECT AssetID FROM asset WHERE AssetID=? FOR UPDATE', [parent.AssetID]);
+        for (const group of parsed.rows) {
+          const normalizedGroupName = group.child_name.trim().replace(/\s+/g, ' ').toLowerCase();
+          const [existingGroupRows] = await connection.execute(
+            `SELECT id FROM asset_child_import_group
+             WHERE parent_asset_id=? AND LOWER(TRIM(REGEXP_REPLACE(child_name, '[[:space:]]+', ' ')))=?
+             ORDER BY id LIMIT 1`,
+            [parent.AssetID, normalizedGroupName],
+          );
+          const existingGroupId = Number((existingGroupRows as Array<{ id: number }>)[0]?.id ?? 0);
+          let groupId = existingGroupId;
+          if (groupId) {
+            await connection.execute(
+              `UPDATE asset_child_import_group
+               SET child_name=?, source_row=?, source_file=?, updated_at=NOW()
+               WHERE id=?`,
+              [group.child_name.trim().replace(/\s+/g, ' '), group.row, req.file!.originalname, groupId],
+            );
+          } else {
+            const [result] = await connection.execute(
+              `INSERT INTO asset_child_import_group
+                 (parent_asset_id, child_name, source_row, source_file, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, NOW())`,
+              [parent.AssetID, group.child_name.trim().replace(/\s+/g, ' '), group.row, req.file!.originalname, (req as AuthRequest).user!.fullname],
+            );
+            groupId = Number((result as { insertId?: number }).insertId ?? 0);
+          }
+          for (const [index, detail] of group.items.entries()) {
+            const normalizedItemName = detail.item_name.trim().replace(/\s+/g, ' ').toLowerCase();
+            const [existingDetailRows] = await connection.execute(
+              `SELECT id FROM asset_child_import_detail
+               WHERE group_id=? AND LOWER(TRIM(REGEXP_REPLACE(item_name, '[[:space:]]+', ' ')))=?
+               ORDER BY id LIMIT 1`,
+              [groupId, normalizedItemName],
+            );
+            const existingDetailId = Number((existingDetailRows as Array<{ id: number }>)[0]?.id ?? 0);
+            let detailId = existingDetailId;
+            if (detailId) {
+              skippedExisting++;
+              await connection.execute(
+                `UPDATE asset_child_import_detail
+                 SET item_name=?, condition_text=?, frequency=?, pic=?, source_row=?, sort_order=?, updated_at=NOW()
+                 WHERE id=?`,
+                [detail.item_name.trim().replace(/\s+/g, ' '), detail.condition_text || null, detail.frequency || null, detail.pic || null, detail.row, index, detailId],
+              );
+            } else {
+              const [detailResult] = await connection.execute(
+                `INSERT INTO asset_child_import_detail
+                   (group_id, item_name, condition_text, frequency, pic, source_row, sort_order, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [groupId, detail.item_name.trim().replace(/\s+/g, ' '), detail.condition_text || null, detail.frequency || null, detail.pic || null, detail.row, index],
+              );
+              detailId = Number((detailResult as { insertId?: number }).insertId ?? 0);
+            }
+            const child = validChildren.find((entry) => entry.sourceRow === detail.row);
+            if (child) {
+              if (child.previousParentId !== Number(parent.AssetID)) {
+                await connection.execute(
+                  'UPDATE asset SET parent_asset_id=?, updated_at=NOW(), updated_by=? WHERE AssetID=?',
+                  [parent.AssetID, (req as AuthRequest).user!.fullname, child.AssetID],
+                );
+                await recordAssetHierarchyHistory(connection, child, null, parent, (req as AuthRequest).user!.fullname);
+                attached++;
+              }
+              await connection.execute(
+                `INSERT INTO asset_child_import_detail_link (detail_id, linked_asset_id, created_by, created_at)
+                 VALUES (?, ?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE linked_asset_id=VALUES(linked_asset_id), updated_at=NOW()`,
+                [detailId, child.AssetID, (req as AuthRequest).user!.fullname],
+              );
+            } else if (!existingDetailId) {
+              pendingImported++;
+            }
+          }
+        }
+      });
+    }
+
+    const summary = {
+      sheet: parsed.sheet,
+      groups: parsed.rows.length,
+      items: parsed.rows.reduce((total, group) => total + group.items.length, 0),
+      valid: validChildren.length,
+      attached,
+      pending: pendingCount,
+      pending_imported: pendingImported,
+      skipped_existing: skippedExisting,
+      unchanged,
+      reassigned: 0,
+      warnings,
+      errors,
+      dry_run: dryRun,
+      applied: !dryRun && errors === 0,
+    };
+    const message = errors
+      ? 'Impor dibatalkan karena masih ada baris error. Perbaiki file lalu coba kembali.'
+      : (dryRun
+          ? (warnings ? 'Pratinjau selesai. Komponen dengan peringatan tetap dapat diimport tanpa tautan.' : 'Pratinjau relasi aset selesai.')
+          : (warnings ? 'Aset terkait berhasil diimpor. Komponen dengan peringatan disimpan tanpa tautan.' : 'Relasi aset berhasil diimpor.'));
+    ok(res, { summary, rows: resultRows }, message);
+  }),
+);
+
+assetRouter.get('/assets/children/import-template', authenticate, requirePermission('privilage_asset'), asyncHandler(async (_req, res) => {
+  const templatePath = path.resolve('Form Preventive Audit - Siap Import.xlsx');
+  if (!fs.existsSync(templatePath)) throw new HttpError(404, 'Template import aset terkait tidak ditemukan.');
+  res.download(templatePath, 'Form Preventive Audit - Siap Import.xlsx');
 }));
 
 assetRouter.post('/assets/status', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {

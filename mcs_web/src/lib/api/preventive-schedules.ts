@@ -75,6 +75,12 @@ export interface ScheduleCustomDetailRow {
   category_maintenance?: string;
 }
 
+export interface ScheduleChildAssetRow extends ScheduleCustomDetailRow {
+  child_asset_id: number;
+  child_asset_code: string;
+  job_title?: string;
+}
+
 /**
  * GET /v2/preventive-schedules/custom-detail-rows?asset_code= — baris detail
  * schedule turunan dari Custom Detail aset, untuk mengisi form otomatis.
@@ -97,6 +103,17 @@ export function getScheduleCustomDetailRows(
     params: { asset_code: assetCode },
     signal,
   });
+}
+
+export function getScheduleChildAssetRows(
+  assetCode: string,
+  targetWo: string,
+  signal?: AbortSignal,
+): Promise<ApiResponse<{ asset_code: string; total: number; rows: ScheduleChildAssetRow[] }>> {
+  return apiV2.get<{ asset_code: string; total: number; rows: ScheduleChildAssetRow[] }>(
+    "/preventive-schedules/child-asset-rows",
+    { params: { asset_code: assetCode, towo: targetWo || undefined }, signal },
+  );
 }
 
 /**

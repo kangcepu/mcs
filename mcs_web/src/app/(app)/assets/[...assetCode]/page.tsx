@@ -2,13 +2,14 @@
 
 import { use, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Pencil, Power, RefreshCw } from "lucide-react";
+import { ArrowRightLeft, Pencil, Power, RefreshCw } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { BackLink } from "@/components/ui/back-link";
 import { Tabs } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/primitives";
+import { Button, Card } from "@/components/ui/primitives";
 import { DescriptionList, Timeline } from "@/components/ui/detail";
 import { LoadingSkeleton, ErrorState } from "@/components/ui/states";
 import { ConfirmDialog, useConfirm } from "@/components/ui/confirm-dialog";
@@ -19,17 +20,24 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { ApiError } from "@/types/api";
 import { formatDate } from "@/lib/format";
 import { dash, isAssetInactive, pick } from "@/lib/display";
+import { ENERGY_MODULE_ENABLED } from "@/lib/env";
+import type { EnergyAssetProfile } from "@/types/energy";
+import type { FleetProfile } from "@/types/fleet";
 
 // Semua tab berikut memiliki query/media sendiri. Pecah dari bundle detail awal
 // sehingga tab General yang paling sering dibuka bisa tampil lebih cepat.
 const BomPartsPanel = dynamic(() => import("@/components/assets/bom-parts-panel").then((m) => m.BomPartsPanel), { ssr: false });
 const CustomDetailTab = dynamic(() => import("@/components/assets/custom-detail-tab").then((m) => m.CustomDetailTab), { ssr: false });
 const GalleryTab = dynamic(() => import("@/components/assets/gallery-tab").then((m) => m.GalleryTab), { ssr: false });
+const ChildAssetsPanel = dynamic(() => import("@/components/assets/child-assets-panel").then((m) => m.ChildAssetsPanel), { ssr: false });
+const MoveChildAssetModal = dynamic(() => import("@/components/assets/move-child-asset-modal").then((m) => m.MoveChildAssetModal), { ssr: false });
 const AssetFormModal = dynamic(() => import("@/components/assets/asset-form").then((m) => m.AssetFormModal), { ssr: false });
+const EnergyProfilePanel = dynamic(() => import("@/components/energy/energy-profile-panel").then((m) => m.EnergyProfilePanel), { ssr: false });
 
-const TABS = [
+const BASE_TABS = [
   { key: "general", label: "General" },
   { key: "bom", label: "Parts / BOM" },
+  { key: "related", label: "Aset Terkait" },
   { key: "custom", label: "Custom Detail" },
   { key: "gallery", label: "Attachment / Gallery" },
   { key: "history", label: "History" },
@@ -50,6 +58,7 @@ export default function AssetDetailPage({
   const canWrite = useCan(PERMISSIONS.privilageAsset);
   const [tab, setTab] = useState("general");
   const [editOpen, setEditOpen] = useState(false);
+  const [moveParentOpen, setMoveParentOpen] = useState(false);
   const confirm = useConfirm();
 
   const { data, isLoading, error, refetch, isFetching } = useAssetDetail(code);
@@ -59,15 +68,30 @@ export default function AssetDetailPage({
   const detail = data?.data as
     | (Record<string, unknown> & {
         history?: Array<Record<string, unknown>>;
+        location_history?: Array<Record<string, unknown>>;
       })
     | undefined;
   const asset = detail;
   const { setStatus } = useAssetMutations(code);
 
   const history = detail?.history ?? [];
+  const locationHistory = detail?.location_history ?? [];
+  const energyProfile = ENERGY_MODULE_ENABLED
+    ? (detail?.energy_profile as EnergyAssetProfile | null | undefined)
+    : null;
+  const fleetProfile = detail?.fleet_profile as FleetProfile | null | undefined;
+  const extensionTabs = [
+    ...(energyProfile ? [{ key: "energy", label: "Profil Energy" }] : []),
+    ...(fleetProfile ? [{ key: "fleet", label: "Profil Fleet" }] : []),
+  ];
+  const tabs = extensionTabs.length ? [BASE_TABS[0]!, ...extensionTabs, ...BASE_TABS.slice(1)] : BASE_TABS;
 
   const inactive = isAssetInactive(asset);
   const assetName = pick(asset ?? {}, ["AssetName", "asset_name", "name"]) || code;
+  const parentCode = String(asset?.parent_asset_code ?? "");
+  const parentHref = parentCode
+    ? `/assets/${parentCode.split("/").map(encodeURIComponent).join("/")}`
+    : "";
 
   const askToggleStatus = () => {
     if (!asset) return;
@@ -137,7 +161,7 @@ export default function AssetDetailPage({
         <ErrorState error={new Error("Aset tidak ditemukan.")} />
       ) : (
         <>
-          <Tabs items={TABS} value={tab} onChange={setTab} />
+          <Tabs items={tabs} value={tab} onChange={setTab} />
 
           {tab === "general" && (
             <div className="card p-5">
@@ -158,6 +182,22 @@ export default function AssetDetailPage({
                   { label: "Status", value: inactive ? "Nonaktif" : "Aktif" },
                 ]}
               />
+              {parentCode ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-800">
+                  <span>
+                    Berada di dalam:{" "}
+                    <Link href={parentHref} className="font-semibold hover:underline">
+                      {String(asset.parent_asset_name || parentCode)}
+                    </Link>
+                    <span className="ml-1 text-xs text-brand-600">({parentCode})</span>
+                  </span>
+                  {canWrite ? (
+                    <Button variant="ghost" className="h-8 bg-white/70" onClick={() => setMoveParentOpen(true)}>
+                      <ArrowRightLeft className="h-4 w-4" /> Mutasi / Pindah
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               {pick(asset, ["Keterangan", "description"]) ? (
                 <div className="mt-4 border-t border-slate-100 pt-4">
                   <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -171,9 +211,44 @@ export default function AssetDetailPage({
             </div>
           )}
 
+          {tab === "energy" && energyProfile ? (
+            <EnergyProfilePanel
+              profile={energyProfile}
+              canWrite={canWrite}
+              onChanged={() => void refetch()}
+            />
+          ) : null}
+
+          {tab === "fleet" && fleetProfile ? (
+            <Card className="p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <DescriptionList columns={3} items={[
+                  { label: "Jenis", value: fleetProfile.vehicle_type === "FORKLIFT" ? "Forklift" : "Kendaraan" },
+                  { label: "Nomor registrasi", value: fleetProfile.registration_number || "-" },
+                  { label: "Odometer / Hour meter", value: `${Number(fleetProfile.current_meter).toLocaleString("id-ID")} ${fleetProfile.meter_type === "ODOMETER" ? "km" : "jam"}` },
+                  { label: "Merek / model", value: [fleetProfile.make, fleetProfile.model].filter(Boolean).join(" ") || "-" },
+                  { label: "Status inspeksi", value: fleetProfile.inspection_due ? "Jatuh tempo" : "Terjadwal" },
+                  { label: "Status preventive", value: fleetProfile.preventive_due ? "Jatuh tempo" : "Terjadwal" },
+                ]}/>
+                <Link href="/fleet" className="btn-secondary shrink-0">Buka Fleet & Vehicle</Link>
+              </div>
+            </Card>
+          ) : null}
+
           {tab === "bom" && (
             <div className="card p-5">
               <BomPartsPanel assetCode={code} canWrite={canWrite} />
+            </div>
+          )}
+
+          {tab === "related" && (
+            <div className="card p-5">
+              <ChildAssetsPanel
+                assetCode={code}
+                assetChildren={(asset.children as NonNullable<import("@/types/asset").AssetDetail["children"]> | undefined) ?? []}
+                relatedGroups={(asset.related_groups as NonNullable<import("@/types/asset").AssetDetail["related_groups"]> | undefined) ?? []}
+                canWrite={canWrite}
+              />
             </div>
           )}
 
@@ -186,23 +261,64 @@ export default function AssetDetailPage({
           )}
 
           {tab === "history" && (
-            <div className="card p-5">
-              <Timeline
-                entries={history.map((h) => ({
-                  title: (
-                    <span className="flex flex-wrap items-center gap-2">
-                      {dash(pick(h, ["job_title"]))}
-                      {h.status ? <StatusBadge status={h.status as string} /> : null}
-                    </span>
-                  ),
-                  meta: `${formatDate(h.created_at as string)}${
-                    h.wo_source ? ` · ${h.wo_source}` : ""
-                  }`,
-                  body: h.wo_number ? (
-                    <span className="text-xs text-slate-500">WO {String(h.wo_number)}</span>
-                  ) : null,
-                }))}
-              />
+            <div className="space-y-4">
+              <section className="card p-5">
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold text-slate-800">Riwayat Lokasi</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Jejak ruangan/lokasi yang pernah ditempati aset ini.
+                  </p>
+                </div>
+                <Timeline
+                  entries={locationHistory.map((h) => {
+                    const from = dash(pick(h, ["location_from"]));
+                    const to = dash(pick(h, ["location_to"]));
+                    const initial = String(h.event_type ?? "").toUpperCase() === "INITIAL";
+                    const companies = [
+                      pick(h, ["company_from"]),
+                      pick(h, ["company_to"]),
+                    ].filter(Boolean);
+                    return {
+                      title: initial ? `Lokasi awal: ${to}` : `${from} → ${to}`,
+                      meta: `${formatDate(h.moved_at as string)}${
+                        h.changed_by ? ` · ${String(h.changed_by)}` : ""
+                      }`,
+                      body: (
+                        <span className="text-xs text-slate-500">
+                          {companies.length ? `Company: ${companies.join(" → ")}` : ""}
+                          {h.reference_no ? `${companies.length ? " · " : ""}Ref: ${String(h.reference_no)}` : ""}
+                          {h.note ? `${companies.length || h.reference_no ? " · " : ""}${String(h.note)}` : ""}
+                        </span>
+                      ),
+                    };
+                  })}
+                />
+              </section>
+
+              <section className="card p-5">
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold text-slate-800">Riwayat Pekerjaan</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Seluruh work order yang pernah terkait dengan aset ini.
+                  </p>
+                </div>
+                <Timeline
+                  entries={history.map((h) => ({
+                    title: (
+                      <span className="flex flex-wrap items-center gap-2">
+                        {dash(pick(h, ["job_title"]))}
+                        {h.status ? <StatusBadge status={h.status as string} /> : null}
+                      </span>
+                    ),
+                    meta: `${formatDate(h.created_at as string)}${
+                      h.wo_source ? ` · ${h.wo_source}` : ""
+                    }`,
+                    body: h.wo_number ? (
+                      <span className="text-xs text-slate-500">WO {String(h.wo_number)}</span>
+                    ) : null,
+                  }))}
+                />
+              </section>
             </div>
           )}
         </>
@@ -219,6 +335,14 @@ export default function AssetDetailPage({
           mode="edit"
           assetCode={code}
           initial={asset}
+        />
+      ) : null}
+      {moveParentOpen && parentCode ? (
+        <MoveChildAssetModal
+          childCode={code}
+          childName={assetName}
+          currentParentCode={parentCode}
+          onClose={() => setMoveParentOpen(false)}
         />
       ) : null}
     </PageContainer>

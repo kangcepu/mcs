@@ -6,6 +6,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeCheck,
+  CalendarX2,
   CheckCircle2,
   Clock,
   FolderKanban,
@@ -39,6 +40,7 @@ import { useMe } from "@/hooks/use-auth";
 import { WO_MODULE_LABEL } from "@/types/work-order";
 import { formatDate, formatNumber } from "@/lib/format";
 import { pick } from "@/lib/display";
+import { PreventiveMissingNotice } from "@/components/schedules/preventive-missing-notice";
 
 const RANGES = [
   { value: 7, label: "7 hari" },
@@ -124,7 +126,7 @@ export default function DashboardPage() {
           {/* KPI utama — metrik actionable yang perlu perhatian/tindakan
               sekarang, bukan sekadar angka historis. Dibuat padat (size sm)
               biar 2 baris x 4 kartu gak makan banyak ruang. */}
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
             <Kpi
               size="sm"
               icon={<BadgeCheck className="h-4 w-4" />}
@@ -163,7 +165,26 @@ export default function DashboardPage() {
               trendMeaning="positive"
               tone="green"
             />
+            <Kpi
+              size="sm"
+              icon={<CalendarX2 className="h-4 w-4" />}
+              label="Asset Belum Terjadwal"
+              value={d.preventive_coverage.missing}
+              sub={`${formatNumber(d.preventive_coverage.scheduled)} dari ${formatNumber(d.preventive_coverage.required)} asset MTC terjadwal`}
+              href="/my-work?tab=preventive_missing"
+              tone={d.preventive_coverage.missing > 0 ? "amber" : "green"}
+            />
           </div>
+
+          <PreventiveMissingNotice
+            scope="dashboard"
+            audience={user?.id}
+            missing={d.preventive_coverage.missing}
+            required={d.preventive_coverage.required}
+            scheduled={d.preventive_coverage.scheduled}
+            areas={d.preventive_coverage.by_area}
+            onReview={() => { window.location.href = "/my-work?tab=preventive_missing"; }}
+          />
 
           {/* Strip sekunder — konteks volume + kualitas kerja, gak untuk
               ditindak langsung. Baris kedua, kartu sama padat & sejajar

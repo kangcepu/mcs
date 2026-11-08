@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Plus } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
@@ -39,8 +39,13 @@ export default function PreventiveSchedulesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const canManage = useCan(PERMISSIONS.schedule);
+  const requestedAssetCode = searchParams.get("asset_code") ?? "";
   const [formOpen, setFormOpen] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+
+  useEffect(() => {
+    if (canManage && searchParams.get("create") === "1") setFormOpen(true);
+  }, [canManage, searchParams]);
 
   const { values, setValues, reset, hasActiveFilters } = useQueryParams(DEFAULTS);
   const { data, isLoading, isFetching, error, refetch } = usePreventiveSchedules(values);
@@ -162,7 +167,21 @@ export default function PreventiveSchedulesPage() {
         </div>
       ) : null}
 
-      <ScheduleFormModal open={formOpen} onClose={() => setFormOpen(false)} mode="create" />
+      <ScheduleFormModal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        mode="create"
+        initial={requestedAssetCode ? {
+          header: {
+            AssetCode: requestedAssetCode,
+            AssetID: searchParams.get("asset_id") ?? "",
+            AssetName: searchParams.get("asset_name") ?? requestedAssetCode,
+            CompanyName: searchParams.get("company") ?? "",
+            towo: "maintenance",
+          },
+          details: [],
+        } : undefined}
+      />
     </PageContainer>
   );
 }

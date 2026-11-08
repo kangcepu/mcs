@@ -62,10 +62,14 @@ const ASSET_COLS: Col[] = [
 const WO_ASSET = (r: Row): string => [pick(r, ['asset_name', 'AssetName']), pick(r, ['asset_code', 'AssetCode'])].filter(Boolean).join(' - ');
 
 const HISTORY_COLS: Col[] = [
+  { header: 'Riwayat', width: 14, value: (r) => pick(r, ['history_type']) === 'LOCATION' ? 'Lokasi' : 'Pekerjaan' },
   { header: 'No. WO', width: 24, value: (r) => pick(r, ['wo_number']) },
   { header: 'Tanggal', width: 12, value: (r) => fmtDate(r.date) },
   { header: 'Asset', width: 36, value: WO_ASSET },
   { header: 'Pekerjaan', width: 40, value: (r) => pick(r, ['job_title', 'title']) },
+  { header: 'Lokasi Asal', width: 24, value: (r) => pick(r, ['location_from']) },
+  { header: 'Lokasi Tujuan', width: 24, value: (r) => pick(r, ['location_to']) },
+  { header: 'Referensi', width: 24, value: (r) => pick(r, ['reference_no']) },
   { header: 'Tipe', width: 16, value: (r) => pick(r, ['type_wo']) },
   { header: 'Status', width: 22, value: (r) => humanizeStatus(r.status) },
   { header: 'PIC / Exec', width: 16, value: (r) => pick(r, ['pic', 'job_executor']) },

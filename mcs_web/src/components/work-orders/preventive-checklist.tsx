@@ -60,6 +60,7 @@ export function PreventiveChecklist({
   const { savePreventiveParts } = useWoExecution(module, woNumber);
 
   const rows: PreventivePartRow[] = data?.data ?? [];
+  const allowPartRequest = module !== "is" && module !== "ga";
   const partRequest =
     (data?.meta as unknown as
       | { part_request?: PreventivePartRequestInfo | null }
@@ -89,7 +90,9 @@ export function PreventiveChecklist({
     setDraft((d) => ({ ...d, [key]: { ...(d[key] ?? EMPTY), ...patch } }));
 
   const doneCount = Object.values(draft).filter((d) => d?.done).length;
-  const reqCount = Object.values(draft).filter((d) => d?.need_request_part).length;
+  const reqCount = allowPartRequest
+    ? Object.values(draft).filter((d) => d?.need_request_part).length
+    : 0;
 
   const submit = async () => {
     const payload = rows.map((r, i) => {
@@ -100,7 +103,7 @@ export function PreventiveChecklist({
         part_mesin: r.part_mesin,
         bagian_mesin: r.bagian_mesin ?? "",
         maintenance_status: (d?.done ? "DONE" : "PENDING") as "DONE" | "PENDING",
-        need_request_part: !!d?.need_request_part,
+        need_request_part: allowPartRequest && !!d?.need_request_part,
         keterangan: d?.keterangan ?? "",
       };
     });
@@ -108,7 +111,7 @@ export function PreventiveChecklist({
       const res = await savePreventiveParts.mutateAsync(payload);
       const req = res.data?.requested ?? 0;
       toast.success(
-        "Checklist part disimpan",
+        allowPartRequest ? "Checklist part disimpan" : "Checklist aset disimpan",
         req > 0
           ? "Permohonan part dikirim ke tim Sparepart (modul Material Usage)."
           : undefined,
@@ -126,7 +129,7 @@ export function PreventiveChecklist({
   if (rows.length === 0) {
     return (
       <div className="card p-6 text-center text-sm text-slate-400">
-        Tidak ada part preventive untuk WO ini (aset belum punya Custom Detail).
+        Tidak ada item preventive untuk WO ini.
       </div>
     );
   }
@@ -135,7 +138,7 @@ export function PreventiveChecklist({
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <h3 className="text-sm font-semibold text-slate-900">
-          Update Part Preventive
+          {allowPartRequest ? "Update Part Preventive" : "Update Aset Preventive"}
           <span className="ml-2 text-xs font-normal text-slate-400">
             {doneCount}/{rows.length} selesai
             {reqCount > 0 ? ` · ${reqCount} minta part` : ""}
@@ -149,7 +152,7 @@ export function PreventiveChecklist({
         ) : null}
       </div>
 
-      {partRequest?.exists ? (
+      {allowPartRequest && partRequest?.exists ? (
         <div className="flex items-start gap-2 border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-800">
           <PackagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
@@ -168,12 +171,12 @@ export function PreventiveChecklist({
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2 text-left font-semibold">#</th>
-              <th className="px-3 py-2 text-left font-semibold">Part Mesin</th>
-              <th className="px-3 py-2 text-left font-semibold">Bagian Mesin</th>
+              <th className="px-3 py-2 text-left font-semibold">{allowPartRequest ? "Part Mesin" : "Aset Anak"}</th>
+              <th className="px-3 py-2 text-left font-semibold">{allowPartRequest ? "Bagian Mesin" : "Aktivitas"}</th>
               <th className="px-3 py-2 text-left font-semibold">Jadwal</th>
               <th className="px-3 py-2 text-left font-semibold">Foto</th>
               <th className="px-3 py-2 text-left font-semibold">Checklist</th>
-              <th className="px-3 py-2 text-left font-semibold">Minta Part</th>
+              {allowPartRequest ? <th className="px-3 py-2 text-left font-semibold">Minta Part</th> : null}
               <th className="px-3 py-2 text-left font-semibold">Keterangan</th>
             </tr>
           </thead>
@@ -237,7 +240,7 @@ export function PreventiveChecklist({
                       Sudah Preventive
                     </label>
                   </td>
-                  <td className="px-3 py-3">
+                  {allowPartRequest ? <td className="px-3 py-3">
                     <label className="inline-flex items-center gap-2 text-xs text-slate-700">
                       <input
                         type="checkbox"
@@ -250,7 +253,7 @@ export function PreventiveChecklist({
                       />
                       Perlu part
                     </label>
-                  </td>
+                  </td> : null}
                   <td className="px-3 py-2">
                     <Input
                       disabled={!canWrite}
@@ -268,12 +271,12 @@ export function PreventiveChecklist({
       </div>
 
       <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">
-        Centang <strong>Perlu part</strong> untuk mengajukan permohonan part —
-        eksekutor cukup mengajukan, <em>tidak perlu</em> mengisi nama/jumlah part.
-        Tim Sparepart yang memilih part di modul Material Usage. Semua part harus
-        diceklis <strong>Sudah Preventive</strong> sebelum WO bisa di-
-        <em>Complete</em>. Setelah minimal satu checklist disimpan, status WO
-        otomatis menjadi <strong>Dalam Proses</strong>.
+        {allowPartRequest ? (
+          <>Centang <strong>Perlu part</strong> untuk mengajukan permohonan part — eksekutor cukup mengajukan, tim Sparepart yang memilih part di Material Usage. </>
+        ) : (
+          <>Checklist ini mewakili aset anak, bukan consumable, sehingga tidak membuat permintaan part. </>
+        )}
+        Semua item harus diceklis <strong>Sudah Preventive</strong> sebelum WO bisa di-<em>Complete</em>. Setelah minimal satu checklist disimpan, status WO otomatis menjadi <strong>Dalam Proses</strong>.
       </p>
 
       {savePreventiveParts.isPending ? (

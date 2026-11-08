@@ -40,6 +40,16 @@ import { reportAssetMutationRouter } from './routes/report-asset-mutation.js';
 import { reportEquipmentRouter } from './routes/report-equipment.js';
 import { reportWoMtcRouter } from './routes/report-wo-mtc.js';
 import { integrationsRouter } from './routes/integrations.js';
+import { energyRouter } from './routes/energy.js';
+import { energyOperationsRouter } from './routes/energy-operations.js';
+import { energyFuelMonitoringRouter } from './routes/energy-fuel-monitoring.js';
+import { energyUtilityOperationsRouter } from './routes/energy-utility-operations.js';
+import { energyFuelOpnameRouter } from './routes/energy-fuel-opname.js';
+import { energyEfficiencyKpiRouter } from './routes/energy-efficiency-kpi.js';
+import { energyUtilityAllocationRouter } from './routes/energy-utility-allocation.js';
+import { energyMeterMasterRouter } from './routes/energy-meter-master.js';
+import { energyGovernanceRouter, syncAutomaticEnergyNcr } from './routes/energy-governance.js';
+import { fleetRouter } from './routes/fleet.js';
 import { systemAuditMiddleware } from './system-audit.js';
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
@@ -88,6 +98,8 @@ const v2 = express.Router();
 v2.use(healthRouter); v2.use(authRouter); v2.use(dashboardRouter); v2.use(masterRouter); v2.use(assetRouter); v2.use(assetMutationRouter); v2.use(workOrderRouter); v2.use(dailyControlRouter); v2.use(materialRouter); v2.use(equipmentRouter); v2.use(scheduleRouter); v2.use(miscRouter); v2.use(mesoRouter); v2.use(maintenanceRouter); v2.use(isRouter); v2.use(productionRouter); v2.use(gaRouter);
 v2.use(reportAssetRouter); v2.use(reportAssetMutationRouter); v2.use(reportEquipmentRouter); v2.use(reportWoMtcRouter);
 v2.use(approvalCenterRouter); v2.use(myWorkRouter); v2.use(integrationsRouter); v2.use(realtimeRouter); v2.use(dbBackupRouter);
+v2.use(energyRouter); v2.use(energyOperationsRouter); v2.use(energyFuelMonitoringRouter); v2.use(energyUtilityOperationsRouter); v2.use(energyFuelOpnameRouter); v2.use(energyEfficiencyKpiRouter); v2.use(energyUtilityAllocationRouter); v2.use(energyMeterMasterRouter); v2.use(energyGovernanceRouter);
+v2.use(fleetRouter);
 app.use('/api/v2', v2);
 app.use('/api', authRouter);
 app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));
@@ -117,5 +129,9 @@ const dbBackupTask = cron.schedule('* * * * *', () => {
   runDueAutoBackup().catch((error) => console.error('DB backup tick failed:', error));
 }, { timezone: 'Asia/Jakarta' });
 
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+const energyGovernanceTask = cron.schedule('*/15 * * * *', () => {
+  syncAutomaticEnergyNcr().catch((error) => console.error('Energy Governance NCR sync failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());

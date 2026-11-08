@@ -171,6 +171,87 @@ export async function saveMesoPreventiveParts(woNumber: string, user: User, inpu
   return { wo_number: woNumber, updated, done: doneParts, total: totalParts, status: statusChanged ? 'IN_PROGRESS_EXECUTOR' : null, requested };
 }
 
+type ChildChecklistTarget = {
+  detailTable: 'tb_wo_it_detail' | 'tb_wo_ga_detail';
+  headerTable: 'tb_wo_it' | 'tb_wo_ga';
+};
+
+async function getChildAssetPreventiveParts(woNumber: string, target: ChildChecklistTarget): Promise<PreventivePartsResult> {
+  const detailRows = await rows<Record<string, unknown>>(
+    `SELECT * FROM \`${target.detailTable}\` WHERE wo_number=? ORDER BY id ASC`,
+    [woNumber],
+  );
+  return {
+    data: detailRows.map((row) => ({
+      custom_detail_id: Number(row.id),
+      part_mesin: String(row.part_mesin ?? ''),
+      bagian_mesin: String(row.job_title ?? ''),
+      tipe_jadwal: String(row.type_schedule ?? ''),
+      kondisi: String(row.job_requirement ?? ''),
+      pic: String(row.executor ?? ''),
+      maintenance_status: String(row.maintenance_status ?? '').toUpperCase() === 'DONE' ? 'DONE' : 'PENDING',
+      need_request_part: false,
+      keterangan: String(row.keterangan ?? ''),
+      tampak_jauh: [], tampak_dekat: [], detail_part: [], execution_media: [],
+    })),
+    partRequest: null,
+  };
+}
+
+async function saveChildAssetPreventiveParts(
+  woNumber: string,
+  user: User,
+  inputRows: Array<Record<string, unknown>>,
+  target: ChildChecklistTarget,
+): Promise<Record<string, unknown>> {
+  const header = await one<{ status: string; type_wo: string }>(
+    `SELECT status,type_wo FROM \`${target.headerTable}\` WHERE wo_number=?`,
+    [woNumber],
+  );
+  if (!header) throw new Error('WO_NOT_FOUND');
+  if (!isPreventiveType(header.type_wo)) throw new Error('WO_NOT_PREVENTIVE');
+
+  const who = String(user.fullname ?? user.username ?? '');
+  let updated = 0;
+  await transaction(async (connection) => {
+    for (const row of inputRows) {
+      const id = Number(row.custom_detail_id ?? row.id ?? 0);
+      if (id <= 0) continue;
+      const status = String(row.maintenance_status ?? '').toUpperCase() === 'DONE' ? 'DONE' : 'PENDING';
+      const keterangan = String(row.keterangan ?? '').trim();
+      const [result] = await connection.execute(
+        `UPDATE \`${target.detailTable}\` SET maintenance_status=?, need_request_part=0, request_qty=0, request_part=NULL, request_uom=NULL, keterangan=?, done_at=?, done_by=?, updated_at=NOW() WHERE id=? AND wo_number=?`,
+        [status, keterangan, status === 'DONE' ? new Date() : null, status === 'DONE' ? who : null, id, woNumber] as never,
+      );
+      if ((result as { affectedRows: number }).affectedRows > 0) updated++;
+    }
+  });
+
+  const summary = await one<{ total: number; done: number }>(
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN UPPER(TRIM(COALESCE(maintenance_status,'PENDING')))='DONE' THEN 1 ELSE 0 END) AS done FROM \`${target.detailTable}\` WHERE wo_number=?`,
+    [woNumber],
+  );
+  const total = Number(summary?.total ?? 0);
+  const done = Number(summary?.done ?? 0);
+  let statusChanged = false;
+  const protectedStatuses = ['CLOSED', 'VOID', 'NEED_CLOSED', 'COMPLETE_EXECUTOR', 'WAITING_PARTS', 'PARTS_RECEIVED'];
+  if (done > 0 && !protectedStatuses.includes(String(header.status ?? '').toUpperCase().trim())) {
+    await execute("UPDATE tb_job_executor SET status='IN_PROGRESS' WHERE wo_number=? AND status='WAITING'", [woNumber]);
+    await execute(`UPDATE \`${target.headerTable}\` SET status='IN_PROGRESS_EXECUTOR', updated_at=NOW() WHERE wo_number=?`, [woNumber]);
+    statusChanged = true;
+  }
+  return { wo_number: woNumber, updated, done, total, status: statusChanged ? 'IN_PROGRESS_EXECUTOR' : null, requested: 0 };
+}
+
+export const getItPreventiveParts = (woNumber: string) =>
+  getChildAssetPreventiveParts(woNumber, { detailTable: 'tb_wo_it_detail', headerTable: 'tb_wo_it' });
+export const saveItPreventiveParts = (woNumber: string, user: User, inputRows: Array<Record<string, unknown>>) =>
+  saveChildAssetPreventiveParts(woNumber, user, inputRows, { detailTable: 'tb_wo_it_detail', headerTable: 'tb_wo_it' });
+export const getGaPreventiveParts = (woNumber: string) =>
+  getChildAssetPreventiveParts(woNumber, { detailTable: 'tb_wo_ga_detail', headerTable: 'tb_wo_ga' });
+export const saveGaPreventiveParts = (woNumber: string, user: User, inputRows: Array<Record<string, unknown>>) =>
+  saveChildAssetPreventiveParts(woNumber, user, inputRows, { detailTable: 'tb_wo_ga_detail', headerTable: 'tb_wo_ga' });
+
 interface PartExecutionDefinition { custom_detail_id: number; part_mesin: string }
 
 export async function getMaintenancePreventiveParts(woNumber: string): Promise<PreventivePartsResult> {

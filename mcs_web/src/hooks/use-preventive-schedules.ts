@@ -12,6 +12,7 @@ import {
   generatePreventiveScheduleWorkOrder,
   getPreventiveCalendar,
   getPreventiveSchedule,
+  getScheduleChildAssetRows,
   getScheduleCustomDetailRows,
   listPreventiveSchedules,
   pausePreventiveDetail,
@@ -42,6 +43,15 @@ export function useScheduleCustomDetailRows(assetCode: string, enabled = true) {
   return useQuery({
     queryKey: ["schedule-custom-detail-rows", assetCode],
     queryFn: ({ signal }) => getScheduleCustomDetailRows(assetCode, signal),
+    enabled: enabled && assetCode.trim().length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useScheduleChildAssetRows(assetCode: string, targetWo: string, enabled = true) {
+  return useQuery({
+    queryKey: ["schedule-child-asset-rows", assetCode, targetWo],
+    queryFn: ({ signal }) => getScheduleChildAssetRows(assetCode, targetWo, signal),
     enabled: enabled && assetCode.trim().length > 0,
     staleTime: 5 * 60_000,
   });

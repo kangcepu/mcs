@@ -1,4 +1,4 @@
-import { hasColumn, one, pool, rows, transaction } from '../db.js';
+import { hasColumn, one, pool, rows, tableExists, transaction } from '../db.js';
 import { resolveCompanyCode } from './employee-api.js';
 import { nowInJakarta } from './daily-control.js';
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
@@ -726,6 +726,125 @@ async function createWoPreventiveForBucket(header: ScheduleHeader, bucket: Bucke
   }
 }
 
+type ChildAssetWoTarget = {
+  headerTable: 'tb_wo_it' | 'tb_wo_ga';
+  detailTable: 'tb_wo_it_detail' | 'tb_wo_ga_detail';
+  prefix: 'WOIT' | 'WOGA';
+  label: 'IT' | 'GA';
+};
+
+async function createChildAssetWoGrouped(
+  dataAsset: ScheduleWithDetails,
+  forceDue: boolean,
+  target: ChildAssetWoTarget,
+): Promise<GeneratedWo[]> {
+  const existingDetailIds = new Set(
+    (await rows<{ schedule_detail_id: number }>(
+      `SELECT schedule_detail_id FROM \`${target.detailTable}\` WHERE generated_date=CURDATE() AND schedule_detail_id IS NOT NULL`,
+    )).map((row) => Number(row.schedule_detail_id)),
+  );
+  const dueItems = dataAsset.schedule_detail.filter((detail) =>
+    detail.is_pause === 'started'
+    && !existingDetailIds.has(detail.id)
+    && (forceDue || isScheduleDue(detail.type_schedule, detail.choose_day, detail.last_update)));
+  if (!dueItems.length) return [];
+
+  const generated: GeneratedWo[] = [];
+  for (const [bucket, items] of groupIntoBuckets(dueItems)) {
+    const result = await createChildAssetWoForBucket(dataAsset.schedule, bucket, items, target);
+    if (result) generated.push(result);
+  }
+  return generated;
+}
+
+async function createChildAssetWoForBucket(
+  header: ScheduleHeader,
+  bucket: BucketKey,
+  items: ScheduleDetail[],
+  target: ChildAssetWoTarget,
+): Promise<GeneratedWo | null> {
+  const first = items[0];
+  const user = await getFirstAdmin(first.id_division);
+  if (!user?.division_code || !user.fullname) return null;
+
+  const assetId = header.AssetID;
+  const assetCode = header.AssetCode ?? '';
+  let woNumber = await findExistingWoForBucketToday(target.headerTable, target.detailTable, assetId, bucket);
+  const creatingNew = !woNumber;
+  if (creatingNew) {
+    woNumber = await generateWoNumber(target.prefix, target.headerTable, first.id_division);
+    if (!woNumber || woNumber === '-') return null;
+  }
+  const finalWoNumber = woNumber as string;
+
+  try {
+    return await transaction(async (connection) => {
+      if (creatingNew) {
+        const headerFields: Record<string, unknown> = {
+          wo_number: finalWoNumber,
+          date: todayDateOnly(),
+          company: resolveCompanyCode(header.CompanyName ?? ''),
+          shift: first.shift,
+          type_wo: first.type_wo || 'PREVENTIVE',
+          priority: 'NORMAL',
+          id_division: first.id_division,
+          id_equipment: assetId,
+          job_title: buildTitle(assetCode, items.length, 'PREVENTIVE', `PREVENTIVE ${target.label}`),
+          running_hours: null,
+          job_requirement: `AUTO FROM SCHEDULE: ${items.length} ITEM`,
+          attachment: '#',
+          auto_generate: 'yes',
+          job_executor: user.division_code,
+          status: 'WAIT_EXECUTOR_ADMIN',
+          pic: user.division_code,
+          creator: user.fullname,
+          created_at: todayDateOnly(),
+        };
+        const keys = Object.keys(headerFields);
+        const sql = `INSERT INTO \`${target.headerTable}\` (${keys.map((key) => `\`${key}\``).join(',')}) VALUES (${keys.map((key) => key === 'created_at' ? 'NOW()' : '?').join(',')})`;
+        await connection.execute(sql, keys.filter((key) => key !== 'created_at').map((key) => headerFields[key]) as never);
+        await connection.execute(
+          "INSERT INTO tb_job_executor (job_executor, wo_number, status, created_at) VALUES (?,?,'WAITING',NOW())",
+          [user.division_code, finalWoNumber] as never,
+        );
+      }
+
+      let inserted = 0;
+      for (const item of items) {
+        await connection.execute(
+          `INSERT INTO \`${target.detailTable}\` (wo_number, schedule_detail_id, generated_date, asset_id, asset_code, id_division, shift, type_wo, job_title, part_mesin, job_requirement, running_hours, type_schedule, choose_day, executor, start_date, created_at)
+           VALUES (?,?,CURDATE(),?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+          [finalWoNumber, item.id || null, assetId, assetCode, item.id_division, item.shift, item.type_wo,
+            item.job_title?.trim() || '(NO TITLE)', item.part_mesin, item.job_requirement, item.running_hours,
+            item.type_schedule, item.choose_day, item.executor, item.start_date ? toDateOnly(item.start_date) : null] as never,
+        );
+        inserted++;
+        if (item.id > 0) await connection.execute('UPDATE tbl_schedules_detail SET last_update=NOW() WHERE id=?', [item.id]);
+      }
+      if (!inserted && creatingNew) throw new Error('NO_ROWS_INSERTED');
+
+      const [totals] = await connection.query<Array<{ total: number }> & RowDataPacket[]>(
+        `SELECT COUNT(*) AS total FROM \`${target.detailTable}\` WHERE wo_number=?`,
+        [finalWoNumber],
+      );
+      const total = Number(totals[0]?.total ?? inserted);
+      await connection.execute(
+        `UPDATE \`${target.headerTable}\` SET job_title=?, job_requirement=? WHERE wo_number=?`,
+        [buildTitle(assetCode, total, 'PREVENTIVE', `PREVENTIVE ${target.label}`), `AUTO FROM SCHEDULE: ${total} ITEM`, finalWoNumber],
+      );
+      return { wo_number: finalWoNumber, asset_code: assetCode, total_items: inserted };
+    });
+  } catch (error) {
+    console.error(`[preventive-schedule] gagal generate WO ${target.label} untuk ${assetCode}:`, error);
+    return null;
+  }
+}
+
+const createWoItGrouped = (data: ScheduleWithDetails, forceDue: boolean) =>
+  createChildAssetWoGrouped(data, forceDue, { headerTable: 'tb_wo_it', detailTable: 'tb_wo_it_detail', prefix: 'WOIT', label: 'IT' });
+const createWoGaGrouped = (data: ScheduleWithDetails, forceDue: boolean) =>
+  createChildAssetWoGrouped(data, forceDue, { headerTable: 'tb_wo_ga', detailTable: 'tb_wo_ga_detail', prefix: 'WOGA', label: 'GA' });
+
 async function createWoNew(dataAsset: ScheduleWithDetails, forceDue = false): Promise<GeneratedWo[]> {
   const company = dataAsset.schedule.CompanyName || 'ALL';
   if (await isNonWorkingDate(todayDateOnly(), company)) return [];
@@ -734,6 +853,8 @@ async function createWoNew(dataAsset: ScheduleWithDetails, forceDue = false): Pr
   if (towo === 'wo_mtc') return createWoMesoGrouped(dataAsset, forceDue);
   if (towo === 'wo_preventive') return createWoPreventiveGrouped(dataAsset, forceDue);
   if (towo === 'wo_mtc_operational') return createWoOperationalGrouped(dataAsset, forceDue);
+  if (towo === 'wo_it') return createWoItGrouped(dataAsset, forceDue);
+  if (towo === 'wo_ga') return createWoGaGrouped(dataAsset, forceDue);
   return [];
 }
 
@@ -816,13 +937,129 @@ export async function getAssetCustomDetailScheduleRows(assetCode: string): Promi
   return out;
 }
 
+/**
+ * Padanan `getAssetCustomDetailScheduleRows` untuk aset yang punya child
+ * asset (mis. "Ruangan IT" berisi beberapa PC) — tiap child asset jadi satu
+ * kandidat baris checklist `tbl_schedules_detail`, persis seperti tiap part
+ * jadi satu baris untuk MESO/Maintenance. Dipakai saat `towo` schedule-nya
+ * `wo_it`/`wo_ga`. Tidak ada sumber frekuensi otomatis (child asset tidak
+ * punya `durasi_pengecekan` seperti custom-detail) — frekuensi diisi manual
+ * oleh user di form.
+ */
+function preventivePicMatchesTarget(pic: unknown, targetWo: string): boolean {
+  const target = String(targetWo ?? '').trim().toLowerCase();
+  if (!['wo_it', 'wo_ga'].includes(target)) return true;
+  const tokens = String(pic ?? '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  return tokens.includes(target === 'wo_it' ? 'IT' : 'GA');
+}
+
+export async function getChildAssetScheduleRows(assetCode: string, targetWo = ''): Promise<Record<string, unknown>[]> {
+  if (!assetCode) return [];
+  const parent = await one<{ AssetID: number }>('SELECT AssetID FROM asset WHERE AssetCode = ?', [assetCode]);
+  if (!parent?.AssetID) return [];
+  const children = await rows<Record<string, unknown>>(
+    `SELECT AssetID, AssetCode, AssetName, CategoryAsset, LocationAsset
+     FROM asset WHERE parent_asset_id = ? AND active = 'active' ORDER BY AssetName ASC`,
+    [parent.AssetID],
+  );
+  const importedGroups = (await tableExists('asset_child_import_group'))
+    ? await rows<Record<string, unknown>>(
+      `SELECT g.id, g.child_name
+       FROM asset_child_import_group g
+       WHERE g.parent_asset_id = ? ORDER BY g.id ASC`,
+      [parent.AssetID],
+    )
+    : [];
+  const groupIds = importedGroups.map((group) => Number(group.id)).filter(Boolean);
+  const importedDetails = groupIds.length && await tableExists('asset_child_import_detail')
+    ? await rows<Record<string, unknown>>(
+      `SELECT d.id, d.group_id, d.item_name, d.condition_text, d.frequency, d.pic, d.sort_order,
+              l.linked_asset_id, a.AssetCode, a.AssetName, a.CategoryAsset, a.LocationAsset
+       FROM asset_child_import_detail d
+       LEFT JOIN asset_child_import_detail_link l ON l.detail_id=d.id
+       LEFT JOIN asset a ON a.AssetID=l.linked_asset_id
+       WHERE d.group_id IN (${groupIds.map(() => '?').join(',')})
+       ORDER BY d.group_id, d.sort_order, d.id`,
+      groupIds,
+    )
+    : [];
+  const groupedLinkedIds = new Set(importedDetails.map((detail) => Number(detail.linked_asset_id)).filter(Boolean));
+  const linkedRows = children
+    .filter((row) => !groupedLinkedIds.has(Number(row.AssetID)))
+    .filter((row) => preventivePicMatchesTarget(`${String(row.CategoryAsset ?? '')} ${String(row.LocationAsset ?? '')}`, targetWo))
+    .map((row) => {
+    const name = String(row.AssetName ?? row.AssetCode ?? '').trim();
+    const code = String(row.AssetCode ?? '').trim();
+    const displayName = code && code !== name ? `${name} (${code})` : name;
+    return {
+      child_asset_id: Number(row.AssetID),
+      child_asset_code: code,
+      bagian: String(row.LocationAsset ?? ''),
+      bagian_mesin: String(row.CategoryAsset ?? ''),
+      part_mesin: displayName,
+      job_title: `Pengecekan ${displayName}`,
+      kondisi: `Pengecekan kondisi ${displayName}`,
+      durasi_pengecekan: '',
+      type_schedule: '',
+      pic: '',
+      category_maintenance: '',
+    };
+  });
+  const importedRows = importedGroups.flatMap((group) => {
+    const groupName = String(group.child_name ?? '').trim();
+    const allGroupDetails = importedDetails.filter((detail) => Number(detail.group_id) === Number(group.id));
+    const groupDetails = allGroupDetails.filter((detail) => preventivePicMatchesTarget(detail.pic, targetWo));
+    if (!allGroupDetails.length && !['wo_it', 'wo_ga'].includes(String(targetWo).trim().toLowerCase())) {
+      return [{
+        child_asset_id: null,
+        pending_child_id: null,
+        child_asset_code: '',
+        bagian: '',
+        bagian_mesin: groupName,
+        part_mesin: groupName,
+        job_title: `Pengecekan ${groupName}`,
+        kondisi: `Pengecekan kondisi ${groupName}`,
+        durasi_pengecekan: '',
+        type_schedule: '',
+        pic: '',
+        category_maintenance: '',
+      }];
+    }
+    return groupDetails.map((detail) => {
+      const itemName = String(detail.item_name ?? '').trim();
+      const displayName = `${groupName} / ${itemName}`;
+      return {
+        child_asset_id: detail.linked_asset_id ? Number(detail.linked_asset_id) : null,
+        pending_child_id: detail.linked_asset_id ? null : Number(detail.id),
+        child_asset_code: String(detail.AssetCode ?? ''),
+        bagian: String(detail.LocationAsset ?? ''),
+        bagian_mesin: groupName,
+        part_mesin: displayName,
+        job_title: `Pengecekan ${itemName}`,
+        kondisi: String(detail.condition_text ?? '') || `Pengecekan kondisi ${itemName}`,
+        durasi_pengecekan: String(detail.frequency ?? ''),
+        type_schedule: String(detail.frequency ?? ''),
+        pic: String(detail.pic ?? ''),
+        category_maintenance: '',
+      };
+    });
+  });
+  return [...importedRows, ...linkedRows];
+}
+
 export async function rebuildScheduleDetailsFromCustomDetails(scheduleId: number, actor: string): Promise<{ success: boolean; message: string; schedule_id?: number; asset_code?: string; backup_rows?: number; inserted_rows?: number; unscheduled_rows?: number }> {
   if (scheduleId <= 0) return { success: false, message: 'Schedule tidak ditemukan.' };
   const header = await one<ScheduleHeader>('SELECT * FROM tb_schedule_header WHERE id=?', [scheduleId]);
   if (!header || !header.AssetCode) return { success: false, message: 'Schedule tidak ditemukan.' };
 
-  const customRows = await getAssetCustomDetailScheduleRows(header.AssetCode);
-  if (!customRows.length) return { success: false, message: 'Custom Detail asset tidak ditemukan.' };
+  const usesChildAssets = ['wo_it', 'wo_ga'].includes(String(header.towo ?? '').trim());
+  const customRows = usesChildAssets
+    ? await getChildAssetScheduleRows(header.AssetCode, header.towo)
+    : await getAssetCustomDetailScheduleRows(header.AssetCode);
+  if (!customRows.length) return {
+    success: false,
+    message: usesChildAssets ? 'Aset anak aktif tidak ditemukan.' : 'Custom Detail asset tidak ditemukan.',
+  };
 
   try {
     return await transaction(async (connection) => {
@@ -850,7 +1087,7 @@ export async function rebuildScheduleDetailsFromCustomDetails(scheduleId: number
       let unscheduled = 0;
       for (const customRow of customRows) {
         const part = String(customRow.part_mesin ?? '').trim();
-        if (!part) throw new Error('Ada Custom Detail tanpa nama part; repair dibatalkan.');
+        if (!part) throw new Error(`Ada ${usesChildAssets ? 'aset anak' : 'Custom Detail'} tanpa nama; repair dibatalkan.`);
         const type = scheduleTypeToStorageValue(customRow.type_schedule);
         const isUnscheduled = type === '';
         const logicalType = normalizeCustomDetailScheduleType(type);
@@ -859,7 +1096,7 @@ export async function rebuildScheduleDetailsFromCustomDetails(scheduleId: number
         await connection.execute(
           `INSERT INTO tbl_schedules_detail (tbl_schedules_id, asset_custom_detail_id, id_division, creator, company, shift, job_title, part_mesin, job_requirement, running_hours, type_schedule, choose_day, type_wo, is_pause, last_update, executor, start_date)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [scheduleId, Number(customRow.custom_detail_id ?? 0), defaults.division, String(actor || 'system repair').slice(0, 255), defaults.company,
+          [scheduleId, customRow.custom_detail_id ? Number(customRow.custom_detail_id) : null, defaults.division, String(actor || 'system repair').slice(0, 255), defaults.company,
             defaults.shift, `Pengecekan ${part}`, part, String(customRow.kondisi ?? '').trim() || `Pengecekan kondisi ${part}`, '0',
             type, chooseDay, defaults.typeWo, defaults.pause, defaults.lastUpdate, defaults.executor, defaults.startDate] as never,
         );
@@ -869,7 +1106,7 @@ export async function rebuildScheduleDetailsFromCustomDetails(scheduleId: number
 
       return {
         success: true,
-        message: `Detail schedule berhasil dibangun ulang.${unscheduled > 0 ? ` ${unscheduled} part tetap Tanpa Jadwal.` : ''}`,
+        message: `Detail schedule berhasil dibangun ulang.${unscheduled > 0 ? ` ${unscheduled} item tetap Tanpa Jadwal.` : ''}`,
         schedule_id: scheduleId, asset_code: header.AssetCode, backup_rows: existing.length, inserted_rows: inserted, unscheduled_rows: unscheduled,
       };
     });

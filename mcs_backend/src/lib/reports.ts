@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { HttpError } from '../http.js';
 import { getSetting } from './app-settings.js';
 import { qrPngDataUrl } from './qr.js';
+import { normalizeAssetLookup } from './asset-lookup.js';
 
 export async function recapWorkOrderOptions(): Promise<Record<string, unknown>> {
   const [companies, divisions] = await Promise.all([
@@ -59,13 +60,13 @@ export interface AssetsHistoryFilters { asset_code?: string; date_from?: string;
 export async function getAssetsHistoryReport(filters: AssetsHistoryFilters): Promise<{ data: Record<string, unknown>[]; meta: Record<string, unknown> }> {
   const page = Math.max(1, Number(filters.page ?? 1));
   const perPage = Math.min(500, Math.max(10, Number(filters.per_page ?? 50)));
-  const query = String(filters.asset_code ?? '').trim();
+  const query = normalizeAssetLookup(filters.asset_code);
   if (query === '') throw new HttpError(422, 'asset_code is required', 'ASSET_CODE_REQUIRED');
 
   const like = `%${query}%`;
   const assets = await rows<{ AssetID: number; AssetCode: string; AssetName: string }>(
-    'SELECT AssetID, AssetCode, AssetName FROM asset WHERE (AssetCode LIKE ? OR AssetName LIKE ?) ORDER BY AssetName ASC',
-    [like, like],
+    'SELECT AssetID, AssetCode, AssetName FROM asset WHERE (CAST(AssetID AS CHAR) = ? OR AssetCode LIKE ? OR AssetName LIKE ?) ORDER BY AssetName ASC',
+    [query, like, like],
   );
   if (!assets.length) return { data: [], meta: { page, per_page: perPage, total: 0, total_pages: 1, asset_query: query } };
 
@@ -95,7 +96,32 @@ export async function getAssetsHistoryReport(filters: AssetsHistoryFilters): Pro
       combined.push(asset ? { ...row, ...asset } : row);
     }
   }
-  combined = combined.sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
+
+  const locationClauses = [`asset_id IN (${placeholders})`];
+  const locationParams: unknown[] = [...assetIds];
+  if (dateFrom) { locationClauses.push('DATE(moved_at) >= ?'); locationParams.push(dateFrom); }
+  if (dateTo) { locationClauses.push('DATE(moved_at) <= ?'); locationParams.push(dateTo); }
+  const locationRows = await rows<Record<string, unknown>>(
+    `SELECT * FROM asset_location_history WHERE ${locationClauses.join(' AND ')}`,
+    locationParams,
+  );
+  for (const row of locationRows) {
+    const assetId = String(row.asset_id ?? '');
+    const asset = assetMap.get(assetId);
+    combined.push({
+      ...row,
+      ...asset,
+      history_type: 'LOCATION',
+      date: row.moved_at,
+      job_title: String(row.event_type ?? '') === 'INITIAL' ? 'Lokasi awal aset' : 'Perpindahan lokasi aset',
+      type_wo: 'LOCATION',
+      status: 'RECORDED',
+      pic: row.changed_by,
+      company: row.company_to,
+    });
+  }
+
+  combined = combined.sort((a, b) => String(b.date ?? b.created_at ?? '').localeCompare(String(a.date ?? a.created_at ?? '')));
   const total = combined.length;
   const offset = (page - 1) * perPage;
   return { data: combined.slice(offset, offset + perPage), meta: { page, per_page: perPage, total, total_pages: Math.max(1, Math.ceil(total / perPage)), asset_query: query } };

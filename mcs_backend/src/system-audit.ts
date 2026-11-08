@@ -14,6 +14,8 @@ const MODULE_RULES: [string, string][] = [
   ['material', 'Material Usage'],
   ['asset-mutation', 'Asset Mutation'],
   ['preventive', 'Preventive Schedule'],
+  ['energy/', 'Energy & Utility'],
+  ['fleet/', 'Fleet & Vehicle'],
   ['asset', 'Asset'],
   ['equipment', 'Asset'],
   ['master', 'Master Data'],
