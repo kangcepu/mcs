@@ -6,16 +6,23 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeCheck,
+  Boxes,
+  Building2,
+  CarFront,
   CalendarX2,
   CheckCircle2,
   Clock,
   FolderKanban,
   Loader2,
+  Landmark,
+  PackageSearch,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
   Wrench,
+  Zap,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -41,22 +48,23 @@ import { WO_MODULE_LABEL } from "@/types/work-order";
 import { formatDate, formatNumber } from "@/lib/format";
 import { pick } from "@/lib/display";
 import { PreventiveMissingNotice } from "@/components/schedules/preventive-missing-notice";
+import type { DashboardData } from "@/lib/api/dashboard";
 
 const RANGES = [
   { value: 7, label: "7 hari" },
   { value: 14, label: "14 hari" },
   { value: 30, label: "30 hari" },
   { value: 90, label: "90 hari" },
+  { value: 180, label: "180 hari" },
 ];
-
-/** Target rasio preventive — placeholder, belum bisa diatur per-perusahaan. */
-const PREVENTIVE_RATIO_TARGET = 90;
 
 export default function DashboardPage() {
   const { data: user } = useMe();
   const [range, setRange] = useState(7);
-  const q = useDashboard(range);
+  const [company, setCompany] = useState("");
+  const q = useDashboard(range, company);
   const d = q.data?.data;
+  const enterprise = d?.enterprise;
 
   const recent = useRecentWorkOrders(8);
   const approval = useApprovalSummaryCard();
@@ -76,10 +84,21 @@ export default function DashboardPage() {
 
   return (
     <PageContainer
-      title={`Selamat datang, ${user?.fullname?.split(" ")[0] ?? "Pengguna"}`}
-      description="Ringkasan aktivitas Work Order sesuai hak akses Anda."
+      title="Dashboard Utama MCS"
+      description="Enterprise overview lintas Asset, Maintenance, Fleet, Energy, Governance, dan GA."
       actions={
         <div className="flex items-center gap-2">
+          <select
+            value={company}
+            onChange={(event) => setCompany(event.target.value)}
+            className="h-8 max-w-40 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700"
+            aria-label="Filter company"
+          >
+            <option value="">Semua company</option>
+            {(enterprise?.scope.available_companies ?? []).map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
           <div className="flex rounded-lg border border-slate-200 p-0.5">
             {RANGES.map((r) => (
               <button
@@ -123,18 +142,54 @@ export default function DashboardPage() {
             (q.isFetching ? "opacity-70" : "opacity-100")
           }
         >
-          {/* KPI utama — metrik actionable yang perlu perhatian/tindakan
-              sekarang, bukan sekadar angka historis. Dibuat padat (size sm)
-              biar 2 baris x 4 kartu gak makan banyak ruang. */}
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
-            <Kpi
-              size="sm"
-              icon={<BadgeCheck className="h-4 w-4" />}
-              label="Menunggu Approval"
-              value={approval.isLoading ? "…" : approvalCount}
-              href="/approval-center"
-              tone="amber"
-            />
+          <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-sm">
+            <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-blue-100/70 blur-3xl" />
+            <div className="pointer-events-none absolute bottom-0 left-1/3 h-40 w-72 rounded-full bg-violet-100/60 blur-3xl" />
+            <div className="relative border-b border-slate-200 px-5 py-5 sm:px-7">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-600">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                    Enterprise Operations Command Center
+                  </div>
+                  <h2 className="text-xl font-semibold sm:text-2xl">
+                    Selamat datang, {user?.fullname?.split(" ")[0] ?? "Pengguna"}
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
+                    Kondisi operasional saat ini berdasarkan scope akses, company, dan periode aktif.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[10px] text-emerald-700">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  Data quality: {enterprise?.data_quality_status === "partial" ? "Parsial tervalidasi" : "Tervalidasi"}
+                </div>
+              </div>
+            </div>
+            <div className="relative grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-5 lg:divide-y-0">
+              <ExecutiveMetric icon={Boxes} label="Asset Aktif" value={metricValue(enterprise?.headline.asset_active)} href={enterprise?.headline.asset_active?.detail_route} />
+              <ExecutiveMetric icon={CalendarX2} label="Belum Preventive" value={d.preventive_coverage.missing} href="/my-work?tab=preventive_missing" attention={d.preventive_coverage.missing > 0} />
+              <ExecutiveMetric icon={Loader2} label="WO Open" value={d.totals.open + d.totals.in_progress} href="/work-orders" />
+              <ExecutiveMetric icon={BadgeCheck} label="Menunggu Approval" value={approval.isLoading ? "…" : approvalCount} href="/approval-center" attention={approvalCount > 0} />
+              <ExecutiveMetric icon={TriangleAlert} label="Critical NCR" value={metricValue(enterprise?.headline.critical_ncr)} href={enterprise?.headline.critical_ncr?.detail_route} attention={Number(enterprise?.headline.critical_ncr?.value ?? 0) > 0} />
+            </div>
+          </section>
+
+          <PreventiveMissingNotice
+            scope="dashboard"
+            audience={user?.id}
+            missing={d.preventive_coverage.missing}
+            required={d.preventive_coverage.required}
+            scheduled={d.preventive_coverage.scheduled}
+            areas={d.preventive_coverage.by_area}
+            onReview={() => { window.location.href = "/my-work?tab=preventive_missing"; }}
+          />
+
+          {enterprise ? <DomainHealth domains={enterprise.domains} /> : null}
+
+          {/* Strip sekunder — konteks volume + kualitas kerja, gak untuk
+              ditindak langsung. Baris kedua, kartu sama padat & sejajar
+              dengan baris KPI utama di atas. */}
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
             <Kpi
               size="sm"
               icon={<TriangleAlert className="h-4 w-4" />}
@@ -147,17 +202,6 @@ export default function DashboardPage() {
             />
             <Kpi
               size="sm"
-              icon={<Loader2 className="h-4 w-4" />}
-              label="Sedang Berjalan"
-              value={d.totals.open + d.totals.in_progress}
-              sub={`${formatNumber(d.totals.open)} antre · ${formatNumber(
-                d.totals.in_progress,
-              )} dikerjakan`}
-              href="/work-orders"
-              tone="violet"
-            />
-            <Kpi
-              size="sm"
               icon={<CheckCircle2 className="h-4 w-4" />}
               label="Ditutup"
               value={d.totals.closed}
@@ -165,31 +209,6 @@ export default function DashboardPage() {
               trendMeaning="positive"
               tone="green"
             />
-            <Kpi
-              size="sm"
-              icon={<CalendarX2 className="h-4 w-4" />}
-              label="Asset Belum Terjadwal"
-              value={d.preventive_coverage.missing}
-              sub={`${formatNumber(d.preventive_coverage.scheduled)} dari ${formatNumber(d.preventive_coverage.required)} asset MTC terjadwal`}
-              href="/my-work?tab=preventive_missing"
-              tone={d.preventive_coverage.missing > 0 ? "amber" : "green"}
-            />
-          </div>
-
-          <PreventiveMissingNotice
-            scope="dashboard"
-            audience={user?.id}
-            missing={d.preventive_coverage.missing}
-            required={d.preventive_coverage.required}
-            scheduled={d.preventive_coverage.scheduled}
-            areas={d.preventive_coverage.by_area}
-            onReview={() => { window.location.href = "/my-work?tab=preventive_missing"; }}
-          />
-
-          {/* Strip sekunder — konteks volume + kualitas kerja, gak untuk
-              ditindak langsung. Baris kedua, kartu sama padat & sejajar
-              dengan baris KPI utama di atas. */}
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
             <Kpi
               size="sm"
               icon={<Clock className="h-4 w-4" />}
@@ -200,32 +219,12 @@ export default function DashboardPage() {
               href="/work-orders"
               tone="brand"
             />
-            <Kpi
-              size="sm"
-              icon={<Wrench className="h-4 w-4" />}
-              label="WO Corrective"
-              value={d.by_type.corrective}
-              pct={d.by_type.corrective_pct}
-              trendMeaning="negative"
-              sub="Makin sedikit makin baik"
-              tone="amber"
-            />
-            <Kpi
-              size="sm"
-              icon={<FolderKanban className="h-4 w-4" />}
-              label="WO Project"
-              value={d.by_type.project}
-              pct={d.by_type.project_pct}
-              trendMeaning="neutral"
-              tone="violet"
-            />
-            <PreventiveRatioKpi
-              ratio={d.by_type.preventive_ratio}
-              deltaPts={d.by_type.preventive_ratio_delta_pts}
-              preventive={d.by_type.preventive}
-              corrective={d.by_type.corrective}
-              trend={d.by_type.ratio_trend}
-            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
+            <Kpi size="sm" icon={<Wrench className="h-4 w-4" />} label="WO Corrective" value={d.by_type.corrective} pct={d.by_type.corrective_pct} trendMeaning="negative" sub="Makin sedikit makin baik" tone="amber" />
+            <Kpi size="sm" icon={<FolderKanban className="h-4 w-4" />} label="WO Project" value={d.by_type.project} pct={d.by_type.project_pct} trendMeaning="neutral" tone="violet" />
+            <PreventiveRatioKpi ratio={d.by_type.preventive_ratio} deltaPts={d.by_type.preventive_ratio_delta_pts} preventive={d.by_type.preventive} corrective={d.by_type.corrective} trend={d.by_type.ratio_trend} />
           </div>
 
           {/* Preventive Harian — breakdown status WO Preventive per hari
@@ -453,8 +452,7 @@ export default function DashboardPage() {
           </div>
 
           <p className="text-center text-[11px] text-slate-500">
-            Angka mengikuti hak akses modul & divisi Anda. Diperbarui{" "}
-            {formatDate(d.generated_at)}.
+            Angka mengikuti hak akses dan filter aktif. Diperbarui {formatDate(d.generated_at)} WIB.
           </p>
         </div>
       )}
@@ -463,6 +461,102 @@ export default function DashboardPage() {
 }
 
 type TrendMeaning = "positive" | "negative" | "neutral";
+
+type EnterpriseMetric = {
+  value: number | null;
+  data_quality_status: string;
+};
+
+function ExecutiveMetric({
+  icon: Icon,
+  label,
+  value,
+  href,
+  attention = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number | string;
+  href?: string | null;
+  attention?: boolean;
+}) {
+  const content = (
+    <div className="group flex min-h-28 items-center gap-3 px-5 py-4 transition hover:bg-slate-50/80">
+      <span className={"grid h-10 w-10 shrink-0 place-items-center rounded-xl border " + (attention ? "border-amber-200 bg-amber-50 text-amber-600" : "border-blue-200 bg-blue-50 text-blue-600")}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-2xl font-semibold tabular-nums tracking-tight">{typeof value === "number" ? formatNumber(value) : value}</p>
+        <p className="truncate text-[11px] text-slate-500">{label}</p>
+      </div>
+    </div>
+  );
+  return href ? <Link href={href}>{content}</Link> : content;
+}
+
+function metricValue(metric?: EnterpriseMetric): number | string {
+  if (!metric || metric.value === null) return "N/M";
+  return metric.value;
+}
+
+const DOMAIN_ICON = {
+  asset: Boxes,
+  maintenance: Wrench,
+  sparepart: PackageSearch,
+  fleet: CarFront,
+  energy: Zap,
+  governance: Landmark,
+  ga: Building2,
+};
+
+function DomainHealth({
+  domains,
+}: {
+  domains: NonNullable<DashboardData["enterprise"]>["domains"];
+}) {
+  return (
+    <section className="card p-4">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-slate-900">Snapshot 7 Domain</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Hanya menampilkan angka yang sudah memiliki sumber data. Modul lain ditandai belum aktif, bukan nol.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+        {domains.map((domain) => {
+          const Icon = DOMAIN_ICON[domain.key as keyof typeof DOMAIN_ICON] ?? Boxes;
+          const available = domain.status === "available";
+          const body = (
+            <div className="h-full rounded-xl border border-slate-200 bg-slate-50/60 p-3 transition hover:border-brand-200 hover:bg-white">
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <span className={"grid h-8 w-8 place-items-center rounded-lg " + (available ? "bg-brand-50 text-brand-600" : "bg-slate-100 text-slate-400")}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className={"rounded-full px-2 py-0.5 text-[9px] font-semibold " + (available ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
+                  {available ? "Aktif" : domain.status === "no_permission" ? "Terbatas" : "Belum aktif"}
+                </span>
+              </div>
+              <p className="min-h-8 text-xs font-semibold leading-tight text-slate-800">{domain.label}</p>
+              <p className="mt-2 text-lg font-bold text-slate-900">
+                {domain.primary.value === null ? "N/M" : formatNumber(domain.primary.value)}
+                {domain.primary.value !== null && domain.primary.unit ? <span className="ml-1 text-[10px] font-medium text-slate-500">{domain.primary.unit}</span> : null}
+              </p>
+              <p className="text-[10px] text-slate-500">{domain.primary.label}</p>
+              {domain.secondary[0] ? (
+                <p className="mt-2 truncate border-t border-slate-200 pt-2 text-[10px] text-slate-500">
+                  {domain.secondary[0].label}: {domain.secondary[0].value === null ? "N/M" : formatNumber(domain.secondary[0].value)}
+                </p>
+              ) : domain.note ? (
+                <p className="mt-2 line-clamp-2 border-t border-slate-200 pt-2 text-[10px] text-slate-400">{domain.note}</p>
+              ) : null}
+            </div>
+          );
+          return domain.detail_route ? <Link key={domain.key} href={domain.detail_route}>{body}</Link> : <div key={domain.key}>{body}</div>;
+        })}
+      </div>
+    </section>
+  );
+}
 
 function deltaToneClass(pct: number, meaning: TrendMeaning): string {
   if (meaning === "neutral") return "text-slate-500";
@@ -567,9 +661,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-/** Kartu Rasio Preventive versi padat — dipaksa muat di grid 4 kolom yang
- * sama dengan KPI lain (bukan strip memanjang), termasuk sparkline mini
- * & badge target. */
+/** Target belum ditampilkan sebelum KPI Engine menyediakan versi efektif. */
 function PreventiveRatioKpi({
   ratio,
   deltaPts,
@@ -592,7 +684,7 @@ function PreventiveRatioKpi({
         <div className="flex items-center gap-1.5">
           <p className="truncate text-[11px] font-medium text-slate-500">Rasio Preventive</p>
           <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-medium text-slate-500">
-            target {PREVENTIVE_RATIO_TARGET}%
+            target belum ditetapkan
           </span>
         </div>
         <p className="text-sm font-bold text-slate-900">
@@ -607,7 +699,6 @@ function PreventiveRatioKpi({
       </div>
       <Sparkline
         data={trend}
-        target={PREVENTIVE_RATIO_TARGET}
         color={SEMANTIC_COLORS.success}
         width={44}
         height={24}

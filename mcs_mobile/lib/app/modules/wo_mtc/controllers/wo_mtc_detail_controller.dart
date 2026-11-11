@@ -131,6 +131,11 @@ class WoMtcDetailController extends GetxController with RealtimeRefresh {
     final status = currentStatus;
     if (status == null || myExecutor == null) return false;
 
+    final executionReady = status == WoStatus.waitExecutorAdmin ||
+        status == WoStatus.inProgressExecutor ||
+        status == WoStatus.partsReceived;
+    if (!executionReady) return false;
+
     final executorStatus = ExecutorStatus.fromCode(myExecutor!.status);
     return executorStatus == ExecutorStatus.waiting ||
         executorStatus == ExecutorStatus.inProgress;

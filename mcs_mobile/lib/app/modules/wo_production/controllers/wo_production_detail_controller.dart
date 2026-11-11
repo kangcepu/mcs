@@ -67,7 +67,6 @@ class WoProductionDetailController extends GetxController
     final status = (woHeader['status'] ?? '').toString();
     return isExecutor &&
         (status == 'WAIT_EXECUTOR_ADMIN' ||
-            status == 'WAIT_KA_DIV' ||
             status == 'WAITING_PARTS' ||
             status == 'PARTS_RECEIVED' ||
             status == 'IN_PROGRESS_EXECUTOR' ||
@@ -78,7 +77,6 @@ class WoProductionDetailController extends GetxController
     final status = (woHeader['status'] ?? '').toString();
     return isExecutor &&
         (status == 'WAIT_EXECUTOR_ADMIN' ||
-            status == 'WAIT_KA_DIV' ||
             status == 'WAITING_PARTS' ||
             status == 'PARTS_RECEIVED' ||
             status == 'IN_PROGRESS_EXECUTOR' ||

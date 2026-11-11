@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { ArrowRightLeft, FileUp, Link2, Plus, Trash2, Unlink } from "lucide-react";
+import { ArrowRightLeft, FileUp, ImagePlus, Link2, Plus, Trash2, Unlink, X } from "lucide-react";
 import { AssetPicker } from "@/components/assets/asset-picker";
 import { Button } from "@/components/ui/primitives";
 import { EmptyState } from "@/components/ui/states";
@@ -13,6 +13,7 @@ import { ApiError } from "@/types/api";
 import { ChildAssetsImportModal } from "@/components/assets/child-assets-import-modal";
 import { MoveChildAssetModal } from "@/components/assets/move-child-asset-modal";
 import { LinkPendingChildModal } from "@/components/assets/link-pending-child-modal";
+import { ManualChildAssetsModal } from "@/components/assets/manual-child-assets-modal";
 
 function assetHref(code: string): string {
   return `/assets/${code.split("/").map(encodeURIComponent).join("/")}`;
@@ -33,6 +34,7 @@ export function ChildAssetsPanel({
   const mutations = useAssetMutations(assetCode);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [addingManual, setAddingManual] = useState(false);
   const [moving, setMoving] = useState<{ code: string; name: string } | null>(null);
   const [linkingPending, setLinkingPending] = useState<{ id: number; name: string } | null>(null);
   const [selected, setSelected] = useState({ code: "", name: "" });
@@ -73,6 +75,25 @@ export function ChildAssetsPanel({
     }
   };
 
+  const uploadPhoto = async (detailId: number, slot: 1 | 2, photo: File) => {
+    try {
+      await mutations.uploadChildPhoto.mutateAsync({ detailId, slot, photo });
+      toast.success(`Foto ${slot} disimpan`);
+    } catch (error) {
+      toast.error(`Gagal menyimpan Foto ${slot}`, error instanceof ApiError ? error.message : undefined);
+    }
+  };
+
+  const deletePhoto = async (detailId: number, slot: 1 | 2) => {
+    if (!window.confirm(`Hapus Foto ${slot} komponen ini?`)) return;
+    try {
+      await mutations.deleteChildPhoto.mutateAsync({ detailId, slot });
+      toast.success(`Foto ${slot} dihapus`);
+    } catch (error) {
+      toast.error(`Gagal menghapus Foto ${slot}`, error instanceof ApiError ? error.message : undefined);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -85,8 +106,11 @@ export function ChildAssetsPanel({
             <Button variant="secondary" onClick={() => setImporting(true)}>
               <FileUp className="h-4 w-4" /> Import Excel
             </Button>
+            <Button variant="secondary" onClick={() => setAddingManual(true)}>
+              <Plus className="h-4 w-4" /> Tambah Manual
+            </Button>
             <Button variant="secondary" onClick={() => setAdding((value) => !value)}>
-              <Plus className="h-4 w-4" /> Tambah Aset Anak
+              <Link2 className="h-4 w-4" /> Tautkan Aset Existing
             </Button>
           </div>
         ) : null}
@@ -118,14 +142,14 @@ export function ChildAssetsPanel({
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr><th className="px-3 py-2">Aset / Komponen</th><th className="px-3 py-2">Kategori / Frekuensi</th><th className="px-3 py-2">Lokasi / PIC</th><th className="px-3 py-2">Status</th>{canWrite ? <th className="px-3 py-2 text-right">Aksi</th> : null}</tr>
+              <tr><th className="px-3 py-2">Aset / Komponen</th><th className="px-3 py-2">Kategori / Frekuensi</th><th className="px-3 py-2">Lokasi / PIC</th><th className="px-3 py-2">Foto 1</th><th className="px-3 py-2">Foto 2</th><th className="px-3 py-2">Status</th>{canWrite ? <th className="px-3 py-2 text-right">Aksi</th> : null}</tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {relatedGroups.map((group) => {
                 return (
                   <Fragment key={`group-${group.id}`}>
                     <tr className="bg-slate-100/80">
-                      <td className="px-3 py-2.5 font-semibold text-slate-800" colSpan={canWrite ? 5 : 4}>{group.child_name}</td>
+                      <td className="px-3 py-2.5 font-semibold text-slate-800" colSpan={canWrite ? 7 : 6}>{group.child_name}</td>
                     </tr>
                     {group.items.map((item) => {
                       const linked = Boolean(item.linked_asset_id && item.AssetCode);
@@ -139,6 +163,8 @@ export function ChildAssetsPanel({
                           </td>
                           <td className="px-3 py-2.5 text-slate-600">{item.CategoryAsset || item.frequency || "-"}</td>
                           <td className="px-3 py-2.5 text-slate-600">{item.LocationAsset || item.pic || "-"}</td>
+                          <td className="px-3 py-2.5"><ChildPhotoCell detailId={item.id} slot={1} url={item.photo_1_url} name={item.photo_1_name} canWrite={canWrite} onUpload={uploadPhoto} onDelete={deletePhoto} /></td>
+                          <td className="px-3 py-2.5"><ChildPhotoCell detailId={item.id} slot={2} url={item.photo_2_url} name={item.photo_2_name} canWrite={canWrite} onUpload={uploadPhoto} onDelete={deletePhoto} /></td>
                           <td className={`px-3 py-2.5 ${linked ? "text-emerald-700" : "text-amber-700"}`}>{linked ? (item.active === "active" ? "Aktif" : "Nonaktif") : "Belum tertaut"}</td>
                           {canWrite ? (
                             <td className="px-3 py-2.5 text-right">
@@ -168,6 +194,8 @@ export function ChildAssetsPanel({
                   <td className="px-3 py-3"><Link href={assetHref(child.AssetCode)} className="font-medium text-brand-700 hover:underline">{child.AssetName || child.AssetCode}</Link><span className="block text-xs text-slate-400">{child.AssetCode}</span></td>
                   <td className="px-3 py-3 text-slate-600">{child.CategoryAsset || "-"}</td>
                   <td className="px-3 py-3 text-slate-600">{child.LocationAsset || "-"}</td>
+                  <td className="px-3 py-3 text-slate-400">-</td>
+                  <td className="px-3 py-3 text-slate-400">-</td>
                   <td className="px-3 py-3 text-slate-600">{child.active === "active" ? "Aktif" : "Nonaktif"}</td>
                   {canWrite ? (
                     <td className="px-3 py-3 text-right">
@@ -189,6 +217,7 @@ export function ChildAssetsPanel({
       )}
 
       {importing ? <ChildAssetsImportModal assetCode={assetCode} onClose={() => setImporting(false)} /> : null}
+      {addingManual ? <ManualChildAssetsModal assetCode={assetCode} onClose={() => setAddingManual(false)} /> : null}
       {moving ? (
         <MoveChildAssetModal
           childCode={moving.code}
@@ -207,4 +236,48 @@ export function ChildAssetsPanel({
       ) : null}
     </div>
   );
+}
+
+function ChildPhotoCell({
+  detailId,
+  slot,
+  url,
+  name,
+  canWrite,
+  onUpload,
+  onDelete,
+}: {
+  detailId: number;
+  slot: 1 | 2;
+  url?: string | null;
+  name?: string | null;
+  canWrite: boolean;
+  onUpload: (detailId: number, slot: 1 | 2, photo: File) => Promise<void>;
+  onDelete: (detailId: number, slot: 1 | 2) => Promise<void>;
+}) {
+  if (url) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <a href={url} target="_blank" rel="noreferrer" title={name || `Foto ${slot}`}>
+          <img src={url} alt={name || `Foto ${slot}`} className="h-10 w-12 rounded-md border border-slate-200 object-cover" />
+        </a>
+        {canWrite ? (
+          <div className="flex flex-col gap-0.5">
+            <label className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600" title={`Ganti Foto ${slot}`}>
+              <ImagePlus className="h-3.5 w-3.5" />
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onUpload(detailId, slot, file); event.currentTarget.value = ""; }} />
+            </label>
+            <button type="button" className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title={`Hapus Foto ${slot}`} onClick={() => void onDelete(detailId, slot)}><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return canWrite ? (
+    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-xs text-slate-500 hover:border-brand-400 hover:text-brand-600">
+      <ImagePlus className="h-3.5 w-3.5" /> Tambah
+      <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onUpload(detailId, slot, file); event.currentTarget.value = ""; }} />
+    </label>
+  ) : <span className="text-slate-400">-</span>;
 }

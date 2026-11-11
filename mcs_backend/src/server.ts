@@ -7,7 +7,8 @@ import cron from 'node-cron';
 import express from 'express';
 import helmet from 'helmet';
 import { config } from './config.js';
-import { pool } from './db.js';
+import { one, pool } from './db.js';
+import { normalizeAssetLookup } from './lib/asset-lookup.js';
 import { approvalCenterRouter } from './routes/approval-center.js';
 import { myWorkRouter } from './routes/my-work.js';
 import { closeErpPools } from './lib/erp.js';
@@ -50,6 +51,12 @@ import { energyUtilityAllocationRouter } from './routes/energy-utility-allocatio
 import { energyMeterMasterRouter } from './routes/energy-meter-master.js';
 import { energyGovernanceRouter, syncAutomaticEnergyNcr } from './routes/energy-governance.js';
 import { fleetRouter } from './routes/fleet.js';
+import { fleetEnhancementsRouter } from './routes/fleet-enhancements.js';
+import { sparepartRouter } from './routes/spareparts.js';
+import { sparepartWoRouter } from './routes/sparepart-wo.js';
+import { sparepartInventoryRouter } from './routes/sparepart-inventory.js';
+import { sparepartGovernanceRouter } from './routes/sparepart-governance.js';
+import { reportCenterRouter } from './routes/report-center.js';
 import { systemAuditMiddleware } from './system-audit.js';
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
@@ -61,6 +68,20 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(systemAuditMiddleware);
 app.use(realtimeMiddleware);
+// Kompatibilitas QR fisik dari MCS PHP. QR lama menunjuk ke
+// `/Detail_asset/?id=<bin2hex(AssetID|AssetCode)>`; arahkan ke halaman detail
+// Asset web baru tanpa membuat seluruh label lama harus dicetak ulang.
+app.get(['/Detail_asset', '/Detail_asset/', '/detail_asset', '/detail_asset/'], asyncHandler(async (req, res) => {
+  const identifier = normalizeAssetLookup(req.query.id);
+  if (!identifier) throw new HttpError(400, 'Asset ID is required');
+  const asset = await one<{ AssetCode: string }>(
+    'SELECT AssetCode FROM asset WHERE AssetID=? OR AssetCode=? LIMIT 1',
+    [identifier, identifier],
+  );
+  if (!asset?.AssetCode) throw new HttpError(404, 'Asset not found');
+  const encodedCode = asset.AssetCode.split('/').map(encodeURIComponent).join('/');
+  res.redirect(302, `${config.webBaseUrl}/assets/${encodedCode}`);
+}));
 const uploadRoot = path.resolve(config.uploadDir);
 app.get('/uploads/*splat', asyncHandler(async (req, res) => {
   const key = decodeURIComponent(req.path.replace(/^\/uploads\//, ''));
@@ -100,6 +121,12 @@ v2.use(reportAssetRouter); v2.use(reportAssetMutationRouter); v2.use(reportEquip
 v2.use(approvalCenterRouter); v2.use(myWorkRouter); v2.use(integrationsRouter); v2.use(realtimeRouter); v2.use(dbBackupRouter);
 v2.use(energyRouter); v2.use(energyOperationsRouter); v2.use(energyFuelMonitoringRouter); v2.use(energyUtilityOperationsRouter); v2.use(energyFuelOpnameRouter); v2.use(energyEfficiencyKpiRouter); v2.use(energyUtilityAllocationRouter); v2.use(energyMeterMasterRouter); v2.use(energyGovernanceRouter);
 v2.use(fleetRouter);
+v2.use(fleetEnhancementsRouter);
+v2.use(sparepartRouter);
+v2.use(sparepartWoRouter);
+v2.use(sparepartInventoryRouter);
+v2.use(sparepartGovernanceRouter);
+v2.use(reportCenterRouter);
 app.use('/api/v2', v2);
 app.use('/api', authRouter);
 app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));

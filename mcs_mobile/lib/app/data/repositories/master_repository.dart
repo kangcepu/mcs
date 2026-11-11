@@ -175,7 +175,9 @@ class MasterRepository {
     if (parsed != null) {
       final id = parsed.queryParameters['id'];
       if (id != null && id.trim().isNotEmpty) {
-        return Uri.decodeComponent(id).trim();
+        // queryParameters sudah melakukan percent-decoding. Decode kedua
+        // kali dapat merusak AssetCode yang memang mengandung karakter `%`.
+        return id.trim();
       }
     }
 
@@ -281,10 +283,26 @@ class MasterRepository {
       }
     }
 
-    final fallbackCode = value.contains('/') ? value.split('/').last : value;
-    final search = fallbackCode.trim();
+    // QR lama dapat berisi hex AssetCode, URL Detail_asset, atau AssetCode
+    // langsung. Jangan pernah split berdasarkan `/`: `0027` tidak unik dan
+    // dipakai banyak asset (mis. GSU/IV-WNB/0027, UC/IV-IT/0027, dst).
+    var search = (_hexDecodeAssetCode(value) ?? value).trim();
+    final parsed = Uri.tryParse(value);
+    if (qrId == null &&
+        parsed != null &&
+        (parsed.scheme == 'http' || parsed.scheme == 'https') &&
+        parsed.pathSegments.isNotEmpty) {
+      search = Uri.decodeComponent(parsed.pathSegments.last).trim();
+    }
     if (search.isEmpty) {
       return null;
+    }
+
+    // Endpoint detail melakukan exact match dan lebih aman daripada list
+    // search untuk kode yang mempunyai suffix sama.
+    final byExactCode = await getAssetByQrId(search);
+    if (byExactCode != null) {
+      return byExactCode;
     }
 
     final assets = await getAssets(search: search);
@@ -301,7 +319,12 @@ class MasterRepository {
       }
     }
 
-    final resolved = exact ?? assets.first;
-    return _normalizeAssetMap(resolved);
+    if (exact != null) {
+      return _normalizeAssetMap(exact);
+    }
+
+    // Hanya gunakan fallback non-exact bila hasilnya benar-benar tunggal.
+    // Ini mencegah scanner membuka asset lain secara diam-diam.
+    return assets.length == 1 ? _normalizeAssetMap(assets.first) : null;
   }
 }

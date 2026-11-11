@@ -10,6 +10,7 @@ import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
+import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const gaRouter = Router();
@@ -189,7 +190,7 @@ gaRouter.use('/ga', authenticate, (req, res, next) => {
 // Samakan sama daftar exclude di maintenance/meso/is — sebelumnya cuma
 // exclude 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list
 // "aktif". `DECLINE` gak pernah beneran kesimpen, status tolak asli 'REJECT'.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 gaRouter.get('/ga/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
@@ -474,6 +475,9 @@ gaRouter.post('/ga/add_job_explanation', servicePhotoUpload.array('service_photo
   }
   if (!executor) throw new HttpError(404, 'Executor not found');
   const finalWoNumber = String(executor.wo_number);
+  const executionHeader = await getHeader(finalWoNumber);
+  if (!executionHeader) throw new HttpError(404, 'Work Order not found');
+  assertWoExecutionReady(executionHeader.status);
 
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, 'At least one service photo is required');
@@ -552,6 +556,9 @@ gaRouter.post('/ga/add_labor', asyncHandler(async (req, res) => {
     executor = await getExecutorByDivision(woNumber, String(user.division_code ?? ''));
   }
   if (!executor) throw new HttpError(404, 'Executor not found');
+  const laborHeader = await getHeader(String(executor.wo_number));
+  if (!laborHeader) throw new HttpError(404, 'Work Order not found');
+  assertWoExecutionReady(laborHeader.status);
 
   const raw = b.trade;
   const list: unknown[] = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
@@ -625,6 +632,9 @@ gaRouter.post('/ga/add_material', asyncHandler(async (req, res) => {
   if (!executor) throw new HttpError(404, 'Executor not found');
 
   const woNumber = String(executor.wo_number);
+  const materialHeader = await getHeader(woNumber);
+  if (!materialHeader) throw new HttpError(404, 'Work Order not found');
+  assertWoExecutionReady(materialHeader.status);
   const jobExecutor = String(executor.job_executor ?? user.division_code ?? '');
   const qty = Number(b.qty ?? b.quantity ?? 0);
   const unit = b.unit != null ? String(b.unit) : 'PCS';
@@ -652,6 +662,9 @@ gaRouter.post('/ga/complete', asyncHandler(async (req, res) => {
   const woNumber = String(req.body.wo_number ?? '');
   const comment = String(req.body.comment ?? 'Complete');
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
+  const header = await getHeader(woNumber);
+  if (!header) throw new HttpError(404, 'Work Order not found');
+  assertWoExecutionReady(header.status);
   const person = personPayload(user);
 
   const now = new Date();

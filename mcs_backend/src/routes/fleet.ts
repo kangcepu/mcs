@@ -4,6 +4,7 @@ import { authenticate, requirePermission } from '../auth.js';
 import { one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, created, HttpError, ok } from '../http.js';
 import type { AuthRequest } from '../types.js';
+import { createFleetCorrectiveWo } from '../lib/fleet-work-order.js';
 
 export const fleetRouter = Router();
 
@@ -227,6 +228,15 @@ fleetRouter.post('/fleet/inspections/:id/review', canApprove, asyncHandler(async
       await insertMeter(connection, inspection, Number(inspection.meter_value), inspection.inspected_at, 'INSPECTION', id, actor(req));
       if (inspection.overall_condition === 'FAIL' || Number(inspection.unsafe_to_operate) === 1) {
         await createAnomaly(connection, { vehicleId: inspection.vehicle_id, sourceType: 'INSPECTION', sourceId: id, type: inspection.unsafe_to_operate ? 'UNSAFE_CONDITION' : 'INSPECTION_FAILURE', severity: inspection.unsafe_to_operate ? 'CRITICAL' : 'HIGH', detectedAt: inspection.inspected_at, description: inspection.unsafe_to_operate ? 'Kendaraan dinyatakan tidak aman untuk dioperasikan.' : 'Ditemukan item gagal pada daily inspection.' });
+        if (Number(inspection.unsafe_to_operate) === 1 && await tableExists('fleet_work_order_link')) {
+          const profile = await vehicle(Number(inspection.vehicle_id), connection);
+          await createFleetCorrectiveWo(connection, {
+            vehicleId: Number(inspection.vehicle_id), assetId: Number(profile.asset_id), company: profile.CompanyName,
+            sourceType: 'INSPECTION', sourceId: id, priority: 'Emergency', user: req.user!,
+            title: `Fleet unsafe - ${profile.AssetName}`,
+            requirement: `Corrective otomatis dari daily inspection ${inspection.inspection_number}. Kendaraan dinyatakan tidak aman untuk dioperasikan.`,
+          });
+        }
       }
     }
   });

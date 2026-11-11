@@ -3,6 +3,13 @@
  * Label lama berisi URL `/Detail_asset/?id=<hex AssetID>`, sedangkan beberapa
  * integrasi mengirim kode aset langsung. Keduanya harus tetap dapat dicari.
  */
+function decodeLegacyHex(value: string): string | null {
+  if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) return null;
+  const decoded = Buffer.from(value, 'hex').toString('utf8').trim();
+  if (!decoded || decoded.includes('\uFFFD') || /[\u0000-\u001F\u007F]/.test(decoded)) return null;
+  return decoded;
+}
+
 export function normalizeAssetLookup(input: unknown): string {
   const raw = String(input ?? '').trim();
   if (!raw) return '';
@@ -11,10 +18,10 @@ export function normalizeAssetLookup(input: unknown): string {
     const url = new URL(raw);
     const id = url.searchParams.get('id')?.trim() ?? '';
     if (id) {
-      if (/^[0-9a-f]+$/i.test(id) && id.length % 2 === 0) {
-        const decoded = Buffer.from(id, 'hex').toString('utf8').trim();
-        if (/^\d+$/.test(decoded)) return decoded;
-      }
+      // QR legacy pernah memakai bin2hex(AssetID), sedangkan versi lain
+      // memakai bin2hex(AssetCode). Keduanya harus diterima.
+      const decoded = decodeLegacyHex(id);
+      if (decoded) return decoded;
       return id;
     }
 
@@ -27,5 +34,5 @@ export function normalizeAssetLookup(input: unknown): string {
     // Bukan URL; lanjutkan sebagai ID/kode/nama aset biasa.
   }
 
-  return raw;
+  return decodeLegacyHex(raw) ?? raw;
 }

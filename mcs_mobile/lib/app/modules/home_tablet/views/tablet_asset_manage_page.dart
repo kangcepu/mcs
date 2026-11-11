@@ -1,16 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 
-import '../../../core/routes/app_routes.dart';
 import '../../../core/utils/wo_status.dart';
 import '../../../data/providers/api_service.dart';
+import 'tablet_asset_detail_page.dart';
 
 /// Padanan tablet untuk `mcs_web/src/app/(app)/assets/page.tsx` ("Asset
 /// Manage", href `/assets` — BUKAN halaman "Report Assets" yang terpisah).
-/// Baris yang di-tap membuka layar detail aset native yang sudah ada
-/// (`ReportAssetDetailPage`) — detail/edit aset belum native di tablet.
+/// List dan detail aset sama-sama dirender native di dalam shell tablet.
 class TabletAssetManagePage extends StatefulWidget {
   const TabletAssetManagePage({super.key});
 
@@ -45,6 +43,8 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
   List<Map<String, String>> _companies = [];
   List<Map<String, String>> _locations = [];
   List<Map<String, String>> _categories = [];
+  String? _selectedAssetCode;
+  Map<String, dynamic> _selectedAssetRow = {};
 
   @override
   void initState() {
@@ -66,8 +66,9 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
       final data = res.data;
       if (data['success'] == true && mounted) {
         final opt = data['data'] as Map?;
-        List<Map<String, String>> toList(dynamic v) =>
-            ((v as List?) ?? []).map((e) => {'code': '${e['value']}', 'label': '${e['label']}'}).toList();
+        List<Map<String, String>> toList(dynamic v) => ((v as List?) ?? [])
+            .map((e) => {'code': '${e['value']}', 'label': '${e['label']}'})
+            .toList();
         setState(() {
           _companies = toList(opt?['companies']);
           _locations = toList(opt?['locations']);
@@ -102,8 +103,12 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         final meta = data['meta'] as Map?;
         setState(() {
           _rows = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-          _total = meta?['total'] is num ? (meta!['total'] as num).toInt() : _rows.length;
-          _totalPages = meta?['total_pages'] is num ? (meta!['total_pages'] as num).toInt() : 1;
+          _total = meta?['total'] is num
+              ? (meta!['total'] as num).toInt()
+              : _rows.length;
+          _totalPages = meta?['total_pages'] is num
+              ? (meta!['total_pages'] as num).toInt()
+              : 1;
           _loading = false;
           _fetching = false;
         });
@@ -131,10 +136,16 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
 
   void _onSearchChanged(String v) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 450), () => _setFilter(() => _q = v.trim()));
+    _debounce = Timer(const Duration(milliseconds: 450),
+        () => _setFilter(() => _q = v.trim()));
   }
 
-  bool get _hasActiveFilters => _q.isNotEmpty || _company.isNotEmpty || _location.isNotEmpty || _category.isNotEmpty || _isActive.isNotEmpty;
+  bool get _hasActiveFilters =>
+      _q.isNotEmpty ||
+      _company.isNotEmpty ||
+      _location.isNotEmpty ||
+      _category.isNotEmpty ||
+      _isActive.isNotEmpty;
 
   void _resetFilters() {
     _searchCtrl.clear();
@@ -150,11 +161,35 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
   void _openDetail(Map<String, dynamic> row) {
     final code = row['AssetCode']?.toString() ?? row['asset_code']?.toString();
     if (code == null || code.isEmpty) return;
-    Get.toNamed(AppRoutes.reportAssetDetail, arguments: {'row': row});
+    setState(() {
+      _selectedAssetCode = code;
+      _selectedAssetRow = Map<String, dynamic>.from(row);
+    });
+  }
+
+  void _openDetailByCode(String code) {
+    if (code.trim().isEmpty) return;
+    setState(() {
+      _selectedAssetCode = code.trim();
+      _selectedAssetRow = {};
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final selectedCode = _selectedAssetCode;
+    if (selectedCode != null) {
+      return TabletAssetDetailPage(
+        key: ValueKey(selectedCode),
+        assetCode: selectedCode,
+        initialRow: _selectedAssetRow,
+        onBack: () => setState(() {
+          _selectedAssetCode = null;
+          _selectedAssetRow = {};
+        }),
+        onOpenAsset: _openDetailByCode,
+      );
+    }
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -190,54 +225,91 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
               child: TextField(
                 controller: _searchCtrl,
                 onChanged: _onSearchChanged,
-                decoration: _filterInputDecoration(hint: 'Cari kode / nama aset…', icon: Icons.search),
+                decoration: _filterInputDecoration(
+                    hint: 'Cari kode / nama aset…', icon: Icons.search),
                 style: const TextStyle(fontSize: 13),
               ),
             ),
             const SizedBox(width: 8),
-            _dropdown('Semua company', _company, [for (final c in _companies) MapEntry(c['code']!, c['label']!)], (v) => _setFilter(() => _company = v)),
+            _dropdown(
+                'Semua company',
+                _company,
+                [for (final c in _companies) MapEntry(c['code']!, c['label']!)],
+                (v) => _setFilter(() => _company = v)),
             const SizedBox(width: 8),
-            _dropdown('Semua lokasi', _location, [for (final l in _locations) MapEntry(l['code']!, l['label']!)], (v) => _setFilter(() => _location = v)),
+            _dropdown(
+                'Semua lokasi',
+                _location,
+                [for (final l in _locations) MapEntry(l['code']!, l['label']!)],
+                (v) => _setFilter(() => _location = v)),
             const SizedBox(width: 8),
-            _dropdown('Semua kategori', _category, [for (final c in _categories) MapEntry(c['code']!, c['label']!)], (v) => _setFilter(() => _category = v)),
+            _dropdown(
+                'Semua kategori',
+                _category,
+                [
+                  for (final c in _categories) MapEntry(c['code']!, c['label']!)
+                ],
+                (v) => _setFilter(() => _category = v)),
             const SizedBox(width: 8),
-            _dropdown('Semua status', _isActive, [for (final a in _kActiveOptions) MapEntry(a['code']!, a['label']!)], (v) => _setFilter(() => _isActive = v)),
+            _dropdown(
+                'Semua status',
+                _isActive,
+                [
+                  for (final a in _kActiveOptions)
+                    MapEntry(a['code']!, a['label']!)
+                ],
+                (v) => _setFilter(() => _isActive = v)),
             const SizedBox(width: 10),
             IconButton(
               tooltip: 'Muat ulang',
               onPressed: _load,
               icon: _fetching
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.refresh, size: 18),
             ),
-            if (_hasActiveFilters) TextButton(onPressed: _resetFilters, child: const Text('Reset', style: TextStyle(fontSize: 12.5))),
+            if (_hasActiveFilters)
+              TextButton(
+                  onPressed: _resetFilters,
+                  child: const Text('Reset', style: TextStyle(fontSize: 12.5))),
           ],
         ),
       ),
     );
   }
 
-  InputDecoration _filterInputDecoration({required String hint, IconData? icon}) {
-    final border = OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0)));
+  InputDecoration _filterInputDecoration(
+      {required String hint, IconData? icon}) {
+    final border = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)));
     return InputDecoration(
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      prefixIcon: icon != null ? Icon(icon, size: 16, color: const Color(0xFF94A3B8)) : null,
+      prefixIcon: icon != null
+          ? Icon(icon, size: 16, color: const Color(0xFF94A3B8))
+          : null,
       prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 0),
       hintText: hint,
       hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
       border: border,
       enabledBorder: border,
-      focusedBorder: border.copyWith(borderSide: const BorderSide(color: Color(0xFF1B54E0))),
+      focusedBorder: border.copyWith(
+          borderSide: const BorderSide(color: Color(0xFF1B54E0))),
     );
   }
 
-  Widget _dropdown(String placeholder, String value, List<MapEntry<String, String>> options, ValueChanged<String> onChanged) {
+  Widget _dropdown(String placeholder, String value,
+      List<MapEntry<String, String>> options, ValueChanged<String> onChanged) {
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       constraints: const BoxConstraints(maxWidth: 170),
-      decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          borderRadius: BorderRadius.circular(8)),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: value.isEmpty ? '' : value,
@@ -245,8 +317,17 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
           isExpanded: true,
           style: const TextStyle(fontSize: 12.5, color: Color(0xFF1E293B)),
           items: [
-            DropdownMenuItem(value: '', child: Text(placeholder, style: const TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis)),
-            for (final o in options) DropdownMenuItem(value: o.key, child: Text(o.value, style: const TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis)),
+            DropdownMenuItem(
+                value: '',
+                child: Text(placeholder,
+                    style: const TextStyle(fontSize: 12.5),
+                    overflow: TextOverflow.ellipsis)),
+            for (final o in options)
+              DropdownMenuItem(
+                  value: o.key,
+                  child: Text(o.value,
+                      style: const TextStyle(fontSize: 12.5),
+                      overflow: TextOverflow.ellipsis)),
           ],
           onChanged: (v) => onChanged(v ?? ''),
         ),
@@ -279,7 +360,9 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         children: [
           const Icon(Icons.error_outline, size: 36, color: Color(0xFFE11D48)),
           const SizedBox(height: 10),
-          Text(_error ?? 'Gagal memuat data', style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)), textAlign: TextAlign.center),
+          Text(_error ?? 'Gagal memuat data',
+              style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+              textAlign: TextAlign.center),
           const SizedBox(height: 10),
           OutlinedButton(onPressed: _load, child: const Text('Coba lagi')),
         ],
@@ -294,9 +377,14 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         children: [
           Icon(Icons.inventory_2_outlined, size: 36, color: Color(0xFFCBD5E1)),
           SizedBox(height: 10),
-          Text('Belum ada aset', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+          Text('Belum ada aset',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF334155))),
           SizedBox(height: 4),
-          Text('Ubah kata kunci atau tambah aset baru.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+          Text('Ubah kata kunci atau tambah aset baru.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
         ],
       ),
     );
@@ -304,10 +392,19 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
 
   // Lebar tetap + scroll horizontal (bukan FlexColumnWidth) — kolom flex bisa
   // kolaps hampir 0px di layar sempit dan bikin header kepotong per huruf.
-  static const List<double> _kColWidthValues = [160, 260, 140, 140, 140, 160, 120];
+  static const List<double> _kColWidthValues = [
+    160,
+    260,
+    140,
+    140,
+    140,
+    160,
+    120
+  ];
   static double get _kTableWidth => _kColWidthValues.reduce((a, b) => a + b);
   static Map<int, TableColumnWidth> get _kColWidths => {
-        for (var i = 0; i < _kColWidthValues.length; i++) i: FixedColumnWidth(_kColWidthValues[i]),
+        for (var i = 0; i < _kColWidthValues.length; i++)
+          i: FixedColumnWidth(_kColWidthValues[i]),
       };
 
   Widget _buildTable() {
@@ -329,10 +426,19 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
   }
 
   TableRow _headerRow() {
-    const style = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B), letterSpacing: .3);
+    const style = TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF64748B),
+        letterSpacing: .3);
     Widget h(String t, {TextAlign align = TextAlign.left}) => Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Text(t, style: style, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false),
+          child: Text(t,
+              style: style,
+              textAlign: align,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false),
         );
     return TableRow(
       decoration: const BoxDecoration(
@@ -356,29 +462,54 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
     final name = (r['AssetName'] ?? r['asset_name'] ?? '-').toString();
     final brand = (r['brand'] ?? '—').toString();
     final company = (r['CompanyName'] ?? r['company_name'] ?? '-').toString();
-    final location = (r['LocationAsset'] ?? r['location_name'] ?? '-').toString();
-    final category = (r['CategoryAsset'] ?? r['category_name'] ?? '-').toString();
+    final location =
+        (r['LocationAsset'] ?? r['location_name'] ?? '-').toString();
+    final category =
+        (r['CategoryAsset'] ?? r['category_name'] ?? '-').toString();
     final area = r['mtc_area_key']?.toString();
-    final inactive = (r['active']?.toString().toLowerCase() ?? '') == 'inactive';
+    final inactive =
+        (r['active']?.toString().toLowerCase() ?? '') == 'inactive';
     final status = woStatusInfo(inactive ? 'inactive' : 'active');
 
     Widget cell(Widget child) => TableRowInkWell(
           onTap: () => _openDetail(r),
-          child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: child),
+          child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: child),
         );
-    Widget text(String t, {Color color = const Color(0xFF475569), FontWeight weight = FontWeight.w400, double size = 12}) =>
-        cell(Text(t, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: size, color: color, fontWeight: weight)));
+    Widget text(String t,
+            {Color color = const Color(0xFF475569),
+            FontWeight weight = FontWeight.w400,
+            double size = 12}) =>
+        cell(Text(t,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style:
+                TextStyle(fontSize: size, color: color, fontWeight: weight)));
 
     return TableRow(
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9)))),
+      decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9)))),
       children: [
-        text(code, color: const Color(0xFF1D4ED8), weight: FontWeight.w600, size: 12.5),
+        text(code,
+            color: const Color(0xFF1D4ED8),
+            weight: FontWeight.w600,
+            size: 12.5),
         cell(Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
-            Text(brand, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+            Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF1E293B))),
+            Text(brand,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
           ],
         )),
         text(company),
@@ -389,8 +520,13 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
           alignment: Alignment.center,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: status.bg, borderRadius: BorderRadius.circular(999)),
-            child: Text(status.label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: status.fg)),
+            decoration: BoxDecoration(
+                color: status.bg, borderRadius: BorderRadius.circular(999)),
+            child: Text(status.label,
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: status.fg)),
           ),
         )),
       ],
@@ -421,14 +557,18 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
       ),
       child: Row(
         children: [
-          Text('Menampilkan $start-$end dari $_total', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+          Text('Menampilkan $start-$end dari $_total',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
           const Spacer(),
           DropdownButtonHideUnderline(
             child: DropdownButton<int>(
               value: _perPage,
               isDense: true,
               style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B)),
-              items: _kPerPageOptions.map((n) => DropdownMenuItem(value: n, child: Text('$n / halaman'))).toList(),
+              items: _kPerPageOptions
+                  .map((n) =>
+                      DropdownMenuItem(value: n, child: Text('$n / halaman')))
+                  .toList(),
               onChanged: (v) {
                 if (v == null) return;
                 setState(() {
@@ -441,12 +581,24 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
           ),
           const SizedBox(width: 12),
           IconButton(
-            onPressed: _page > 1 ? () { setState(() => _page -= 1); _load(); } : null,
+            onPressed: _page > 1
+                ? () {
+                    setState(() => _page -= 1);
+                    _load();
+                  }
+                : null,
             icon: const Icon(Icons.chevron_left, size: 18),
           ),
-          Text('$_page / $_totalPages', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+          Text('$_page / $_totalPages',
+              style:
+                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
           IconButton(
-            onPressed: _page < _totalPages ? () { setState(() => _page += 1); _load(); } : null,
+            onPressed: _page < _totalPages
+                ? () {
+                    setState(() => _page += 1);
+                    _load();
+                  }
+                : null,
             icon: const Icon(Icons.chevron_right, size: 18),
           ),
         ],

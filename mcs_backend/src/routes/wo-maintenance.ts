@@ -14,6 +14,7 @@ import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { scheduleTypeToDisplayLabel } from '../lib/preventive-schedule.js';
+import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const maintenanceRouter = Router();
@@ -563,7 +564,7 @@ maintenanceRouter.use('/maintenance', authenticate, (req, res, next) => {
 // `DECLINE` gak pernah beneran kesimpen di kolom status manapun — status
 // tolak yang asli adalah `REJECT` (dicek langsung ke data). Tetap disertain
 // `DECLINE` buat jaga-jaga tanpa menghapusnya.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 async function buildListQuery(user: User, mtcDivisionId: string, params0: { creatorOnly?: string; status?: string; search?: string; typeWo?: string; dateFrom?: string; dateTo?: string; company?: string; applyCategoryScope?: boolean }) {
   const scope = params0.creatorOnly ? { sql: 'w.creator = ?', params: [params0.creatorOnly] } : visibilityScope(user, 'w', mtcDivisionId);
@@ -930,7 +931,8 @@ maintenanceRouter.post('/maintenance/force_complete', requirePermission('wo_comp
   const woNumber = String(req.body.wo_number ?? '');
   const comment = String(req.body.comment ?? 'Force complete (admin)');
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
-  await rejectIfFinal(woNumber);
+  const executionHeader = await rejectIfFinal(woNumber);
+  assertWoExecutionReady(executionHeader.status);
   const person = personPayload(user);
 
   await transaction(async (connection) => {
@@ -1039,6 +1041,7 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
   const jobExplanation = String(b.job_explanation ?? '');
 
   const header = await rejectIfFinal(woNumber);
+  assertWoExecutionReady(header.status);
   const assetRow = await one<{ AssetCode: string }>('SELECT AssetCode FROM asset WHERE AssetID=?', [header.id_equipment]);
   const assetCode = String(assetRow?.AssetCode ?? '');
   const isPreventive = isPreventiveType(header.type_wo);
@@ -1177,7 +1180,8 @@ maintenanceRouter.post('/maintenance/update_executor', asyncHandler(async (req, 
   const id = b.id;
   const woNumber = String(b.wo_number ?? '');
   if (!id || !woNumber) throw new HttpError(400, 'id and wo_number are required');
-  await rejectIfFinal(woNumber);
+  const laborHeader = await rejectIfFinal(woNumber);
+  assertWoExecutionReady(laborHeader.status);
   const fields: Record<string, unknown> = {};
   if (b.job_executor !== undefined) fields.job_executor = b.job_executor;
   if (b.status !== undefined) fields.status = b.status;
@@ -1198,7 +1202,8 @@ maintenanceRouter.post('/maintenance/add_labor', asyncHandler(async (req, res) =
   const user = (req as AuthRequest).user!;
   const woNumber = String(req.body.wo_number ?? '');
   if (!woNumber) throw new HttpError(400, 'wo_number is required');
-  await rejectIfFinal(woNumber);
+  const materialHeader = await rejectIfFinal(woNumber);
+  assertWoExecutionReady(materialHeader.status);
   const raw = req.body.trade;
   const list: unknown[] = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
   const trades = [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
@@ -1298,6 +1303,7 @@ maintenanceRouter.post('/maintenance/part_execution', asyncHandler(async (req, r
   if (!header) throw new HttpError(404, 'Work Order not found');
   if (!isPreventiveType(header.type_wo)) throw new HttpError(400, 'WO is not preventive');
   if (isFinalWoStatus(header.status)) throw new HttpError(409, 'Work Order sudah final dan tidak dapat diubah');
+  assertWoExecutionReady(header.status);
 
   const assetRow = header.id_equipment ? await one<{ AssetCode: string }>('SELECT AssetCode FROM asset WHERE AssetID=?', [header.id_equipment]) : null;
   const assetCode = String(assetRow?.AssetCode ?? '');
@@ -1350,6 +1356,7 @@ maintenanceRouter.post('/maintenance/part_execution_media', partExecutionMediaUp
   if (!header) throw new HttpError(404, 'Work Order not found');
   if (!isPreventiveType(header.type_wo)) throw new HttpError(400, 'WO is not preventive');
   if (isFinalWoStatus(header.status)) throw new HttpError(409, 'Work Order sudah final dan tidak dapat diubah');
+  assertWoExecutionReady(header.status);
 
   const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
   const mediaType = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) ? 'video' : 'image';

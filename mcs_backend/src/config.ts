@@ -40,6 +40,12 @@ export const config = {
   energyModuleEnabled: boolean('ENERGY_MODULE_ENABLED', false),
   employeeSyncCronExpr: process.env.EMPLOYEE_SYNC_CRON_EXPR ?? '*/15 * * * *',
   legacyBaseUrl: (process.env.LEGACY_BASE_URL ?? 'https://mcs.padmoasm.com').replace(/\/+$/, ''),
+  // Origin aplikasi Next.js. Domain QR legacy dapat mengarah ke backend/API,
+  // sehingga redirect detail asset harus menuju origin web secara eksplisit.
+  webBaseUrl: (
+    process.env.MCS_WEB_BASE_URL
+    ?? (process.env.NODE_ENV === 'production' ? 'http://192.168.11.2:3101' : 'http://localhost:3101')
+  ).replace(/\/+$/, ''),
   // Stock Opname jalan di service terpisah (dipakai mobile langsung, lihat
   // soBaseUrl di api_constants.dart) — menerima JWT yang sama dengan backend
   // ini (JWT_SECRET sama), jadi cukup diteruskan apa adanya, bukan login ulang.

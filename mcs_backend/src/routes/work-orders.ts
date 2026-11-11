@@ -45,7 +45,16 @@ const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);
 // Sama kayak LIST_EXCLUDED_STATUSES di wo-meso/is/ga/maintenance/production.ts —
 // dipakai buat naro WO yang udah kelar di bawah daftar gabungan ini, bukan
 // nyampur rata sama WO aktif cuma berdasar tanggal.
-const FINISHED_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT']);
+// COMPLETE_EXECUTOR/NEED_CLOSED belum final: WO masih wajib terlihat sampai
+// pemohon menutupnya. Hanya status terminal yang disembunyikan dari list
+// default dan ditempatkan di bagian riwayat.
+const FINISHED_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT']);
+const READY_TO_CLOSE_STATUSES = ['COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED'];
+// COMPLETE_EXECUTOR/NEED_CLOSED belum boleh disembunyikan karena masih harus
+// ditutup oleh creator/divisi pemohon. Namun secara prioritas tampilan mereka
+// sudah selesai dikerjakan, sehingga harus berada setelah seluruh WO yang
+// masih menunggu approval, eksekusi, part, atau tindakan operasional lain.
+const BOTTOM_LIST_STATUSES = [...new Set([...FINISHED_STATUSES, ...READY_TO_CLOSE_STATUSES])];
 // `wo_cross_access` ("All WO") tetap bypass semua modul; masing-masing modul
 // juga punya versi khusus-modulnya sendiri (`wo_cross_access_meso`, dst) biar
 // bisa dikasih ke user yang cuma perlu lintas-divisi di 1 modul, bukan semua.
@@ -161,7 +170,27 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   const buildWhere = (key: Domain): { where: string; params: unknown[] } => {
     let where = 'WHERE 1=1'; const params: unknown[] = [];
     const scope = domainScope(key);
-    if (scope.sql) { where += ` AND ${scope.sql}`; params.push(...scope.params); }
+    if (scope.sql) {
+      // Ketika pekerjaan executor selesai, creator dan seluruh user dalam
+      // divisi pemohon harus tetap melihat WO pada list sampai CLOSED. Scope
+      // modul normal tetap berlaku untuk status selain antrean closing.
+      const closingOwner: string[] = [];
+      const closingParams: unknown[] = [...READY_TO_CLOSE_STATUSES];
+      const userDiv = Number(user.id_division ?? 0);
+      const fullname = String(user.fullname ?? '').trim();
+      if (userDiv > 0) { closingOwner.push('w.id_division = ?'); closingParams.push(userDiv); }
+      if (fullname) {
+        closingOwner.push("(LOWER(TRIM(w.creator)) = LOWER(?) OR (TRIM(w.creator) <> '' AND LOWER(?) LIKE CONCAT(LOWER(TRIM(w.creator)), '%')))");
+        closingParams.push(fullname, fullname);
+      }
+      if (closingOwner.length) {
+        where += ` AND ((${scope.sql}) OR (UPPER(TRIM(w.status)) IN (${READY_TO_CLOSE_STATUSES.map(() => '?').join(',')}) AND (${closingOwner.join(' OR ')})))`;
+        params.push(...scope.params, ...closingParams);
+      } else {
+        where += ` AND ${scope.sql}`;
+        params.push(...scope.params);
+      }
+    }
     if (q) { where += ' AND (w.wo_number LIKE ? OR w.job_title LIKE ? OR w.job_requirement LIKE ? OR a.AssetName LIKE ? OR a.AssetCode LIKE ?)'; params.push(...Array(5).fill(`%${q}%`)); }
     if (status) { where += ' AND w.status = ?'; params.push(status); }
     else {
@@ -201,8 +230,8 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   // tabel yang cukup buat nutup halaman yang diminta, gabung, urutkan ulang,
   // baru dipotong sesuai halaman.
   const perDomainLimit = page * perPage;
-  const finishedList = [...FINISHED_STATUSES];
-  const finishedPlaceholders = finishedList.map(() => '?').join(',');
+  const bottomList = BOTTOM_LIST_STATUSES;
+  const bottomPlaceholders = bottomList.map(() => '?').join(',');
   const [rowSets, countSets] = await Promise.all([
     Promise.all(allowedDomains.map((key) => {
       const { where, params } = buildWhere(key);
@@ -210,14 +239,14 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
       // keisi created_at (bug terpisah, sudah diperbaiki di
       // preventive-schedule.ts untuk WO baru) — fallback ke `date` biar WO
       // lama itu tetap kesortir & tampil, bukan ketendang ke akhir daftar.
-      // WO yang udah final (CLOSED/VOID/dst, lihat FINISHED_STATUSES) diurut
-      // ke bawah DI QUERY INI JUGA (bukan cuma pas merge di JS) — kalau enggak,
-      // WO final yang kebetulan paling baru bisa habisin jatah LIMIT per modul
-      // duluan dan WO aktif yang lebih lama jadi gak pernah ke-fetch sama sekali.
+      // WO final dan WO yang sudah selesai dikerjakan tetapi belum ditutup
+      // diurut ke bawah DI QUERY INI JUGA (bukan cuma pas merge di JS). Kalau
+      // tidak, COMPLETE_EXECUTOR terbaru dapat menghabiskan LIMIT per modul
+      // dan menutupi WO aktif yang lebih lama.
       return rows(
         `SELECT '${key}' AS module, w.wo_number,w.date,w.company,w.type_wo,w.priority,w.id_division,w.id_equipment,w.job_title,w.status,w.pic,w.job_executor,w.creator,COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) AS created_at,w.updated_at, a.AssetCode AS asset_code, a.AssetName AS asset_name, a.mtc_area_key FROM \`${domains[key].table}\` w LEFT JOIN asset a ON a.AssetID=w.id_equipment ${where}
-         ORDER BY (CASE WHEN UPPER(TRIM(w.status)) IN (${finishedPlaceholders}) THEN 1 ELSE 0 END) ASC, COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`,
-        [...params, ...finishedList, perDomainLimit],
+         ORDER BY (CASE WHEN UPPER(TRIM(w.status)) IN (${bottomPlaceholders}) THEN 1 ELSE 0 END) ASC, COALESCE(w.created_at,CONCAT(w.date,' 00:00:00')) DESC LIMIT ?`,
+        [...params, ...bottomList, perDomainLimit],
       );
     })),
     Promise.all(allowedDomains.map((key) => {
@@ -227,10 +256,10 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
   ]);
 
   const totalCount = countSets.reduce((sum, c) => sum + Number(c?.total ?? 0), 0);
-  const isFinished = (row: Record<string, unknown>): number => (FINISHED_STATUSES.has(String(row.status ?? '').toUpperCase().trim()) ? 1 : 0);
+  const isBottomList = (row: Record<string, unknown>): number => (BOTTOM_LIST_STATUSES.includes(String(row.status ?? '').toUpperCase().trim()) ? 1 : 0);
   const merged = rowSets.flat().sort((a, b) => {
-    const finishedDiff = isFinished(a) - isFinished(b);
-    if (finishedDiff !== 0) return finishedDiff;
+    const priorityDiff = isBottomList(a) - isBottomList(b);
+    if (priorityDiff !== 0) return priorityDiff;
     return String(b.created_at).localeCompare(String(a.created_at));
   });
   const start = (page - 1) * perPage;
@@ -290,7 +319,38 @@ workOrderRouter.post('/work-orders/approve', authenticate, asyncHandler(async (r
 workOrderRouter.post('/work-orders/reject', authenticate, asyncHandler(async (req, res) => transition(req as AuthRequest, res, 'reject')));
 workOrderRouter.post('/work-orders/close', authenticate, asyncHandler(async (req, res) => transition(req as AuthRequest, res, 'close')));
 workOrderRouter.post('/work-orders/void', authenticate, asyncHandler(async (req, res) => transition(req as AuthRequest, res, 'void')));
-async function transition(req: AuthRequest, res: import('express').Response, action: 'approve'|'reject'|'close'|'void'): Promise<void> { const domain = domainOf(String(req.body.module ?? 'maintenance')); const d = domains[domain]; const wo = String(req.body.wo_number ?? ''); const comment = String(req.body.comment ?? req.body.reason ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const item = await header(domain, wo) as Record<string, unknown> | null; if (!item) throw new HttpError(404, 'Work order not found'); if (terminal.has(String(item.status).toUpperCase())) throw new HttpError(409, 'Work order is already terminal'); const target = action === 'approve' ? 'IN_PROGRESS_EXECUTOR' : action === 'reject' ? 'REJECT' : action === 'close' ? 'CLOSED' : 'VOID'; await transaction(async (connection) => { await approval(connection, d.approval, wo, req.user!, comment); await connection.execute(`UPDATE \`${d.table}\` SET status=?, pic=?, updated_at=NOW()${action === 'close' ? ', closedDate=NOW()' : ''}${action === 'void' ? ', reason=?' : ''} WHERE wo_number=?`, action === 'void' ? [target, '-', comment, wo] : [target, action === 'approve' ? executorFor(domain, req.user!) : '-', wo]); }); ok(res, { wo_number: wo, status: target }, `Work order ${action}d`); }
+async function transition(req: AuthRequest, res: import('express').Response, action: 'approve'|'reject'|'close'|'void'): Promise<void> {
+  const domain = domainOf(String(req.body.module ?? 'maintenance'));
+  const d = domains[domain];
+  const wo = String(req.body.wo_number ?? '');
+  const comment = String(req.body.comment ?? req.body.reason ?? '');
+  if (!wo) throw new HttpError(400, 'wo_number is required');
+  const item = await header(domain, wo) as Record<string, unknown> | null;
+  if (!item) throw new HttpError(404, 'Work order not found');
+  if (terminal.has(String(item.status).toUpperCase())) throw new HttpError(409, 'Work order is already terminal');
+
+  // Halaman detail memakai endpoint gabungan ini. Terapkan otorisasi yang
+  // sama dengan Approval Center supaya tombol Close dan API-nya sama-sama
+  // hanya berlaku bagi creator/divisi pemohon yang mendapat task closing.
+  if (action === 'close') {
+    const moduleKey: Record<Domain, string> = {
+      is: 'wo_it', ga: 'wo_ga', meso: 'wo_mtc', maintenance: 'wo_operational', production: 'wo_preventive',
+    };
+    if (!(await isPendingWoClosing(req.user!, moduleKey[domain], wo))) {
+      throw new HttpError(403, 'WO is not available for closing by this user', 'APPROVAL_NOT_PENDING');
+    }
+  }
+
+  const target = action === 'approve' ? 'IN_PROGRESS_EXECUTOR' : action === 'reject' ? 'REJECT' : action === 'close' ? 'CLOSED' : 'VOID';
+  await transaction(async (connection) => {
+    await approval(connection, d.approval, wo, req.user!, comment);
+    await connection.execute(
+      `UPDATE \`${d.table}\` SET status=?, pic=?, updated_at=NOW()${action === 'close' ? ', closedDate=NOW()' : ''}${action === 'void' ? ', reason=?' : ''} WHERE wo_number=?`,
+      action === 'void' ? [target, '-', comment, wo] : [target, action === 'approve' ? executorFor(domain, req.user!) : '-', wo],
+    );
+  });
+  ok(res, { wo_number: wo, status: target }, `Work order ${action}d`);
+}
 
 workOrderRouter.post('/work-orders/planner', authenticate, asyncHandler(async (req, res) => { const domain = domainOf(String(req.body.module ?? 'maintenance')); const wo = String(req.body.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const rawExecutors = Array.isArray(req.body.job_executor) ? req.body.job_executor : (Array.isArray(req.body.executors) ? req.body.executors : []); const executors = rawExecutors.map((e: unknown) => typeof e === 'object' && e !== null ? String((e as Record<string, unknown>).job_executor ?? '') : String(e)).filter(Boolean); const startedPlanner = req.body.started_planner ?? null; const finishedPlanner = req.body.finished_planner ?? null; const estimatePlanner = req.body.estimate_planner ?? null; await transaction(async (connection) => { if (executors.length) { await connection.execute('DELETE FROM tb_job_executor WHERE wo_number=?', [wo]); for (const executor of executors) await connection.execute('INSERT INTO tb_job_executor (wo_number,job_executor,status,created_at) VALUES (?,?,?,NOW())', [wo, executor, 'IN_PROGRESS']); } const executorSql = executors.length ? ', job_executor=?' : ''; const executorParams = executors.length ? [executors.join(',')] : []; await connection.execute(`UPDATE \`${domains[domain].table}\` SET status='IN_PROGRESS_EXECUTOR', started_planner=?, finished_planner=?, estimate_planner=?, updated_at=NOW()${executorSql} WHERE wo_number=?`, [startedPlanner, finishedPlanner, estimatePlanner, ...executorParams, wo]); }); ok(res, { wo_number: wo, job_executor: executors.join(',') }, 'Planner assignment saved'); }));
 workOrderRouter.post('/work-orders/sub', authenticate, asyncHandler(async (req, res) => { const source = domainOf(String(req.body.module ?? 'maintenance')); const target = resolveTargetDomain(String(req.body.target_domain ?? req.body.sub_to ?? req.body.subto ?? '')); const sourceWoNumber = String(req.body.wo_number ?? ''); const original = await header(source, sourceWoNumber) as Record<string, unknown> | null; if (!original) throw new HttpError(404, 'Source work order not found'); const user = (req as AuthRequest).user!; const d = domains[target]; const executor = executorFor(target, user); const number = await transaction(async (connection) => { const n = await nextNumber(connection, target, String(user.division_code ?? user.id_division)); await connection.execute(`INSERT INTO \`${d.table}\` (wo_number,date,company,shift,type_wo,priority,id_division,id_equipment,job_title,running_hours,job_requirement,job_executor,status,pic,creator,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`, [n, new Date().toISOString().slice(0,10), original.company ?? '', original.shift ?? '', original.type_wo ?? 'CORRECTIVE', original.priority ?? 'NORMAL', original.id_division, original.id_equipment, original.job_title, original.running_hours ?? null, original.job_requirement ?? '', executor, 'WAIT_KA_DIV', executor, user.fullname] as never); return n; }); created(res, { wo_number: sourceWoNumber, sub_wo_number: number, sub_to: executor, module: target }, 'Sub work order created'); }));

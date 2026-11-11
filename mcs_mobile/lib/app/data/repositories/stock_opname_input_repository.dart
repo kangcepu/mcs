@@ -11,6 +11,7 @@ import '../models/category_model.dart';
 import '../models/company_model.dart';
 import '../models/location_model.dart';
 import '../../core/constants/api_constants.dart';
+import 'master_repository.dart';
 
 class StockOpnameInputRepository {
   Future<String?> _getToken() async {
@@ -193,7 +194,7 @@ class StockOpnameInputRepository {
       if (parsed != null) {
         final id = parsed.queryParameters['id'];
         if (id != null && id.trim().isNotEmpty) {
-          return Uri.decodeComponent(id).trim();
+          return id.trim();
         }
       }
 
@@ -475,7 +476,20 @@ class StockOpnameInputRepository {
         };
       }
 
-      final normalizedAssetCode = _normalizeScannedAssetCode(scannedValue);
+      var normalizedAssetCode = _normalizeScannedAssetCode(scannedValue);
+      // Sebagian QR legacy menyimpan bin2hex(AssetID), contoh `363635` ->
+      // `665`. Service SO memvalidasi AssetCode, jadi resolve ID tersebut ke
+      // kode lengkap sebelum retry (665 -> GSU/LOC-WNB/0005).
+      if (RegExp(r'^\d+$').hasMatch(normalizedAssetCode)) {
+        try {
+          final asset = await MasterRepository()
+              .getAssetDetail(assetCode: normalizedAssetCode);
+          final resolvedCode = (asset['AssetCode'] ?? '').toString().trim();
+          if (resolvedCode.isNotEmpty) normalizedAssetCode = resolvedCode;
+        } catch (error) {
+          debugPrint('SO resolve legacy AssetID failed: $error');
+        }
+      }
 
       // Jika 409 pada check pertama → aset sudah di-scan, langsung return
       // tanpa retry. Jangan normalisasi kode dulu karena asetnya sudah valid
@@ -496,14 +510,16 @@ class StockOpnameInputRepository {
         };
       }
 
-      // Untuk 400/404: coba sekali lagi dengan kode yang sudah dinormalisasi
-      // (strip URL, decode hex) sebelum menyerah.
-      if ((checkResponse.statusCode == 400 ||
-              checkResponse.statusCode == 404) &&
+      // Service SO di beberapa deployment mengembalikan 400, 404, atau 422
+      // ketika menerima URL QR lama. Untuk seluruh client-error selain 409,
+      // retry sekali dengan AssetCode exact hasil strip URL/decode hex.
+      if (checkResponse.statusCode >= 400 &&
+          checkResponse.statusCode < 500 &&
+          checkResponse.statusCode != 409 &&
           normalizedAssetCode.isNotEmpty &&
           normalizedAssetCode != scannedValue) {
-        checkResponse =
-            await _postJson(checkUri, headers, {'AssetCode': normalizedAssetCode});
+        checkResponse = await _postJson(
+            checkUri, headers, {'AssetCode': normalizedAssetCode});
         checkRaw = checkResponse.body;
         checkPreview =
             checkRaw.length > 500 ? checkRaw.substring(0, 500) : checkRaw;
@@ -529,10 +545,10 @@ class StockOpnameInputRepository {
       }
 
       final dynamic data = checkBody['data'];
-      String validAssetCode = normalizedAssetCode.isNotEmpty &&
-              normalizedAssetCode != scannedValue
-          ? normalizedAssetCode
-          : scannedValue;
+      String validAssetCode =
+          normalizedAssetCode.isNotEmpty && normalizedAssetCode != scannedValue
+              ? normalizedAssetCode
+              : scannedValue;
       String assetName = '';
       if (data is Map<String, dynamic>) {
         final code =
@@ -571,7 +587,8 @@ class StockOpnameInputRepository {
       }
 
       final submitBody = _tryDecodeMap(_stripBom(submitRaw));
-      if (submitResponse.statusCode == 200 || submitResponse.statusCode == 201) {
+      if (submitResponse.statusCode == 200 ||
+          submitResponse.statusCode == 201) {
         return {
           'status': true,
           'message': _readMessage(submitBody, 'Asset scanned successfully'),

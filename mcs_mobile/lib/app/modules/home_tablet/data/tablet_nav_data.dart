@@ -19,6 +19,7 @@ class TabletNavItem {
   final IconData icon;
   final String? route;
   final List<TabletNavChild>? children;
+
   /// Menu baru yang belum ada fiturnya sama sekali (bukan sekadar belum
   /// di-port) — tampil dengan badge "Segera" seperti `comingSoon` di web.
   final bool comingSoon;
@@ -65,12 +66,30 @@ final List<TabletNavSection> tabletNavSections = [
         title: 'Reports',
         icon: Icons.bar_chart_outlined, // FileBarChart2
         children: const [
-          TabletNavChild(title: 'Report Assets', icon: Icons.description_outlined, route: AppRoutes.reportAsset), // FileText
-          TabletNavChild(title: 'Asset History', icon: Icons.history_outlined, route: AppRoutes.reportAssetHistory), // ClipboardList
-          TabletNavChild(title: 'Cetak QR', icon: Icons.qr_code_outlined, route: AppRoutes.reportQr), // FileBarChart2
-          TabletNavChild(title: 'Report Stock Opname', icon: Icons.inventory_outlined, route: AppRoutes.reportSo), // PackageSearch
-          TabletNavChild(title: 'List Of Asset', icon: Icons.inventory_2_outlined, route: AppRoutes.reportAsset), // Boxes
-          TabletNavChild(title: 'Recap Work Order', icon: Icons.summarize_outlined, route: AppRoutes.reportWoRecap), // ClipboardCheck
+          TabletNavChild(
+              title: 'Report Assets',
+              icon: Icons.description_outlined,
+              route: AppRoutes.reportAsset), // FileText
+          TabletNavChild(
+              title: 'Asset History',
+              icon: Icons.history_outlined,
+              route: AppRoutes.reportAssetHistory), // ClipboardList
+          TabletNavChild(
+              title: 'Cetak QR',
+              icon: Icons.qr_code_outlined,
+              route: AppRoutes.reportQr), // FileBarChart2
+          TabletNavChild(
+              title: 'Report Stock Opname',
+              icon: Icons.inventory_outlined,
+              route: AppRoutes.reportSo), // PackageSearch
+          TabletNavChild(
+              title: 'List Of Asset',
+              icon: Icons.inventory_2_outlined,
+              route: AppRoutes.reportAsset), // Boxes
+          TabletNavChild(
+              title: 'Recap Work Order',
+              icon: Icons.summarize_outlined,
+              route: AppRoutes.reportWoRecap), // ClipboardCheck
         ],
       ),
       const TabletNavItem(
@@ -104,11 +123,16 @@ final List<TabletNavSection> tabletNavSections = [
         // di sini supaya tap-nya inline (ganti tab modul di TabletWorkOrdersPage),
         // bukan Get.toNamed ke layar list gaya HP yang terpisah.
         children: const [
-          TabletNavChild(title: 'MESO', icon: Icons.fact_check_outlined), // ClipboardCheck
-          TabletNavChild(title: 'Maintenance', icon: Icons.build_outlined), // Wrench
-          TabletNavChild(title: 'Production', icon: Icons.precision_manufacturing_outlined), // Factory
+          TabletNavChild(
+              title: 'MESO', icon: Icons.fact_check_outlined), // ClipboardCheck
+          TabletNavChild(
+              title: 'Maintenance', icon: Icons.build_outlined), // Wrench
+          TabletNavChild(
+              title: 'Production',
+              icon: Icons.precision_manufacturing_outlined), // Factory
           TabletNavChild(title: 'IS', icon: Icons.dns_outlined), // MonitorCog
-          TabletNavChild(title: 'GA', icon: Icons.apartment_outlined), // Building2
+          TabletNavChild(
+              title: 'GA', icon: Icons.apartment_outlined), // Building2
         ],
       ),
       const TabletNavItem(
@@ -116,6 +140,15 @@ final List<TabletNavSection> tabletNavSections = [
         title: 'Daily Control',
         icon: Icons.event_available_outlined, // CalendarCheck2
         route: AppRoutes.dailyControl,
+      ),
+      // Operasional SO tetap memakai flow yang sama dengan mobile supaya
+      // create, BOM/non-BOM, scan, non-asset/non-part, lock, dan submit
+      // tidak terpecah menjadi implementasi tablet yang berbeda.
+      const TabletNavItem(
+        key: 'stock_opname',
+        title: 'Stock Opname',
+        icon: Icons.inventory_outlined,
+        route: AppRoutes.stockOpnameList,
       ),
       const TabletNavItem(
         key: 'preventive_schedule',
@@ -171,18 +204,37 @@ final List<TabletNavSection> tabletNavSections = [
         title: 'Master Data',
         icon: Icons.storage_outlined, // Database
         children: const [
-          TabletNavChild(title: 'Company Structure', icon: Icons.apartment_outlined), // Building2
-          TabletNavChild(title: 'Asset Category', icon: Icons.sell_outlined), // Tags
-          TabletNavChild(title: 'Asset Location', icon: Icons.location_on_outlined), // MapPin
-          TabletNavChild(title: 'Kategori Lampiran Aset', icon: Icons.attach_file_outlined), // Paperclip
-          TabletNavChild(title: 'Permission Group', icon: Icons.shield_outlined), // ShieldCheck
+          TabletNavChild(
+              title: 'Company Structure',
+              icon: Icons.apartment_outlined), // Building2
+          TabletNavChild(
+              title: 'Asset Category', icon: Icons.sell_outlined), // Tags
+          TabletNavChild(
+              title: 'Asset Location',
+              icon: Icons.location_on_outlined), // MapPin
+          TabletNavChild(
+              title: 'Kategori Lampiran Aset',
+              icon: Icons.attach_file_outlined), // Paperclip
+          TabletNavChild(
+              title: 'Permission Group',
+              icon: Icons.shield_outlined), // ShieldCheck
           TabletNavChild(title: 'User', icon: Icons.group_outlined), // Users
-          TabletNavChild(title: 'User Alias', icon: Icons.contacts_outlined), // Contact
-          TabletNavChild(title: 'Branding & Storage', icon: Icons.palette_outlined), // Palette
-          TabletNavChild(title: 'Log Event', icon: Icons.history_outlined), // History
-          TabletNavChild(title: 'Jadwal Preventive (Cron)', icon: Icons.timer_outlined), // Timer
-          TabletNavChild(title: 'Backup Database', icon: Icons.backup_outlined), // Database
-          TabletNavChild(title: 'Release & Device Mobile', icon: Icons.smartphone_outlined), // Smartphone
+          TabletNavChild(
+              title: 'User Alias', icon: Icons.contacts_outlined), // Contact
+          TabletNavChild(
+              title: 'Branding & Storage',
+              icon: Icons.palette_outlined), // Palette
+          TabletNavChild(
+              title: 'Log Event', icon: Icons.history_outlined), // History
+          TabletNavChild(
+              title: 'Jadwal Preventive (Cron)',
+              icon: Icons.timer_outlined), // Timer
+          TabletNavChild(
+              title: 'Backup Database',
+              icon: Icons.backup_outlined), // Database
+          TabletNavChild(
+              title: 'Release & Device Mobile',
+              icon: Icons.smartphone_outlined), // Smartphone
         ],
       ),
     ],
@@ -191,4 +243,5 @@ final List<TabletNavSection> tabletNavSections = [
 
 /// Daftar flat semua menu — dipertahankan untuk kode lama yang butuh iterasi
 /// tanpa section (mis. pencarian item berdasarkan key).
-List<TabletNavItem> get tabletNavItems => tabletNavSections.expand((s) => s.items).toList();
+List<TabletNavItem> get tabletNavItems =>
+    tabletNavSections.expand((s) => s.items).toList();

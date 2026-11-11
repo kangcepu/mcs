@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/fleet";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { FleetOverview, FleetProfile } from "@/types/fleet";
+import { FleetControlPanel } from "@/components/fleet/fleet-control-panel";
 
 type FormKind = "profile" | "meter" | "inspection" | "fuel" | "service" | null;
 type FormState = Record<string, string | boolean>;
@@ -81,7 +82,7 @@ export default function FleetPage() {
   const toast = useToast();
   const query = useQuery({ queryKey: ["fleet-overview"], queryFn: ({ signal }) => getFleetOverview(signal) });
   const data = query.data?.data;
-  const [tab, setTab] = useState("master");
+  const [tab, setTab] = useState("dashboard");
   const [formKind, setFormKind] = useState<FormKind>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -151,12 +152,15 @@ export default function FleetPage() {
       </div>
 
       <Tabs value={tab} onChange={setTab} items={[
+        { key: "dashboard", label: "Dashboard & Control" },
         { key: "master", label: "Master Fleet", count: profiles.length },
         { key: "inspection", label: "Daily Inspection", count: data?.inspections.length },
         { key: "fuel", label: "Fuel", count: data?.fuel_transactions.length },
         { key: "service", label: "Preventive & Service", count: data?.services.length },
         { key: "anomaly", label: "Anomaly", count: data?.stats.open_anomalies },
       ]} />
+
+      {tab === "dashboard" ? <FleetControlPanel overview={data} canWrite={canWrite} /> : null}
 
       {tab === "master" ? <section className="space-y-3">
         {profiles.map((item) => <Card key={item.id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">

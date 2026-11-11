@@ -80,6 +80,64 @@ export function deletePendingChildAsset(pendingId: number) {
   return apiV2.post<null>("/assets/children/pending/delete", { pending_id: pendingId });
 }
 
+export interface ManualChildAssetItemInput {
+  item_name: string;
+  frequency?: string;
+  pic?: string;
+  condition_text?: string;
+  photo_1?: File | null;
+  photo_2?: File | null;
+}
+
+export interface ManualChildAssetResult {
+  group_id: number;
+  group_name: string;
+  items: Array<{ id: number; item_name: string }>;
+  photo_upload_failures?: number;
+}
+
+export async function createManualChildAssetGroup(
+  parentAsset: string,
+  groupName: string,
+  items: ManualChildAssetItemInput[],
+): Promise<ApiResponse<ManualChildAssetResult>> {
+  const response = await apiV2.post<ManualChildAssetResult>("/assets/children/manual", {
+    parent_asset: parentAsset,
+    group_name: groupName,
+    items: items.map(({ photo_1: _photo1, photo_2: _photo2, ...item }) => item),
+  });
+  const createdItems = response.data?.items ?? [];
+  let photoUploadFailures = 0;
+  for (let index = 0; index < createdItems.length; index += 1) {
+    const detail = createdItems[index];
+    const input = items[index];
+    if (!detail || !input) continue;
+    if (input.photo_1) {
+      try { await uploadChildAssetPhoto(detail.id, 1, input.photo_1); } catch { photoUploadFailures += 1; }
+    }
+    if (input.photo_2) {
+      try { await uploadChildAssetPhoto(detail.id, 2, input.photo_2); } catch { photoUploadFailures += 1; }
+    }
+  }
+  if (response.data) response.data.photo_upload_failures = photoUploadFailures;
+  return response;
+}
+
+export function uploadChildAssetPhoto(detailId: number, slot: 1 | 2, photo: File) {
+  const formData = new FormData();
+  formData.append("slot", String(slot));
+  formData.append("photo", photo);
+  return apiV2.post<{ detail_id: number; slot: number; url: string }>(
+    `/assets/children/pending/${detailId}/photo`,
+    undefined,
+    { formData },
+  );
+}
+
+export function deleteChildAssetPhoto(detailId: number, slot: 1 | 2) {
+  return apiV2.delete<{ detail_id: number; slot: number }>(`/assets/children/pending/${detailId}/photo/${slot}`);
+}
+
 export interface ChildAssetImportRow {
   row: number;
   child_name: string;

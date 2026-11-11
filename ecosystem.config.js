@@ -7,6 +7,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3100,
+        MCS_WEB_BASE_URL: 'http://192.168.11.2:3101',
       },
     },
     {

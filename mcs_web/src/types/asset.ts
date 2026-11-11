@@ -124,6 +124,14 @@ export interface AssetDetail extends AssetListItem {
       CategoryAsset?: string | null;
       LocationAsset?: string | null;
       active?: string | null;
+      photo_1_path?: string | null;
+      photo_1_name?: string | null;
+      photo_1_mime?: string | null;
+      photo_1_url?: string | null;
+      photo_2_path?: string | null;
+      photo_2_name?: string | null;
+      photo_2_mime?: string | null;
+      photo_2_url?: string | null;
     }>;
   }>;
   bom?: AssetBomItem[];

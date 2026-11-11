@@ -8,7 +8,9 @@ import {
 } from "@tanstack/react-query";
 import {
   attachChildAsset,
+  createManualChildAssetGroup,
   createAsset,
+  deleteChildAssetPhoto,
   detachChildAsset,
   generateAssetCode,
   getAssetDetail,
@@ -21,8 +23,10 @@ import {
   deletePendingChildAsset,
   searchWorkOrderAssets,
   setAssetStatus,
+  uploadChildAssetPhoto,
   updateAsset,
 } from "@/lib/api/assets";
+import type { ManualChildAssetItemInput } from "@/lib/api/assets";
 import type { AssetFilters } from "@/types/asset";
 
 export function useAssets(filters: AssetFilters) {
@@ -141,6 +145,23 @@ export function useAssetMutations(asset?: string) {
     }),
     deletePendingChild: useMutation({
       mutationFn: (pendingId: number) => deletePendingChildAsset(pendingId),
+      onSuccess: invalidateHierarchy,
+    }),
+    addManualChildGroup: useMutation({
+      mutationFn: (vars: { groupName: string; items: ManualChildAssetItemInput[] }) => {
+        if (!asset) throw new Error("Kode aset induk tidak tersedia.");
+        return createManualChildAssetGroup(asset, vars.groupName, vars.items);
+      },
+      onSuccess: invalidateHierarchy,
+    }),
+    uploadChildPhoto: useMutation({
+      mutationFn: (vars: { detailId: number; slot: 1 | 2; photo: File }) =>
+        uploadChildAssetPhoto(vars.detailId, vars.slot, vars.photo),
+      onSuccess: invalidateHierarchy,
+    }),
+    deleteChildPhoto: useMutation({
+      mutationFn: (vars: { detailId: number; slot: 1 | 2 }) =>
+        deleteChildAssetPhoto(vars.detailId, vars.slot),
       onSuccess: invalidateHierarchy,
     }),
     importChildren: useMutation({

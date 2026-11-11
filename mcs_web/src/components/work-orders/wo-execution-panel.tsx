@@ -23,6 +23,14 @@ import { ApiError } from "@/types/api";
 import { pick } from "@/lib/display";
 
 const FINAL = ["CLOSED", "VOID", "REJECT", "DECLINE", "NEED_CLOSED"];
+const EXECUTION_READY = [
+  "WAIT_EXECUTOR_ADMIN",
+  "IN_PROGRESS",
+  "IN_PROGRESS_EXECUTOR",
+  "WAITING_PARTS",
+  "PARTS_RECEIVED",
+  "COMPLETE_EXECUTOR",
+];
 
 export function WoExecutionPanel({
   module,
@@ -57,15 +65,16 @@ export function WoExecutionPanel({
   >(null);
 
   const isFinal = FINAL.includes(woStatus.toUpperCase());
+  const executionReady = EXECUTION_READY.includes(woStatus.toUpperCase());
   const canForward = module === "maintenance";
   const canManageNow = canManage && !isFinal;
   const canSub = canManageNow && module !== "production";
-  const canForceCompleteNow = canForceComplete && !isFinal;
+  const canForceCompleteNow = canForceComplete && executionReady && !isFinal;
   const anyCap =
-    caps.job ||
-    caps.labor ||
-    caps.material ||
-    caps.complete ||
+    (executionReady && caps.job) ||
+    (executionReady && caps.labor) ||
+    (executionReady && caps.material) ||
+    (executionReady && caps.complete) ||
     canForward ||
     canManageNow ||
     canForceCompleteNow;
@@ -75,25 +84,25 @@ export function WoExecutionPanel({
 
   return (
     <>
-      {caps.job ? (
+      {executionReady && caps.job ? (
         <Button variant="secondary" onClick={() => setOpen("job")}>
           <ClipboardCheck className="h-4 w-4" />
           Update Pekerjaan
         </Button>
       ) : null}
-      {caps.labor ? (
+      {executionReady && caps.labor ? (
         <Button variant="secondary" onClick={() => setOpen("labor")}>
           <Users className="h-4 w-4" />
           Tambah Labor
         </Button>
       ) : null}
-      {caps.material ? (
+      {executionReady && caps.material ? (
         <Button variant="secondary" onClick={() => setOpen("material")}>
           <PackagePlus className="h-4 w-4" />
           Ajukan Part
         </Button>
       ) : null}
-      {caps.complete && !caps.job ? (
+      {executionReady && caps.complete && !caps.job ? (
         <Button variant="secondary" onClick={() => setOpen("complete")}>
           <CheckCircle2 className="h-4 w-4" />
           Selesaikan

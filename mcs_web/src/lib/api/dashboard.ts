@@ -76,6 +76,39 @@ export interface DashboardData {
       coverage_percent: number;
     }>;
   };
+  enterprise: {
+    version: string;
+    generated_at: string;
+    last_success_at: string;
+    data_quality_status: string;
+    scope: {
+      company: string | null;
+      available_companies: string[];
+      period_from: string;
+      period_to: string;
+      timezone: string;
+    };
+    headline: Record<string, {
+      key: string;
+      label: string;
+      value: number | null;
+      unit: string;
+      numerator?: number;
+      denominator?: number;
+      data_quality_status: string;
+      detail_route: string | null;
+      source?: string;
+    }>;
+    domains: Array<{
+      key: string;
+      label: string;
+      status: "available" | "not_active" | "no_permission";
+      primary: { label: string; value: number | null; unit?: string };
+      secondary: Array<{ label: string; value: number | null; unit?: string }>;
+      detail_route: string | null;
+      note?: string;
+    }>;
+  };
 }
 
 /** GET /v2/dashboard — semua agregat dalam satu panggilan. */

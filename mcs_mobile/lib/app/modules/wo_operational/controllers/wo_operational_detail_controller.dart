@@ -99,7 +99,6 @@ class WoOperationalDetailController extends GetxController
     if (_isFinalStatus(status)) return false;
     return isExecutor &&
         (status == 'WAIT_EXECUTOR_ADMIN' ||
-            status == 'WAIT_KA_DIV' ||
             status == 'WAITING_PARTS' ||
             status == 'PARTS_RECEIVED' ||
             status == 'IN_PROGRESS_EXECUTOR');
@@ -108,9 +107,13 @@ class WoOperationalDetailController extends GetxController
   /// All preventive part actions require the dedicated executor permission.
   /// Module access alone only allows the user to view the work order.
   bool get canUpdatePreventivePart {
+    final status = _normalizeStatus(workOrder.value?.status ?? '');
     return hasWoExecutorPermission.value &&
         !isReadOnlyCrossViewer.value &&
-        !_isFinalStatus(_normalizeStatus(workOrder.value?.status ?? ''));
+        (status == 'WAIT_EXECUTOR_ADMIN' ||
+            status == 'WAITING_PARTS' ||
+            status == 'PARTS_RECEIVED' ||
+            status == 'IN_PROGRESS_EXECUTOR');
   }
 
   bool get canComplete {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/device_type.dart';
 
 class ResponsiveAppWrapper extends StatelessWidget {
   final Widget child;
@@ -8,12 +9,11 @@ class ResponsiveAppWrapper extends StatelessWidget {
     required this.child,
   });
 
-  bool _isTablet(MediaQueryData media) => media.size.shortestSide >= 600;
-
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final isTablet = _isTablet(media);
+    final isTablet =
+        media.size.shortestSide >= kTabletShortestSideThreshold;
     final currentScale = media.textScaler.scale(14) / 14;
     final maxScale = isTablet ? 1.1 : 1.2;
     final resolvedScale = currentScale < 1.0

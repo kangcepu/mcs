@@ -67,6 +67,7 @@ export const AREA_PERMISSIONS = {
     read: [PERMISSIONS.listOfAsset, PERMISSIONS.privilageAsset],
     write: [PERMISSIONS.privilageAsset],
   },
+  spareparts: { read: [PERMISSIONS.materialUsage], write: [PERMISSIONS.materialUsage] },
   materialUsage: { read: [PERMISSIONS.materialUsage] },
   approvalCenter: { read: [] as string[] },
   voidCenter: {

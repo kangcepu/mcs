@@ -1,4 +1,4 @@
-import { one, rows } from '../db.js';
+import { one, rows, tableExists } from '../db.js';
 import { companyFilterVariants, resolveCompanyCode } from './employee-api.js';
 import { normalizeTypeWo } from '../routes/work-orders.js';
 import type { User } from '../types.js';
@@ -146,6 +146,302 @@ function emptyPayload(range: number, fromStr: string, toStr: string): Record<str
 
 export interface DashboardFilters { range?: number | string; company?: string; module?: string }
 
+type DashboardDataState = 'available' | 'not_active' | 'no_permission';
+
+interface DashboardDomainSnapshot {
+  key: string;
+  label: string;
+  status: DashboardDataState;
+  primary: { label: string; value: number | null; unit?: string };
+  secondary: Array<{ label: string; value: number | null; unit?: string }>;
+  detail_route: string | null;
+  note?: string;
+}
+
+function hasAnyPermission(user: User, permissions: string[]): boolean {
+  if (Number(user.user_management ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1) return true;
+  return permissions.some((permission) => Number(user[permission] ?? 0) === 1);
+}
+
+function unavailableDomain(
+  key: string,
+  label: string,
+  status: Exclude<DashboardDataState, 'available'>,
+  note: string,
+): DashboardDomainSnapshot {
+  return {
+    key,
+    label,
+    status,
+    primary: { label: status === 'no_permission' ? 'Tidak dapat diakses' : 'Belum aktif', value: null },
+    secondary: [],
+    detail_route: null,
+    note,
+  };
+}
+
+async function getEnterpriseSnapshot(
+  user: User,
+  params: {
+    company: string;
+    from: string;
+    toExclusive: string;
+    totals: { total: number; open: number; in_progress: number; closed: number; rejected: number };
+    byModule: Record<string, unknown>[];
+    preventiveCoverage: { required: number; scheduled: number; missing: number };
+  },
+): Promise<Record<string, unknown>> {
+  const generatedAt = new Date().toISOString();
+  const companyVariants = params.company ? companyFilterVariants(params.company) : [];
+  const companySql = (alias: string) => companyVariants.length
+    ? ` AND ${alias}.CompanyName IN (${companyVariants.map(() => '?').join(',')})`
+    : '';
+  const companyParams = companyVariants;
+
+  const canReadAsset = hasAnyPermission(user, ['list_of_asset', 'privilage_asset', 'approve_asset']);
+  const canReadGovernance = hasAnyPermission(user, ['list_of_asset', 'privilage_asset', 'approve_asset', 'approval_all']);
+
+  const companies = (await tableExists('tb_company'))
+    ? (await rows<{ company_name: string }>('SELECT company_name FROM tb_company ORDER BY company_name'))
+        .map((row) => String(row.company_name ?? '').trim())
+        .filter(Boolean)
+    : [];
+
+  let assetDomain: DashboardDomainSnapshot;
+  let assetMetric: Record<string, unknown> = {
+    key: 'asset_active', label: 'Asset aktif', value: null, unit: 'asset',
+    data_quality_status: canReadAsset ? 'not_active' : 'no_permission', detail_route: null,
+  };
+  if (!canReadAsset) {
+    assetDomain = unavailableDomain('asset', 'Asset Management', 'no_permission', 'Hak akses Asset Management diperlukan.');
+  } else {
+    const assetCount = await one<{ total: number; active: number; inactive: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN LOWER(COALESCE(active,''))='active' THEN 1 ELSE 0 END) AS active,
+              SUM(CASE WHEN LOWER(COALESCE(active,''))='inactive' THEN 1 ELSE 0 END) AS inactive
+       FROM asset a WHERE 1=1${companySql('a')}`,
+      companyParams,
+    );
+    const active = Number(assetCount?.active ?? 0);
+    assetDomain = {
+      key: 'asset', label: 'Asset Management', status: 'available',
+      primary: { label: 'Asset aktif', value: active, unit: 'asset' },
+      secondary: [
+        { label: 'Total terdaftar', value: Number(assetCount?.total ?? 0), unit: 'asset' },
+        { label: 'Nonaktif', value: Number(assetCount?.inactive ?? 0), unit: 'asset' },
+      ],
+      detail_route: '/assets',
+      note: 'Verified rate dan kondisi kritikal belum ditampilkan karena master verifikasi belum tersedia.',
+    };
+    assetMetric = {
+      key: 'asset_active', label: 'Asset aktif', value: active, unit: 'asset',
+      data_quality_status: 'valid', detail_route: '/assets',
+    };
+  }
+
+  const maintenanceDomain: DashboardDomainSnapshot = {
+    key: 'maintenance', label: 'Maintenance & Work Order', status: 'available',
+    primary: { label: 'WO aktif', value: params.totals.open + params.totals.in_progress, unit: 'WO' },
+    secondary: [
+      { label: 'WO periode ini', value: params.totals.total, unit: 'WO' },
+      { label: 'Asset belum PM', value: Number(params.preventiveCoverage.missing ?? 0), unit: 'asset' },
+    ],
+    detail_route: '/work-orders',
+    note: 'MTTR/MTBF menunggu timestamp breakdown dan operating hour tervalidasi.',
+  };
+
+  let fleetDomain: DashboardDomainSnapshot;
+  if (!canReadAsset) {
+    fleetDomain = unavailableDomain('fleet', 'Fleet & Vehicle', 'no_permission', 'Hak akses Asset Management diperlukan.');
+  } else if (!(await tableExists('fleet_vehicle_profile'))) {
+    fleetDomain = unavailableDomain('fleet', 'Fleet & Vehicle', 'not_active', 'Migration Fleet belum aktif.');
+  } else {
+    const fleet = await one<{ total: number; active: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN UPPER(COALESCE(v.status,''))='ACTIVE' THEN 1 ELSE 0 END) AS active
+       FROM fleet_vehicle_profile v JOIN asset a ON a.AssetID=v.asset_id
+       WHERE 1=1${companySql('a')}`,
+      companyParams,
+    );
+    const anomaly = (await tableExists('fleet_anomaly'))
+      ? await one<{ total: number }>(
+          `SELECT COUNT(*) AS total FROM fleet_anomaly n
+           JOIN fleet_vehicle_profile v ON v.id=n.vehicle_id
+           JOIN asset a ON a.AssetID=v.asset_id
+           WHERE UPPER(n.status) NOT IN ('RESOLVED','CLOSED')${companySql('a')}`,
+          companyParams,
+        )
+      : null;
+    fleetDomain = {
+      key: 'fleet', label: 'Fleet & Vehicle', status: 'available',
+      primary: { label: 'Armada aktif', value: Number(fleet?.active ?? 0), unit: 'unit' },
+      secondary: [
+        { label: 'Total armada', value: Number(fleet?.total ?? 0), unit: 'unit' },
+        { label: 'Anomali terbuka', value: anomaly ? Number(anomaly.total ?? 0) : null, unit: 'kasus' },
+      ],
+      detail_route: '/fleet',
+    };
+  }
+
+  let energyDomain: DashboardDomainSnapshot;
+  if (!canReadAsset) {
+    energyDomain = unavailableDomain('energy', 'Energy & Utilities', 'no_permission', 'Hak akses Energy/Asset diperlukan.');
+  } else if (!(await tableExists('energy_asset_profile'))) {
+    energyDomain = unavailableDomain('energy', 'Energy & Utilities', 'not_active', 'Migration Energy belum aktif.');
+  } else {
+    const profiles = await one<{ total: number; active: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN UPPER(COALESCE(p.status,''))='ACTIVE' THEN 1 ELSE 0 END) AS active
+       FROM energy_asset_profile p JOIN asset a ON a.AssetID=p.asset_id
+       WHERE 1=1${companySql('a')}`,
+      companyParams,
+    );
+    let measured: number | null = null;
+    let estimated: number | null = null;
+    if (await tableExists('energy_meter_reading')) {
+      const consumption = await one<{ measured: number | null; estimated: number | null }>(
+        `SELECT
+          SUM(CASE WHEN UPPER(COALESCE(r.reading_type,'MEASURED'))='MEASURED' THEN r.consumption END) AS measured,
+          SUM(CASE WHEN UPPER(COALESCE(r.reading_type,''))='ESTIMATED' THEN r.consumption END) AS estimated
+         FROM energy_meter_reading r
+         JOIN energy_meter m ON m.id=r.meter_id
+         JOIN energy_asset_profile p ON p.id=m.energy_profile_id
+         JOIN asset a ON a.AssetID=p.asset_id
+         WHERE UPPER(r.status)='LOCKED' AND r.reading_period>=? AND r.reading_period<?${companySql('a')}`,
+        [params.from, params.toExclusive, ...companyParams],
+      );
+      measured = consumption?.measured == null ? null : Number(consumption.measured);
+      estimated = consumption?.estimated == null ? null : Number(consumption.estimated);
+    }
+    energyDomain = {
+      key: 'energy', label: 'Energy & Utilities', status: 'available',
+      primary: { label: 'Profil aktif', value: Number(profiles?.active ?? 0), unit: 'asset' },
+      secondary: [
+        { label: 'Konsumsi measured', value: measured, unit: 'unit meter' },
+        { label: 'Konsumsi estimated', value: estimated, unit: 'unit meter' },
+      ],
+      detail_route: '/energy',
+      note: 'Measured dan estimated sengaja dipisahkan; satuan mengikuti masing-masing meter.',
+    };
+  }
+
+  let governanceDomain: DashboardDomainSnapshot;
+  let criticalNcrMetric: Record<string, unknown> = {
+    key: 'critical_ncr', label: 'Critical NCR', value: null, unit: 'kasus',
+    data_quality_status: canReadGovernance ? 'not_active' : 'no_permission', detail_route: null,
+  };
+  if (!canReadGovernance) {
+    governanceDomain = unavailableDomain('governance', 'Governance & Enterprise', 'no_permission', 'Hak akses governance diperlukan.');
+  } else if (!(await tableExists('energy_governance_ncr'))) {
+    governanceDomain = unavailableDomain('governance', 'Governance & Enterprise', 'not_active', 'NCR Governance belum aktif.');
+  } else {
+    const ncr = await one<{ open_count: number; critical_count: number; overdue_count: number }>(
+      `SELECT
+        SUM(CASE WHEN UPPER(status) NOT IN ('CLOSED','VERIFIED') THEN 1 ELSE 0 END) AS open_count,
+        SUM(CASE WHEN UPPER(status) NOT IN ('CLOSED','VERIFIED') AND UPPER(severity) IN ('HIGH','CRITICAL') THEN 1 ELSE 0 END) AS critical_count,
+        SUM(CASE WHEN UPPER(status) NOT IN ('CLOSED','VERIFIED') AND due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue_count
+       FROM energy_governance_ncr`,
+    );
+    const critical = Number(ncr?.critical_count ?? 0);
+    governanceDomain = {
+      key: 'governance', label: 'Governance & Enterprise', status: 'available',
+      primary: { label: 'NCR terbuka', value: Number(ncr?.open_count ?? 0), unit: 'kasus' },
+      secondary: [
+        { label: 'Critical/High', value: critical, unit: 'kasus' },
+        { label: 'Overdue', value: Number(ncr?.overdue_count ?? 0), unit: 'kasus' },
+      ],
+      detail_route: '/governance',
+      note: 'Saat ini bersumber dari NCR Energy Governance yang sudah tersedia.',
+    };
+    criticalNcrMetric = {
+      key: 'critical_ncr', label: 'Critical NCR', value: critical, unit: 'kasus',
+      data_quality_status: 'valid', detail_route: '/governance', source: 'energy_governance_ncr',
+    };
+  }
+
+  const ga = params.byModule.find((item) => item.module === 'ga');
+  const gaDomain: DashboardDomainSnapshot = ga
+    ? {
+        key: 'ga', label: 'General Affair', status: 'available',
+        primary: { label: 'WO GA aktif', value: Number(ga.open ?? 0) + Number(ga.in_progress ?? 0), unit: 'WO' },
+        secondary: [
+          { label: 'WO GA periode ini', value: Number(ga.total ?? 0), unit: 'WO' },
+          { label: 'WO GA ditutup', value: Number(ga.closed ?? 0), unit: 'WO' },
+        ],
+        detail_route: '/work-orders?module=ga',
+        note: 'GA01–GA10 belum aktif; snapshot memakai WO GA yang sudah berjalan.',
+      }
+    : unavailableDomain('ga', 'General Affair', 'no_permission', 'WO GA tidak termasuk cakupan user ini.');
+
+  let sparepartDomain: DashboardDomainSnapshot;
+  const canReadSparepart = hasAnyPermission(user, ['material_usage', 'approval_all']);
+  if (!canReadSparepart) {
+    sparepartDomain = unavailableDomain('sparepart', 'Sparepart Management', 'no_permission', 'Hak akses Sparepart diperlukan.');
+  } else if (!(await tableExists('sparepart_master')) || !(await tableExists('sparepart_stock_ledger'))) {
+    sparepartDomain = unavailableDomain('sparepart', 'Sparepart Management', 'not_active', 'Migration Sparepart Receiving & Stock belum aktif.');
+  } else {
+    const sparepartCompanyWhere = params.company ? ' WHERE w.company_code=?' : '';
+    const stock = await one<{ master_count: number; stocked_items: number; hold_items: number; receipt_pending: number }>(
+      `SELECT
+        (SELECT COUNT(*) FROM sparepart_master WHERE status='ACTIVE') master_count,
+        (SELECT COUNT(*) FROM (
+          SELECT l.sparepart_id FROM sparepart_stock_ledger l JOIN sparepart_warehouse sw ON sw.id=l.warehouse_id
+          ${params.company ? 'WHERE sw.company_code=?' : ''} GROUP BY l.sparepart_id
+          HAVING SUM(CASE WHEN l.stock_bucket='AVAILABLE' THEN l.quantity_delta ELSE 0 END)>0
+        ) available_parts) stocked_items,
+        (SELECT COUNT(*) FROM (
+          SELECT l.sparepart_id FROM sparepart_stock_ledger l JOIN sparepart_warehouse hw ON hw.id=l.warehouse_id
+          ${params.company ? 'WHERE hw.company_code=?' : ''} GROUP BY l.sparepart_id
+          HAVING SUM(CASE WHEN l.stock_bucket='HOLD' THEN l.quantity_delta ELSE 0 END)>0
+        ) held_parts) hold_items,
+        (SELECT COUNT(*) FROM sparepart_receipt h JOIN sparepart_warehouse rw ON rw.id=h.warehouse_id WHERE h.status='SUBMITTED'${params.company ? ' AND rw.company_code=?' : ''}) receipt_pending
+       FROM sparepart_warehouse w${sparepartCompanyWhere} LIMIT 1`,
+      params.company ? [params.company, params.company, params.company, params.company] : [],
+    );
+    sparepartDomain = {
+      key: 'sparepart', label: 'Sparepart Management', status: 'available',
+      primary: { label: 'Item memiliki stok', value: Number(stock?.stocked_items ?? 0), unit: 'SKU' },
+      secondary: [
+        { label: 'Master aktif', value: Number(stock?.master_count ?? 0), unit: 'item' },
+        { label: 'Item dalam hold', value: Number(stock?.hold_items ?? 0), unit: 'SKU' },
+        { label: 'Receiving menunggu', value: Number(stock?.receipt_pending ?? 0), unit: 'dokumen' },
+      ],
+      detail_route: '/spareparts',
+      note: 'Kuantitas operasional lintas UOM; rincian per item tersedia pada kartu stok.',
+    };
+  }
+
+  return {
+    version: 'enterprise-v1',
+    generated_at: generatedAt,
+    last_success_at: generatedAt,
+    data_quality_status: 'partial',
+    scope: {
+      company: params.company || null,
+      available_companies: companies,
+      period_from: params.from,
+      period_to: params.toExclusive,
+      timezone: 'Asia/Jakarta',
+    },
+    headline: {
+      asset_active: assetMetric,
+      wo_open: {
+        key: 'wo_open', label: 'WO open', value: params.totals.open + params.totals.in_progress,
+        unit: 'WO', data_quality_status: 'valid', detail_route: '/work-orders',
+      },
+      preventive_missing: {
+        key: 'preventive_missing', label: 'Asset belum terjadwal',
+        value: Number(params.preventiveCoverage.missing ?? 0), unit: 'asset',
+        numerator: Number(params.preventiveCoverage.scheduled ?? 0),
+        denominator: Number(params.preventiveCoverage.required ?? 0),
+        data_quality_status: 'valid', detail_route: '/my-work?tab=preventive_missing',
+      },
+      critical_ncr: criticalNcrMetric,
+    },
+    domains: [assetDomain, maintenanceDomain, sparepartDomain, fleetDomain, energyDomain, governanceDomain, gaDomain],
+  };
+}
+
 export async function getDashboard(userInput: User, filters: DashboardFilters): Promise<Record<string, unknown>> {
   const user = applyDashboardEscalation({ ...userInput });
 
@@ -173,7 +469,22 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
     return Number(user[cfg.perm] ?? 0) === 1 || Number(user[cfg.all] ?? 0) === 1 || Number(user.wo_cross_access ?? 0) === 1;
   });
 
-  if (!selected.length) return { ...emptyPayload(range, fromStr, toStr), preventive_coverage: await preventiveCoveragePromise };
+  if (!selected.length) {
+    const preventiveCoverage = await preventiveCoveragePromise;
+    const empty = emptyPayload(range, fromStr, toStr);
+    return {
+      ...empty,
+      preventive_coverage: preventiveCoverage,
+      enterprise: await getEnterpriseSnapshot(user, {
+        company,
+        from: fromStr,
+        toExclusive: toX,
+        totals: { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 },
+        byModule: [],
+        preventiveCoverage,
+      }),
+    };
+  }
 
   const totals = { total: 0, open: 0, in_progress: 0, closed: 0, rejected: 0 };
   let prevTotal = 0;
@@ -417,6 +728,16 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
   const correctivePct = prevTypeAgg.corrective > 0
     ? Math.round(((typeAgg.corrective - prevTypeAgg.corrective) / prevTypeAgg.corrective) * 1000) / 10 : null;
 
+  const preventiveCoverage = await preventiveCoveragePromise;
+  const enterprise = await getEnterpriseSnapshot(user, {
+    company,
+    from: fromStr,
+    toExclusive: toX,
+    totals,
+    byModule,
+    preventiveCoverage,
+  });
+
   return {
     range_days: range, from: fromStr, to: toStr, generated_at: new Date().toISOString(),
     totals,
@@ -440,6 +761,7 @@ export async function getDashboard(userInput: User, filters: DashboardFilters): 
       { bucket: AGING_LABELS[3], count: aging.b3 },
     ],
     preventive_daily: preventiveDaily,
-    preventive_coverage: await preventiveCoveragePromise,
+    preventive_coverage: preventiveCoverage,
+    enterprise,
   };
 }

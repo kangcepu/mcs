@@ -12,7 +12,7 @@ class DashboardRepository {
   }) async {
     try {
       final queryParams = <String, dynamic>{};
-      
+
       if (startDate != null) queryParams['start_date'] = startDate;
       if (endDate != null) queryParams['end_date'] = endDate;
       if (company != null) queryParams['company'] = company;
@@ -24,36 +24,43 @@ class DashboardRepository {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        
+
         if (data['status'] == true) {
           return data;
         } else {
           throw Exception(data['message'] ?? 'Failed to get dashboard stats');
         }
       } else {
-        throw Exception('Failed to get dashboard stats: ${response.statusCode}');
+        throw Exception(
+            'Failed to get dashboard stats: ${response.statusCode}');
       }
     } on DioException catch (e) {
       if (e.response != null) {
         final errorData = e.response!.data;
-        throw Exception(errorData['message'] ?? 'Failed to get dashboard stats');
+        throw Exception(
+            errorData['message'] ?? 'Failed to get dashboard stats');
       } else {
         throw Exception('Network error: ${e.message}');
       }
     } catch (e) {
       throw Exception('Dashboard stats error: $e');
     }
-
   }
 
   /// Agregat dashboard terpadu (/v2/dashboard) — sumber data yang sama
   /// dipakai dashboard web, dipakai di Home mobile untuk kartu analisa
   /// ringkas (rasio preventive, tren, komposisi status, umur WO).
-  Future<Map<String, dynamic>> getDashboardSummary({int range = 7}) async {
+  Future<Map<String, dynamic>> getDashboardSummary({
+    int range = 7,
+    String? company,
+  }) async {
     try {
       final response = await _apiService.get(
         '/v2/dashboard',
-        queryParameters: {'range': range},
+        queryParameters: {
+          'range': range,
+          if (company != null && company.isNotEmpty) 'company': company,
+        },
       );
 
       if (response.statusCode == 200) {
@@ -63,11 +70,13 @@ class DashboardRepository {
         }
         throw Exception(data['message'] ?? 'Failed to get dashboard summary');
       }
-      throw Exception('Failed to get dashboard summary: ${response.statusCode}');
+      throw Exception(
+          'Failed to get dashboard summary: ${response.statusCode}');
     } on DioException catch (e) {
       if (e.response != null) {
         final errorData = e.response!.data;
-        throw Exception(errorData['message'] ?? 'Failed to get dashboard summary');
+        throw Exception(
+            errorData['message'] ?? 'Failed to get dashboard summary');
       } else {
         throw Exception('Network error: ${e.message}');
       }

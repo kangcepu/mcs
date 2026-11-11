@@ -99,17 +99,17 @@ function approvalJobs(user: User): WoJob[] {
 }
 
 function closingJobs(user: User): WoJob[] {
+  // Beberapa jalur eksekusi masih menghasilkan COMPLETE_EXECUTOR, sedangkan
+  // jalur lain langsung NEED_CLOSED. Keduanya sama-sama berarti pekerjaan
+  // executor sudah selesai dan WO harus tetap menunggu penutupan pemohon.
+  const readyToClose = ['NEED_CLOSED', 'COMPLETE_EXECUTOR'];
   if (hasAllApprovalAccess(user)) {
     return [
-      job('tb_wo_it', 'wo_it', 'WO IS', ['NEED_CLOSED'], {}, 'Closed'),
-      // WO MESO corrective praktis gak pernah sampai NEED_CLOSED — berhenti
-      // di COMPLETE_EXECUTOR (lihat komentar di cabang DEPTHEAD di bawah).
-      // Tanpa COMPLETE_EXECUTOR di sini, user approval_all=1/management pun
-      // gak lihat WO corrective yang udah siap ditutup.
-      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['NEED_CLOSED', 'COMPLETE_EXECUTOR'], {}, 'Closed', true),
-      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['NEED_CLOSED'], {}, 'Closed'),
-      job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], {}, 'Closed'),
-      job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['NEED_CLOSED'], {}, 'Closed'),
+      job('tb_wo_it', 'wo_it', 'WO IS', readyToClose, {}, 'Closed'),
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', readyToClose, {}, 'Closed', true),
+      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', readyToClose, {}, 'Closed'),
+      job('tb_wo_ga', 'wo_ga', 'WO GA', readyToClose, {}, 'Closed'),
+      job('tb_wo_preventive', 'wo_preventive', 'WO Production', readyToClose, {}, 'Closed'),
     ];
   }
 
@@ -119,11 +119,11 @@ function closingJobs(user: User): WoJob[] {
 
   if (pos === 'DIVHEAD') {
     jobs.push(
-      job('tb_wo_it', 'wo_it', 'WO IS', ['NEED_CLOSED'], { id_division: div }, 'Closed'),
-      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['NEED_CLOSED'], { id_division: div }, 'Closed', true),
-      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['NEED_CLOSED'], { id_division: div }, 'Closed'),
-      job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['NEED_CLOSED'], { id_division: div }, 'Closed'),
-      job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], { id_division: div }, 'Closed'),
+      job('tb_wo_it', 'wo_it', 'WO IS', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', readyToClose, { id_division: div }, 'Closed', true),
+      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_preventive', 'wo_preventive', 'WO Production', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_ga', 'wo_ga', 'WO GA', readyToClose, { id_division: div }, 'Closed'),
     );
   } else if (pos === 'DEPTHEAD') {
     // TANPA filter id_division — sama seperti approvalJobs() di atas untuk
@@ -137,22 +137,28 @@ function closingJobs(user: User): WoJob[] {
     jobs.push(job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['COMPLETE_EXECUTOR'], {}, 'Closed', true));
   }
 
-  // Pembuat WO tetap bisa menutup WO buatannya sendiri begitu siap ditutup,
-  // di luar/tambahan dari akses posisi di atas (mis. Kadept MESO tetap
-  // punya akses lewat cabang DEPTHEAD, terlepas dari ini). Dicocokkan lewat
-  // `creator` (disimpan sebagai fullname, sama kayak kolom `creator` saat
-  // WO dibuat) karena pembuat WO sering bukan DIVHEAD/DEPTHEAD/DIVHEAD IT
-  // dsb — staff biasa gak kebagian akses apapun dari blok di atas sama
-  // sekali. deduplicateApprovalItems() di getPendingWoClosings() udah
-  // nangani kalau user yang sama juga dapat entri yg sama dari blok posisi.
+  // Semua user pada divisi pemohon boleh menutup WO divisinya. Ini juga
+  // membuat tugas closing muncul di My Work staff biasa, bukan hanya kepala
+  // divisi. Creator tetap dicocokkan terpisah supaya aksesnya tidak hilang
+  // bila user sudah pindah divisi setelah WO dibuat.
+  if (div > 0) {
+    jobs.push(
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', readyToClose, { id_division: div }, 'Closed', true),
+      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_it', 'wo_it', 'WO IS', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_ga', 'wo_ga', 'WO GA', readyToClose, { id_division: div }, 'Closed'),
+      job('tb_wo_preventive', 'wo_preventive', 'WO Production', readyToClose, { id_division: div }, 'Closed'),
+    );
+  }
+
   const fullname = String(user.fullname ?? '').trim();
   if (fullname) {
     jobs.push(
-      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', ['COMPLETE_EXECUTOR'], { creator: fullname }, 'Closed', true),
-      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
-      job('tb_wo_it', 'wo_it', 'WO IS', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
-      job('tb_wo_ga', 'wo_ga', 'WO GA', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
-      job('tb_wo_preventive', 'wo_preventive', 'WO Production', ['NEED_CLOSED'], { creator: fullname }, 'Closed'),
+      job('tb_wo_mtc', 'wo_mtc', 'WO MESO', readyToClose, { creator: fullname }, 'Closed', true),
+      job('tb_wo_mtc_operational', 'wo_operational', 'WO MTC', readyToClose, { creator: fullname }, 'Closed'),
+      job('tb_wo_it', 'wo_it', 'WO IS', readyToClose, { creator: fullname }, 'Closed'),
+      job('tb_wo_ga', 'wo_ga', 'WO GA', readyToClose, { creator: fullname }, 'Closed'),
+      job('tb_wo_preventive', 'wo_preventive', 'WO Production', readyToClose, { creator: fullname }, 'Closed'),
     );
   }
 
@@ -279,9 +285,9 @@ export async function countPendingWoApprovals(user: User): Promise<number> {
 }
 
 export async function countPendingWoClosings(user: User): Promise<number> {
-  const jobs = closingJobs(user);
-  const counts = await Promise.all(jobs.map(fetchWoCount));
-  return counts.reduce((a, b) => a + b, 0);
+  // Satu WO dapat cocok lewat role, divisi, sekaligus creator. Hitung hasil
+  // yang sudah dideduplikasi agar badge summary sama dengan isi antreannya.
+  return (await getPendingWoClosings(user)).length;
 }
 
 export async function isPendingWoApproval(user: User, moduleKey: string, woNumber: string): Promise<boolean> {

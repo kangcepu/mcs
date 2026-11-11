@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/tablet_nav_data.dart';
 import 'tablet_dashboard_page.dart';
+import 'tablet_my_work_page.dart';
 import 'tablet_work_orders_page.dart';
 import 'tablet_asset_manage_page.dart';
 import 'tablet_approval_center_page.dart';
@@ -175,7 +176,9 @@ class _TabletShellPageState extends State<TabletShellPage> {
       ),
       child: Row(
         children: [
-          _isDesktopWidth ? _buildCollapseButton(collapsed) : _buildHamburgerButton(),
+          _isDesktopWidth
+              ? _buildCollapseButton(collapsed)
+              : _buildHamburgerButton(),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -186,7 +189,10 @@ class _TabletShellPageState extends State<TabletShellPage> {
                   _selectedTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                  style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF0F172A)),
                 ),
                 Text(
                   subtitle,
@@ -239,7 +245,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
   }
 
   Widget _buildAvatarMenu() {
-    final name = _user?.fullname.isNotEmpty == true ? _user!.fullname : 'Memuat…';
+    final name =
+        _user?.fullname.isNotEmpty == true ? _user!.fullname : 'Memuat…';
     return PopupMenuButton<String>(
       offset: const Offset(0, 44),
       onSelected: (v) {
@@ -254,9 +261,15 @@ class _TabletShellPageState extends State<TabletShellPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1E293B))),
                 if (_user?.email.isNotEmpty == true)
-                  Text(_user!.email, style: const TextStyle(fontSize: 11, color: _kTextSlate400)),
+                  Text(_user!.email,
+                      style:
+                          const TextStyle(fontSize: 11, color: _kTextSlate400)),
               ],
             ),
           ),
@@ -264,7 +277,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
         const PopupMenuDivider(),
         const PopupMenuItem<String>(
           value: 'logout',
-          child: Text('Logout', style: TextStyle(fontSize: 13, color: Color(0xFFE11D48))),
+          child: Text('Logout',
+              style: TextStyle(fontSize: 13, color: Color(0xFFE11D48))),
         ),
       ],
       child: Row(
@@ -275,7 +289,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
             backgroundColor: _kBrand100,
             child: Text(
               _initials,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _kBrand700),
+              style: const TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w800, color: _kBrand700),
             ),
           ),
           const SizedBox(width: 8),
@@ -285,7 +300,10 @@ class _TabletShellPageState extends State<TabletShellPage> {
               name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1E293B)),
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF1E293B)),
             ),
           ),
         ],
@@ -302,11 +320,19 @@ class _TabletShellPageState extends State<TabletShellPage> {
   };
 
   Widget _buildContent() {
-    if (_selectedKey == kTabletDashboardKey) {
-      return const TabletDashboardPage();
+    if (_selectedKey == 'my_work') {
+      return const TabletMyWorkPage();
     }
-    if (_selectedKey == 'work_order' || _selectedKey.startsWith('work_order:')) {
-      final childTitle = _selectedKey.startsWith('work_order:') ? _selectedKey.substring('work_order:'.length) : '';
+    if (_selectedKey == kTabletDashboardKey) {
+      return TabletDashboardPage(
+        onOpenMyWork: () => _selectInline('my_work', 'My Work'),
+      );
+    }
+    if (_selectedKey == 'work_order' ||
+        _selectedKey.startsWith('work_order:')) {
+      final childTitle = _selectedKey.startsWith('work_order:')
+          ? _selectedKey.substring('work_order:'.length)
+          : '';
       return TabletWorkOrdersPage(
         key: ValueKey(_selectedKey),
         initialModule: _kWoChildModule[childTitle] ?? '',
@@ -322,7 +348,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.hourglass_top_outlined, size: 40, color: Color(0xFFCBD5E1)),
+          const Icon(Icons.hourglass_top_outlined,
+              size: 40, color: Color(0xFFCBD5E1)),
           const SizedBox(height: 12),
           Text(
             '$_selectedTitle belum tersedia di tampilan tablet.',
@@ -365,7 +392,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
         if (collapsed) const SizedBox(height: 12),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 8 : 12, vertical: 0),
+            padding: EdgeInsets.symmetric(
+                horizontal: collapsed ? 8 : 12, vertical: 0),
             children: [
               for (var i = 0; i < tabletNavSections.length; i++) ...[
                 if (!collapsed)
@@ -383,7 +411,9 @@ class _TabletShellPageState extends State<TabletShellPage> {
                   )
                 else if (i > 0)
                   const SizedBox(height: 10),
-                ...tabletNavSections[i].items.map((item) => _buildNavItem(item, collapsed)),
+                ...tabletNavSections[i]
+                    .items
+                    .map((item) => _buildNavItem(item, collapsed)),
               ],
             ],
           ),
@@ -395,26 +425,38 @@ class _TabletShellPageState extends State<TabletShellPage> {
 
   Widget _buildBrandHeader(bool collapsed) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(collapsed ? 16 : 20, 20, collapsed ? 16 : 20, 16),
+      padding:
+          EdgeInsets.fromLTRB(collapsed ? 16 : 20, 20, collapsed ? 16 : 20, 16),
       child: Row(
         children: [
           Container(
             width: 40,
             height: 40,
+            padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: _kBorder),
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.build, size: 20, color: Colors.white),
+            child: Image.asset(
+              'assets/logo.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.build,
+                size: 20,
+                color: Color(0xFF0A0F1C),
+              ),
+            ),
           ),
           // AnimatedCrossFade (bukan `if` yang langsung lenyap) supaya label
           // ikut fade+resize selaras dengan animasi lebar AnimatedContainer
           // sidebar — itu sumber kesan "ga smooth" saat collapse sebelumnya.
           AnimatedCrossFade(
             duration: _kSidebarAnimDuration,
-            crossFadeState: collapsed ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            crossFadeState: collapsed
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
             firstChild: const Padding(
               padding: EdgeInsets.only(left: 12),
               child: SizedBox(
@@ -423,7 +465,11 @@ class _TabletShellPageState extends State<TabletShellPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('MCS', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                    Text('MCS',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white)),
                     SizedBox(height: 2),
                     Text(
                       'Maintenance Control System',
@@ -487,20 +533,26 @@ class _TabletShellPageState extends State<TabletShellPage> {
               },
               child: AnimatedPadding(
                 duration: _kSidebarAnimDuration,
-                padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12, vertical: 11),
+                padding: EdgeInsets.symmetric(
+                    horizontal: collapsed ? 0 : 12, vertical: 11),
                 child: AnimatedAlign(
                   duration: _kSidebarAnimDuration,
-                  alignment: collapsed ? Alignment.center : Alignment.centerLeft,
+                  alignment:
+                      collapsed ? Alignment.center : Alignment.centerLeft,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(item.icon, size: 18, color: isActive ? Colors.white : _kTextSlate300),
+                      Icon(item.icon,
+                          size: 18,
+                          color: isActive ? Colors.white : _kTextSlate300),
                       // AnimatedCrossFade (bukan `if` yang lenyap instan)
                       // supaya label+posisi icon ikut meluncur selaras
                       // dengan animasi lebar sidebar, tidak "patah".
                       AnimatedCrossFade(
                         duration: _kSidebarAnimDuration,
-                        crossFadeState: collapsed ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                        crossFadeState: collapsed
+                            ? CrossFadeState.showSecond
+                            : CrossFadeState.showFirst,
                         firstChild: Padding(
                           padding: const EdgeInsets.only(left: 12),
                           child: SizedBox(
@@ -510,27 +562,37 @@ class _TabletShellPageState extends State<TabletShellPage> {
                                 Expanded(
                                   child: Text(
                                     item.title,
-                                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: Colors.white),
+                                    style: const TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.white),
                                   ),
                                 ),
                                 if (item.comingSoon)
                                   Container(
                                     margin: const EdgeInsets.only(left: 6),
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.1),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: const Text(
                                       'SEGERA',
-                                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: .3),
+                                      style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                          letterSpacing: .3),
                                     ),
                                   ),
                                 if (hasChildren)
                                   AnimatedRotation(
                                     turns: expanded ? 0.5 : 0,
                                     duration: const Duration(milliseconds: 150),
-                                    child: const Icon(Icons.keyboard_arrow_down, size: 18, color: _kTextSlate500),
+                                    child: const Icon(Icons.keyboard_arrow_down,
+                                        size: 18, color: _kTextSlate500),
                                   ),
                               ],
                             ),
@@ -554,7 +616,9 @@ class _TabletShellPageState extends State<TabletShellPage> {
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: item.children!.map((child) => _buildNavChild(item.key, child)).toList(),
+                  children: item.children!
+                      .map((child) => _buildNavChild(item.key, child))
+                      .toList(),
                 ),
               ),
             ),
@@ -589,7 +653,8 @@ class _TabletShellPageState extends State<TabletShellPage> {
                   child.title,
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: childSelected ? FontWeight.w700 : FontWeight.w400,
+                    fontWeight:
+                        childSelected ? FontWeight.w700 : FontWeight.w400,
                     color: Colors.white,
                   ),
                   maxLines: 1,
@@ -635,13 +700,25 @@ class _LiveClockState extends State<_LiveClock> {
   void _tick() {
     final now = DateTime.now();
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sept',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     if (!mounted) return;
     setState(() {
-      _time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-      _date = '${now.day.toString().padLeft(2, '0')} ${months[now.month - 1]} ${now.year}';
+      _time =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      _date =
+          '${now.day.toString().padLeft(2, '0')} ${months[now.month - 1]} ${now.year}';
     });
   }
 
@@ -663,7 +740,10 @@ class _LiveClockState extends State<_LiveClock> {
             children: [
               Text(
                 _time.isEmpty ? '--:--' : _time,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E293B)),
               ),
               Text(
                 _date.isEmpty ? '-- --- ----' : _date,
@@ -720,7 +800,8 @@ class _NotifBellState extends State<_NotifBell> {
       clipBehavior: Clip.none,
       children: [
         IconButton(
-          icon: const Icon(Icons.notifications_outlined, size: 22, color: Color(0xFF64748B)),
+          icon: const Icon(Icons.notifications_outlined,
+              size: 22, color: Color(0xFF64748B)),
           onPressed: () {},
         ),
         if (_count > 0)
@@ -730,11 +811,16 @@ class _NotifBellState extends State<_NotifBell> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               constraints: const BoxConstraints(minWidth: 16),
-              decoration: BoxDecoration(color: const Color(0xFFF43F5E), borderRadius: BorderRadius.circular(999)),
+              decoration: BoxDecoration(
+                  color: const Color(0xFFF43F5E),
+                  borderRadius: BorderRadius.circular(999)),
               alignment: Alignment.center,
               child: Text(
                 _count > 99 ? '99+' : '$_count',
-                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white),
+                style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white),
               ),
             ),
           ),

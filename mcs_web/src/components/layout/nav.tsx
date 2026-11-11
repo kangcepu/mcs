@@ -32,6 +32,7 @@ import {
   Wrench,
   Truck,
   Zap,
+  PackagePlus,
   type LucideIcon,
 } from "lucide-react";
 import type { AreaKey } from "@/lib/permissions";
@@ -102,6 +103,7 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: FileBarChart2,
         match: "/reports",
         children: [
+          { label: "Report Center", href: "/reports/center", icon: FileBarChart2, area: "reports" },
           { label: "Report Assets", href: "/reports/assets", icon: FileText, area: "reports" },
           { label: "Asset History", href: "/reports/assets-history", icon: ClipboardList, area: "reports" },
           { label: "Cetak QR", href: "/reports/qr", icon: FileBarChart2, area: "reports" },
@@ -130,7 +132,6 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Manual",
         href: "/manual",
         icon: BookOpen,
-        comingSoon: true,
       },
       {
         label: "Mobile & Tablet",
@@ -183,6 +184,13 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: ArrowLeftRight,
         area: "assetMutations",
         match: "/asset-mutations",
+      },
+      {
+        label: "Sparepart Management",
+        href: "/spareparts",
+        icon: PackagePlus,
+        area: "spareparts",
+        match: "/spareparts",
       },
       {
         label: "Material Usage",
@@ -268,6 +276,12 @@ export const NAV_SECTIONS: NavSection[] = [
             href: "/master-data/branding",
             icon: Palette,
             area: "masterBranding",
+          },
+          {
+            label: "Endpoint Report Center",
+            href: "/master-data/report-endpoints",
+            icon: FileBarChart2,
+            area: "masterUser",
           },
           {
             label: "Log Event",

@@ -19,6 +19,14 @@ import type { PoolConnection } from 'mysql2/promise';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
 const childAssetImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const childAssetPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).slice(1).toLowerCase();
+    cb(null, ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext));
+  },
+});
 export const assetRouter = Router();
 
 const assetFields = [
@@ -145,6 +153,15 @@ async function unlinkCustomDetailImage(imagePath: string): Promise<void> {
   await deleteObjectKey(imagePath);
 }
 
+async function unlinkChildAssetPhoto(imagePath: string | null | undefined): Promise<void> {
+  if (!imagePath) return;
+  const abs = path.join(config.uploadDir, imagePath);
+  if (fs.existsSync(abs)) {
+    try { fs.unlinkSync(abs); } catch {}
+  }
+  await deleteObjectKey(imagePath);
+}
+
 assetRouter.get('/assets/options', authenticate, asyncHandler(async (_req, res) => {
   // asset.CompanyName/CategoryAsset/LocationAsset simpan NAMA (bukan kode) —
   // value harus sama persis dengan itu supaya dropdown edit bisa cocokkan
@@ -212,7 +229,9 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   // Web mengirim query param `asset` (lihat lib/api/assets.ts getAssetDetail) —
   // sebelumnya gak pernah dicek di sini, jadi endpoint ini SELALU gagal
   // "Asset ID is required" buat siapapun yang buka halaman detail aset.
-  const id = req.query.id ?? req.query.AssetID ?? req.query.asset_id ?? req.query.asset;
+  const rawId = req.query.id ?? req.query.AssetID ?? req.query.asset_id ?? req.query.asset;
+  if (!rawId) throw new HttpError(400, 'Asset ID is required');
+  const id = normalizeAssetLookup(rawId);
   if (!id) throw new HttpError(400, 'Asset ID is required');
 
   const asset = await one('SELECT * FROM asset WHERE AssetID = ? OR AssetCode = ? LIMIT 1', [id, id]);
@@ -222,6 +241,7 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   const assetId = Number((asset as Record<string, unknown>).AssetID ?? 0);
   const parentId = Number((asset as Record<string, unknown>).parent_asset_id ?? 0);
   const hasImportedGroups = await tableExists('asset_child_import_group');
+  const hasImportedDetailPhotos = await tableExists('asset_child_import_detail_photo');
   const hasEnergyProfile = await tableExists('energy_asset_profile');
   const hasFleetProfile = await tableExists('fleet_vehicle_profile');
   const [details, attachments, parts, history, locationHistory, parent, children, importedGroups, energyProfile, fleetProfile] = await Promise.all([
@@ -277,7 +297,7 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   ]);
   const importedGroupRows = importedGroups as Array<Record<string, unknown>>;
   const importedGroupIds = importedGroupRows.map((group) => Number(group.id)).filter(Boolean);
-  const importedDetails = importedGroupIds.length
+  const importedDetailRows = importedGroupIds.length
     ? await rows<Record<string, unknown>>(
       `SELECT d.id, d.group_id, d.item_name, d.condition_text, d.frequency, d.pic, d.source_row, d.sort_order,
               l.linked_asset_id, a.AssetCode, a.AssetName, a.CategoryAsset, a.LocationAsset, a.active
@@ -289,6 +309,26 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
       importedGroupIds,
     )
     : [];
+  const detailIds = importedDetailRows.map((detail) => Number(detail.id)).filter(Boolean);
+  const detailPhotos = detailIds.length && hasImportedDetailPhotos
+    ? await rows<Record<string, unknown>>(
+      `SELECT detail_id, photo_1_path, photo_1_name, photo_1_mime,
+              photo_2_path, photo_2_name, photo_2_mime
+       FROM asset_child_import_detail_photo
+       WHERE detail_id IN (${detailIds.map(() => '?').join(',')})`,
+      detailIds,
+    )
+    : [];
+  const photoByDetail = new Map(detailPhotos.map((photo) => [Number(photo.detail_id), photo]));
+  const importedDetails: Record<string, unknown>[] = importedDetailRows.map((detail): Record<string, unknown> => {
+    const photo = photoByDetail.get(Number(detail.id));
+    return {
+      ...detail,
+      ...(photo ?? {}),
+      photo_1_url: photo?.photo_1_path ? `/uploads/${String(photo.photo_1_path).replace(/^\/+/, '')}` : null,
+      photo_2_url: photo?.photo_2_path ? `/uploads/${String(photo.photo_2_path).replace(/^\/+/, '')}` : null,
+    };
+  });
   const relatedGroups = importedGroupRows.map((group) => ({
     ...group,
     items: importedDetails.filter((item) => Number(item.group_id) === Number(group.id)),
@@ -412,6 +452,136 @@ assetRouter.post('/assets/children/move', authenticate, requirePermission('privi
   ok(res, null, 'Child asset moved');
 }));
 
+assetRouter.post('/assets/children/manual', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  if (!(await tableExists('asset_child_import_group')) || !(await tableExists('asset_child_import_detail')) || !(await tableExists('asset_child_import_detail_photo'))) {
+    throw new HttpError(409, 'Migration asset_child_manual_photo belum dijalankan.');
+  }
+
+  const parentCode = normalizeAssetLookup(req.body.parent_asset ?? req.body.asset_code);
+  const groupName = String(req.body.group_name ?? req.body.child_name ?? '').trim();
+  const rawItems: unknown[] = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!parentCode || !groupName) throw new HttpError(422, 'Aset induk dan nama kelompok wajib diisi.');
+  if (groupName.length > 255) throw new HttpError(422, 'Nama kelompok maksimal 255 karakter.');
+  if (!rawItems.length) throw new HttpError(422, 'Tambahkan minimal satu komponen.');
+  if (rawItems.length > 50) throw new HttpError(422, 'Maksimal 50 komponen dalam satu penyimpanan.');
+
+  const items: Array<{ itemName: string; conditionText: string | null; frequency: string | null; pic: string | null }> = rawItems.map((raw: unknown, index: number) => {
+    const item = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const itemName = String(item.item_name ?? item.name ?? '').trim();
+    if (!itemName) throw new HttpError(422, `Nama komponen baris ${index + 1} wajib diisi.`);
+    if (itemName.length > 255) throw new HttpError(422, `Nama komponen baris ${index + 1} maksimal 255 karakter.`);
+    return {
+      itemName,
+      conditionText: String(item.condition_text ?? '').trim() || null,
+      frequency: String(item.frequency ?? '').trim().slice(0, 80) || null,
+      pic: String(item.pic ?? '').trim().slice(0, 120) || null,
+    };
+  });
+  const names = items.map((item) => item.itemName.toLocaleLowerCase('id-ID'));
+  if (new Set(names).size !== names.length) throw new HttpError(409, 'Nama komponen dalam kelompok tidak boleh ganda.');
+
+  const actor = (req as AuthRequest).user!.fullname;
+  const result = await transaction(async (connection) => {
+    const parent = await hierarchyAssetByCode(connection, parentCode, true);
+    if (!parent) throw new HttpError(404, 'Aset induk tidak ditemukan.');
+
+    const [groupRows] = await connection.execute(
+      'SELECT id FROM asset_child_import_group WHERE parent_asset_id=? AND child_name=? LIMIT 1 FOR UPDATE',
+      [parent.AssetID, groupName],
+    );
+    let groupId = Number((groupRows as Array<{ id: number }>)[0]?.id ?? 0);
+    if (!groupId) {
+      const [inserted] = await connection.execute(
+        `INSERT INTO asset_child_import_group
+          (parent_asset_id, child_name, source_file, created_by, created_at)
+         VALUES (?, ?, 'MANUAL', ?, NOW())`,
+        [parent.AssetID, groupName, actor],
+      );
+      groupId = Number((inserted as { insertId: number }).insertId);
+    }
+
+    const [duplicateRows] = await connection.execute(
+      `SELECT item_name FROM asset_child_import_detail
+       WHERE group_id=? AND item_name IN (${items.map(() => '?').join(',')})`,
+      [groupId, ...items.map((item) => item.itemName)],
+    );
+    const duplicates = (duplicateRows as Array<{ item_name: string }>).map((row) => row.item_name);
+    if (duplicates.length) throw new HttpError(409, `Komponen sudah tersedia: ${duplicates.join(', ')}.`);
+
+    const [sortRows] = await connection.execute(
+      'SELECT COALESCE(MAX(sort_order),0) AS max_sort FROM asset_child_import_detail WHERE group_id=? FOR UPDATE',
+      [groupId],
+    );
+    let sortOrder = Number((sortRows as Array<{ max_sort: number }>)[0]?.max_sort ?? 0);
+    const createdItems: Array<{ id: number; item_name: string }> = [];
+    for (const item of items) {
+      sortOrder += 1;
+      const [inserted] = await connection.execute(
+        `INSERT INTO asset_child_import_detail
+          (group_id, item_name, condition_text, frequency, pic, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [groupId, item.itemName, item.conditionText, item.frequency, item.pic, sortOrder],
+      );
+      createdItems.push({ id: Number((inserted as { insertId: number }).insertId), item_name: item.itemName });
+    }
+    return { group_id: groupId, group_name: groupName, items: createdItems };
+  });
+
+  created(res, result, 'Kelompok aset terkait berhasil ditambahkan.');
+}));
+
+assetRouter.post(
+  '/assets/children/pending/:id/photo',
+  authenticate,
+  requirePermission('privilage_asset'),
+  childAssetPhotoUpload.single('photo'),
+  asyncHandler(async (req, res) => {
+    if (!(await tableExists('asset_child_import_detail_photo'))) throw new HttpError(409, 'Migration asset_child_manual_photo belum dijalankan.');
+    const detailId = Number(req.params.id ?? 0);
+    const slot = Number(req.body.slot ?? 0);
+    if (!Number.isInteger(detailId) || detailId <= 0) throw new HttpError(422, 'ID komponen tidak valid.');
+    if (slot !== 1 && slot !== 2) throw new HttpError(422, 'Slot foto harus 1 atau 2.');
+    if (!req.file) throw new HttpError(422, 'Pilih file foto yang akan diunggah.');
+    const detail = await one<{ id: number }>('SELECT id FROM asset_child_import_detail WHERE id=? LIMIT 1', [detailId]);
+    if (!detail) throw new HttpError(404, 'Komponen aset terkait tidak ditemukan.');
+
+    const existing = await one<Record<string, unknown>>('SELECT * FROM asset_child_import_detail_photo WHERE detail_id=? LIMIT 1', [detailId]);
+    const oldPath = String(existing?.[`photo_${slot}_path`] ?? '');
+    const photoPath = await saveUploadedFile(req.file.buffer, `assetChildren/${detailId}`, req.file.originalname, req.file.mimetype);
+    const actor = (req as AuthRequest).user!.fullname;
+    await execute(
+      `INSERT INTO asset_child_import_detail_photo
+        (detail_id, photo_${slot}_path, photo_${slot}_name, photo_${slot}_mime, created_by, updated_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+        photo_${slot}_path=VALUES(photo_${slot}_path), photo_${slot}_name=VALUES(photo_${slot}_name),
+        photo_${slot}_mime=VALUES(photo_${slot}_mime), updated_by=VALUES(updated_by), updated_at=NOW()`,
+      [detailId, photoPath, req.file.originalname, req.file.mimetype, actor, actor],
+    );
+    if (oldPath && oldPath !== photoPath) await unlinkChildAssetPhoto(oldPath);
+    ok(res, { detail_id: detailId, slot, url: `/uploads/${photoPath}` }, `Foto ${slot} berhasil disimpan.`);
+  }),
+);
+
+assetRouter.delete('/assets/children/pending/:id/photo/:slot', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  if (!(await tableExists('asset_child_import_detail_photo'))) throw new HttpError(409, 'Migration asset_child_manual_photo belum dijalankan.');
+  const detailId = Number(req.params.id ?? 0);
+  const slot = Number(req.params.slot ?? 0);
+  if (!Number.isInteger(detailId) || detailId <= 0 || (slot !== 1 && slot !== 2)) throw new HttpError(422, 'ID komponen atau slot foto tidak valid.');
+  const existing = await one<Record<string, unknown>>('SELECT * FROM asset_child_import_detail_photo WHERE detail_id=? LIMIT 1', [detailId]);
+  if (!existing) throw new HttpError(404, 'Foto komponen tidak ditemukan.');
+  const oldPath = String(existing[`photo_${slot}_path`] ?? '');
+  if (!oldPath) throw new HttpError(404, `Foto ${slot} belum diisi.`);
+  await execute(
+    `UPDATE asset_child_import_detail_photo
+     SET photo_${slot}_path=NULL, photo_${slot}_name=NULL, photo_${slot}_mime=NULL, updated_at=NOW(), updated_by=?
+     WHERE detail_id=?`,
+    [(req as AuthRequest).user!.fullname, detailId],
+  );
+  await unlinkChildAssetPhoto(oldPath);
+  ok(res, { detail_id: detailId, slot }, `Foto ${slot} dihapus.`);
+}));
+
 assetRouter.post('/assets/children/pending/link', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
   const pendingId = Number(req.body.pending_id ?? 0);
   const childCode = normalizeAssetLookup(req.body.child_asset);
@@ -482,6 +652,7 @@ assetRouter.post('/assets/children/pending/delete', authenticate, requirePermiss
   const pendingId = Number(req.body.pending_id ?? 0);
   if (!Number.isInteger(pendingId) || pendingId <= 0) throw new HttpError(422, 'pending_id wajib diisi.');
   if (!(await tableExists('asset_child_import_detail_link'))) throw new HttpError(409, 'Migration asset_child_import_hierarchy belum dijalankan.');
+  const hasPhotoTable = await tableExists('asset_child_import_detail_photo');
   const removed = await transaction(async (connection) => {
     const [detailRows] = await connection.execute(
       `SELECT d.group_id, l.linked_asset_id
@@ -493,14 +664,24 @@ assetRouter.post('/assets/children/pending/delete', authenticate, requirePermiss
     const detail = (detailRows as Array<{ group_id: number; linked_asset_id: number | null }>)[0];
     if (!detail) throw new HttpError(404, 'Komponen aset terkait tidak ditemukan.');
     if (detail.linked_asset_id) throw new HttpError(409, 'Komponen masih tertaut ke asset. Lepas tautannya terlebih dahulu.');
+    let photoPaths: string[] = [];
+    if (hasPhotoTable) {
+      const [photoRows] = await connection.execute(
+        'SELECT photo_1_path, photo_2_path FROM asset_child_import_detail_photo WHERE detail_id=? LIMIT 1',
+        [pendingId],
+      );
+      const photo = (photoRows as Array<{ photo_1_path: string | null; photo_2_path: string | null }>)[0];
+      photoPaths = [photo?.photo_1_path, photo?.photo_2_path].filter(Boolean) as string[];
+    }
     const [result] = await connection.execute('DELETE FROM asset_child_import_detail WHERE id=?', [pendingId]);
     await connection.execute(
       'DELETE FROM asset_child_import_group WHERE id=? AND NOT EXISTS (SELECT 1 FROM asset_child_import_detail WHERE group_id=?)',
       [detail.group_id, detail.group_id],
     );
-    return Number((result as { affectedRows?: number }).affectedRows ?? 0);
+    return { count: Number((result as { affectedRows?: number }).affectedRows ?? 0), photoPaths };
   });
-  if (!removed) throw new HttpError(404, 'Kelompok tidak ditemukan atau masih tertaut ke asset.');
+  if (!removed.count) throw new HttpError(404, 'Kelompok tidak ditemukan atau masih tertaut ke asset.');
+  await Promise.all(removed.photoPaths.map(unlinkChildAssetPhoto));
   ok(res, null, 'Slot aset terkait dihapus.');
 }));
 

@@ -21,15 +21,21 @@ const _cBrandShades = [
   Color(0xFF8EBDFF),
   Color(0xFFBCD7FF),
 ];
-const _cSeverity = [Color(0xFF16A34A), Color(0xFFEAB308), Color(0xFFF97316), Color(0xFFEF4444)];
+const _cSeverity = [
+  Color(0xFF16A34A),
+  Color(0xFFEAB308),
+  Color(0xFFF97316),
+  Color(0xFFEF4444)
+];
 
 Color _shadeForRank(int i, int n) {
   if (n <= 1) return _cBrandShades[1];
-  final idx = ((i / (n - 1).clamp(1, 1 << 30)) * (_cBrandShades.length - 1)).round();
+  final idx =
+      ((i / (n - 1).clamp(1, 1 << 30)) * (_cBrandShades.length - 1)).round();
   return _cBrandShades[idx.clamp(0, _cBrandShades.length - 1)];
 }
 
-const List<int> _kRanges = [7, 14, 30, 90];
+const List<int> _kRanges = [7, 14, 30, 90, 180];
 
 /// Dashboard tablet — padanan layout web `/dashboard` (KPI, Preventive
 /// Harian, Tren WO, Komposisi Status, WO per Modul/Umur/Company, Aset
@@ -38,7 +44,9 @@ const List<int> _kRanges = [7, 14, 30, 90];
 /// `/v2/work-orders`, approval summary) yang sudah dipakai di Home HP.
 /// Tidak ada endpoint baru yang dibutuhkan untuk halaman ini.
 class TabletDashboardPage extends StatefulWidget {
-  const TabletDashboardPage({super.key});
+  final VoidCallback? onOpenMyWork;
+
+  const TabletDashboardPage({super.key, this.onOpenMyWork});
 
   @override
   State<TabletDashboardPage> createState() => _TabletDashboardPageState();
@@ -49,6 +57,7 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
   final _approvalRepo = ApprovalRepository();
 
   int _range = 7;
+  String _company = '';
   bool _loading = true;
   bool _fetching = false;
   String? _error;
@@ -70,7 +79,10 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     });
     try {
       final results = await Future.wait([
-        _dashboardRepo.getDashboardSummary(range: _range),
+        _dashboardRepo.getDashboardSummary(
+          range: _range,
+          company: _company,
+        ),
         _approvalRepo.getSummary(),
         _loadRecentWo(),
       ]);
@@ -140,6 +152,19 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     }
 
     final data = _summary ?? {};
+    final enterprise = Map<String, dynamic>.from(
+      data['enterprise'] as Map? ?? {},
+    );
+    final headline = Map<String, dynamic>.from(
+      enterprise['headline'] as Map? ?? {},
+    );
+    final domains = (enterprise['domains'] as List? ?? [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final coverage = Map<String, dynamic>.from(
+      data['preventive_coverage'] as Map? ?? {},
+    );
     final totals = Map<String, dynamic>.from(data['totals'] as Map? ?? {});
     final delta = Map<String, dynamic>.from(data['delta'] as Map? ?? {});
     final byType = Map<String, dynamic>.from(data['by_type'] as Map? ?? {});
@@ -178,7 +203,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
         (_approvalSummary?.materials ?? 0) +
         (_approvalSummary?.mutations ?? 0);
 
-    final activeModules = byModule.where((m) => _asInt(m['total']) > 0).toList();
+    final activeModules =
+        byModule.where((m) => _asInt(m['total']) > 0).toList();
     final zeroModules = byModule.where((m) => _asInt(m['total']) == 0).toList();
 
     return RefreshIndicator(
@@ -191,19 +217,46 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeaderRow(),
+              _executiveHero(
+                enterprise: enterprise,
+                headline: headline,
+                coverage: coverage,
+                openWo: open + inProgress,
+                approvalCount: approvalCount,
+              ),
+              const SizedBox(height: 10),
+              _preventiveNotice(coverage),
+              const SizedBox(height: 16),
+              _domainHealth(domains),
               const SizedBox(height: 16),
               _buildKpiGrid([
-                _KpiData('Menunggu Approval', '$approvalCount', Icons.verified_outlined, _cWarning, const Color(0xFFFFFBEB)),
-                _KpiData('WO Overdue', '$overdue', Icons.warning_amber_rounded, _cDanger, const Color(0xFFFFF1F2), sub: 'Umur WO terbuka > 7 hari'),
-                _KpiData('Sedang Berjalan', '${open + inProgress}', Icons.autorenew, _cViolet, const Color(0xFFF5F3FF), sub: '$open antre · $inProgress dikerjakan'),
-                _KpiData('Ditutup', '$closed', Icons.check_circle_outline, _cSuccess, const Color(0xFFECFDF5), pct: _asDoubleN(delta['closed_pct'])),
+                _KpiData(
+                  'Critical NCR',
+                  _metricValue(headline['critical_ncr']),
+                  Icons.report_problem_outlined,
+                  _cDanger,
+                  const Color(0xFFFFF1F2),
+                  sub: _metricState(headline['critical_ncr']),
+                ),
+                _KpiData('WO Overdue', '$overdue', Icons.warning_amber_rounded,
+                    _cDanger, const Color(0xFFFFF1F2),
+                    sub: 'Umur WO terbuka > 7 hari'),
+                _KpiData('Ditutup', '$closed', Icons.check_circle_outline,
+                    _cSuccess, const Color(0xFFECFDF5),
+                    pct: _asDoubleN(delta['closed_pct'])),
+                _KpiData('Total WO ($_range h)', '$total', Icons.access_time,
+                    _cBrand, const Color(0xFFEFF4FF),
+                    pct: _asDoubleN(delta['total_pct']), neutral: true),
               ]),
               const SizedBox(height: 10),
               _buildKpiGrid([
-                _KpiData('Total WO ($_range h)', '$total', Icons.access_time, _cBrand, const Color(0xFFEFF4FF), pct: _asDoubleN(delta['total_pct']), neutral: true),
-                _KpiData('WO Corrective', '${_asInt(byType['corrective'])}', Icons.build_outlined, _cWarning, const Color(0xFFFFFBEB), pct: _asDoubleN(byType['corrective_pct']), sub: 'Makin sedikit makin baik'),
-                _KpiData('WO Project', '${_asInt(byType['project'])}', Icons.folder_outlined, _cViolet, const Color(0xFFF5F3FF), pct: _asDoubleN(byType['project_pct']), neutral: true),
+                _KpiData('WO Corrective', '${_asInt(byType['corrective'])}',
+                    Icons.build_outlined, _cWarning, const Color(0xFFFFFBEB),
+                    pct: _asDoubleN(byType['corrective_pct']),
+                    sub: 'Makin sedikit makin baik'),
+                _KpiData('WO Project', '${_asInt(byType['project'])}',
+                    Icons.folder_outlined, _cViolet, const Color(0xFFF5F3FF),
+                    pct: _asDoubleN(byType['project_pct']), neutral: true),
                 null,
               ], preventiveRatio: byType),
               const SizedBox(height: 16),
@@ -222,7 +275,9 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                                 ))
                             .toList(),
                       )
-                    : const Text('Belum ada data', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                    : const Text('Belum ada data',
+                        style:
+                            TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
               ),
               const SizedBox(height: 16),
               LayoutBuilder(builder: (context, c) {
@@ -231,7 +286,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                   title: 'Tren Work Order',
                   trailing: Text(
                     '${data['from'] ?? ''} – ${data['to'] ?? ''}',
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                    style:
+                        const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                   ),
                   child: TrendChartFull(
                     height: 170,
@@ -247,10 +303,15 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                 );
                 final statusCard = _card(
                   title: 'Komposisi Status',
-                  child: _buildStackedStatus(total, open, inProgress, closed, rejected),
+                  child: _buildStackedStatus(
+                      total, open, inProgress, closed, rejected),
                 );
                 if (!wide) {
-                  return Column(children: [trendCard, const SizedBox(height: 16), statusCard]);
+                  return Column(children: [
+                    trendCard,
+                    const SizedBox(height: 16),
+                    statusCard
+                  ]);
                 }
                 return IntrinsicHeight(
                   child: Row(
@@ -270,7 +331,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                         '${e.value['label']}',
                         _asInt(e.value['total']),
                         color: _shadeForRank(e.key, activeModules.length),
-                        sub: '${_asInt(e.value['open']) + _asInt(e.value['in_progress'])} aktif',
+                        sub:
+                            '${_asInt(e.value['open']) + _asInt(e.value['in_progress'])} aktif',
                       )),
                   if (zeroModules.isNotEmpty)
                     MiniBarItem(
@@ -280,21 +342,33 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                       sub: '${zeroModules.length} modul tanpa aktivitas',
                     ),
                 ];
-                final agingItems = agingList.asMap().entries
-                    .map((e) => MiniBarItem('${e.value['bucket']}', _asInt(e.value['count']), color: _cSeverity[e.key.clamp(0, 3)]))
+                final agingItems = agingList
+                    .asMap()
+                    .entries
+                    .map((e) => MiniBarItem(
+                        '${e.value['bucket']}', _asInt(e.value['count']),
+                        color: _cSeverity[e.key.clamp(0, 3)]))
                     .toList();
-                final companyItems = byCompany.asMap().entries
-                    .map((e) => MiniBarItem('${e.value['company']}', _asInt(e.value['total']), color: _shadeForRank(e.key, byCompany.length)))
+                final companyItems = byCompany
+                    .asMap()
+                    .entries
+                    .map((e) => MiniBarItem(
+                        '${e.value['company']}', _asInt(e.value['total']),
+                        color: _shadeForRank(e.key, byCompany.length)))
                     .toList();
                 final cards = [
-                  _card(title: 'WO per Modul', child: _barListOrEmpty(moduleItems)),
+                  _card(
+                      title: 'WO per Modul',
+                      child: _barListOrEmpty(moduleItems)),
                   _card(
                     title: 'Umur WO Terbuka',
                     titleIcon: Icons.warning_amber_rounded,
                     titleIconColor: _cWarning,
                     child: _barListOrEmpty(agingItems),
                   ),
-                  _card(title: 'WO per Company', child: _barListOrEmpty(companyItems)),
+                  _card(
+                      title: 'WO per Company',
+                      child: _barListOrEmpty(companyItems)),
                 ];
                 return _responsiveTriple(c.maxWidth, cards);
               }),
@@ -304,27 +378,51 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                     .map((a) => MiniBarItem(
                           '${a['asset_name'] ?? a['asset_code'] ?? '#${a['asset_id']}'}',
                           _asInt(a['count']),
-                          sub: a['asset_code'] != null && '${a['asset_code']}'.isNotEmpty ? '${a['asset_code']}' : null,
+                          sub: a['asset_code'] != null &&
+                                  '${a['asset_code']}'.isNotEmpty
+                              ? '${a['asset_code']}'
+                              : null,
                         ))
                     .toList();
-                final statusItems = byStatus.map((s) => MiniBarItem('${s['label']}', _asInt(s['count']))).toList();
+                final statusItems = byStatus
+                    .map(
+                        (s) => MiniBarItem('${s['label']}', _asInt(s['count'])))
+                    .toList();
                 final wide = c.maxWidth > 700;
-                final a = _card(title: 'Aset Paling Sering WO', child: _barListOrEmpty(assetItems));
-                final b = _card(title: 'Rincian Status', child: _barListOrEmpty(statusItems));
-                if (!wide) return Column(children: [a, const SizedBox(height: 16), b]);
+                final a = _card(
+                    title: 'Aset Paling Sering WO',
+                    child: _barListOrEmpty(assetItems));
+                final b = _card(
+                    title: 'Rincian Status',
+                    child: _barListOrEmpty(statusItems));
+                if (!wide) {
+                  return Column(children: [a, const SizedBox(height: 16), b]);
+                }
                 return IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [Expanded(child: a), const SizedBox(width: 16), Expanded(child: b)],
+                    children: [
+                      Expanded(child: a),
+                      const SizedBox(width: 16),
+                      Expanded(child: b)
+                    ],
                   ),
                 );
               }),
               const SizedBox(height: 16),
               LayoutBuilder(builder: (context, c) {
                 final wide = c.maxWidth > 820;
-                final approvalCard = _card(title: 'Antrian Approval', child: _approvalQueueList());
-                final recentCard = _card(title: 'Work Order Terbaru', child: _recentWoTable());
-                if (!wide) return Column(children: [approvalCard, const SizedBox(height: 16), recentCard]);
+                final approvalCard = _card(
+                    title: 'Antrian Approval', child: _approvalQueueList());
+                final recentCard =
+                    _card(title: 'Work Order Terbaru', child: _recentWoTable());
+                if (!wide) {
+                  return Column(children: [
+                    approvalCard,
+                    const SizedBox(height: 16),
+                    recentCard
+                  ]);
+                }
                 return IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -340,7 +438,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
               Center(
                 child: Text(
                   'Angka mengikuti hak akses modul & divisi Anda. Diperbarui ${data['generated_at'] ?? ''}.',
-                  style: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+                  style:
+                      const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
                 ),
               ),
             ],
@@ -371,7 +470,11 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [Expanded(child: cards[0]), const SizedBox(width: 16), Expanded(child: cards[1])],
+              children: [
+                Expanded(child: cards[0]),
+                const SizedBox(width: 16),
+                Expanded(child: cards[1])
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -379,74 +482,478 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
         ],
       );
     }
-    return Column(children: [cards[0], const SizedBox(height: 16), cards[1], const SizedBox(height: 16), cards[2]]);
+    return Column(children: [
+      cards[0],
+      const SizedBox(height: 16),
+      cards[1],
+      const SizedBox(height: 16),
+      cards[2]
+    ]);
   }
 
   Widget _barListOrEmpty(List<MiniBarItem> items) {
     if (items.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: Text('Tidak ada data.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
+        child: Center(
+            child: Text('Tidak ada data.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
       );
     }
     return MiniBarList(items: items);
   }
 
-  Widget _buildHeaderRow() {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'Dashboard',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+  String _metricValue(dynamic raw) {
+    final metric = raw is Map ? raw : const {};
+    final value = metric['value'];
+    return value == null ? 'N/M' : '$value';
+  }
+
+  String? _metricState(dynamic raw) {
+    final metric = raw is Map ? raw : const {};
+    final state = '${metric['data_quality_status'] ?? ''}';
+    if (state.isEmpty || state == 'valid') return null;
+    if (state == 'no_permission') return 'Tidak termasuk hak akses Anda';
+    return 'Sumber data belum aktif';
+  }
+
+  Widget _preventiveNotice(Map<String, dynamic> coverage) {
+    final missing = _asInt(coverage['missing']);
+    final required = _asInt(coverage['required']);
+    final scheduled = _asInt(coverage['scheduled']);
+    final attention = missing > 0;
+    return GestureDetector(
+      onTap: attention ? widget.onOpenMyWork : null,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: attention ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color:
+                attention ? const Color(0xFFFDE68A) : const Color(0xFFA7F3D0),
           ),
         ),
-        Container(
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(8)),
-          child: Row(
-            children: _kRanges.map((r) {
-              final active = r == _range;
-              return GestureDetector(
-                onTap: () {
-                  setState(() => _range = r);
-                  _load();
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: active ? _cBrand : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '$r hari',
+        child: Row(
+          children: [
+            Icon(
+              attention
+                  ? Icons.event_busy_outlined
+                  : Icons.event_available_outlined,
+              color:
+                  attention ? const Color(0xFFD97706) : const Color(0xFF15803D),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    attention
+                        ? 'Asset Maintenance belum terjadwal'
+                        : 'Jadwal preventive Asset Maintenance lengkap',
                     style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: active ? Colors.white : const Color(0xFF64748B),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: attention
+                          ? const Color(0xFF92400E)
+                          : const Color(0xFF166534),
                     ),
                   ),
-                ),
-              );
-            }).toList(),
-          ),
+                  const SizedBox(height: 2),
+                  Text(
+                    attention
+                        ? 'Ada $missing asset aktif yang belum mempunyai jadwal preventive. $scheduled dari $required asset sudah terjadwal.'
+                        : '$scheduled dari $required asset Maintenance sudah memiliki jadwal preventive aktif.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: attention
+                          ? const Color(0xFF92400E)
+                          : const Color(0xFF166534),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (attention)
+              const Icon(Icons.chevron_right,
+                  size: 19, color: Color(0xFFD97706)),
+          ],
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: _load,
-          icon: _fetching
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.refresh, size: 18),
-          style: IconButton.styleFrom(
-            backgroundColor: Colors.white,
-            side: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildKpiGrid(List<_KpiData?> items, {Map<String, dynamic>? preventiveRatio}) {
+  Widget _domainHealth(List<Map<String, dynamic>> domains) {
+    const icons = <String, IconData>{
+      'asset': Icons.inventory_2_outlined,
+      'maintenance': Icons.build_outlined,
+      'sparepart': Icons.inventory_outlined,
+      'fleet': Icons.local_shipping_outlined,
+      'energy': Icons.bolt_outlined,
+      'governance': Icons.account_balance_outlined,
+      'ga': Icons.apartment_outlined,
+    };
+    return _card(
+      title: 'Snapshot 7 Domain',
+      child: LayoutBuilder(builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 980
+            ? 4
+            : constraints.maxWidth >= 620
+                ? 3
+                : 2;
+        const gap = 10.0;
+        final width = (constraints.maxWidth - ((columns - 1) * gap)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: domains.map((domain) {
+            final primary =
+                Map<String, dynamic>.from(domain['primary'] as Map? ?? {});
+            final available = domain['status'] == 'available';
+            final value = primary['value'];
+            return SizedBox(
+              width: width,
+              child: Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          icons['${domain['key']}'] ?? Icons.dashboard_outlined,
+                          size: 17,
+                          color: available ? _cBrand : const Color(0xFF94A3B8),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: available
+                                ? const Color(0xFFECFDF5)
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            available
+                                ? 'Aktif'
+                                : domain['status'] == 'no_permission'
+                                    ? 'Terbatas'
+                                    : 'Belum aktif',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w700,
+                              color: available
+                                  ? const Color(0xFF047857)
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${domain['label'] ?? '-'}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155)),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      value == null ? 'N/M' : '$value',
+                      style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A)),
+                    ),
+                    Text(
+                      '${primary['label'] ?? ''}${value != null && primary['unit'] != null ? ' · ${primary['unit']}' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 9.5, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      }),
+    );
+  }
+
+  Widget _executiveHero({
+    required Map<String, dynamic> enterprise,
+    required Map<String, dynamic> headline,
+    required Map<String, dynamic> coverage,
+    required int openWo,
+    required int approvalCount,
+  }) {
+    final scope = Map<String, dynamic>.from(enterprise['scope'] as Map? ?? {});
+    final companies = (scope['available_companies'] as List? ?? [])
+        .map((item) => '$item')
+        .where((item) => item.isNotEmpty)
+        .toList();
+    final missing = _asInt(coverage['missing']);
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF071426), Color(0xFF102A56)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x260F172A),
+            blurRadius: 22,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 16, 15),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.circle, size: 8, color: Color(0xFF34D399)),
+                          SizedBox(width: 7),
+                          Text(
+                            'ENTERPRISE OPERATIONS COMMAND CENTER',
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              letterSpacing: 1.3,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF93C5FD),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 7),
+                      Text(
+                        'Dashboard Utama MCS',
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Kondisi operasional lintas domain berdasarkan scope akses aktif.',
+                        style:
+                            TextStyle(fontSize: 11, color: Color(0xFFCBD5E1)),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(999),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: .10)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.verified_user_outlined,
+                          size: 14, color: Color(0xFF6EE7B7)),
+                      SizedBox(width: 6),
+                      Text('Data parsial tervalidasi',
+                          style: TextStyle(
+                              fontSize: 9.5, color: Color(0xFFE2E8F0))),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: _load,
+                  color: Colors.white,
+                  icon: _fetching
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.refresh, size: 19),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 15),
+            child: Row(
+              children: [
+                Container(
+                  height: 34,
+                  width: 165,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8)),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _company,
+                      isExpanded: true,
+                      style: const TextStyle(
+                          fontSize: 11, color: Color(0xFF334155)),
+                      items: [
+                        const DropdownMenuItem(
+                            value: '', child: Text('Semua company')),
+                        ...companies.map((company) => DropdownMenuItem(
+                            value: company, child: Text(company))),
+                      ],
+                      onChanged: (value) {
+                        if (value == null || value == _company) return;
+                        setState(() => _company = value);
+                        _load();
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _kRanges.map((r) {
+                        final active = r == _range;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => _range = r);
+                            _load();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 5),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? const Color(0xFF2563EB)
+                                  : Colors.white.withValues(alpha: .07),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('$r hari',
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: active
+                                        ? Colors.white
+                                        : const Color(0xFFCBD5E1))),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+                border: Border(
+                    top: BorderSide(
+                        color: Colors.white.withValues(alpha: .10)))),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _heroMetric(Icons.inventory_2_outlined, 'Asset Aktif',
+                      _metricValue(headline['asset_active'])),
+                  _heroMetric(
+                      Icons.event_busy_outlined, 'Belum Preventive', '$missing',
+                      attention: missing > 0),
+                  _heroMetric(Icons.autorenew, 'WO Open', '$openWo'),
+                  _heroMetric(Icons.verified_outlined, 'Menunggu Approval',
+                      '$approvalCount',
+                      attention: approvalCount > 0),
+                  _heroMetric(Icons.report_problem_outlined, 'Critical NCR',
+                      _metricValue(headline['critical_ncr']),
+                      attention:
+                          _asInt((headline['critical_ncr'] as Map?)?['value']) >
+                              0),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroMetric(IconData icon, String label, String value,
+      {bool attention = false}) {
+    return Container(
+      width: 155,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      decoration: BoxDecoration(
+          border: Border(
+              right: BorderSide(color: Colors.white.withValues(alpha: .10)))),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color:
+                  attention ? const Color(0x26F59E0B) : const Color(0x262563EB),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon,
+                size: 18,
+                color: attention
+                    ? const Color(0xFFFCD34D)
+                    : const Color(0xFF93C5FD)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white)),
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 9.5, color: Color(0xFF94A3B8))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKpiGrid(List<_KpiData?> items,
+      {Map<String, dynamic>? preventiveRatio}) {
     return LayoutBuilder(builder: (context, c) {
       final cross = c.maxWidth > 900 ? 4 : (c.maxWidth > 600 ? 2 : 1);
       return GridView(
@@ -482,7 +989,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           Container(
             width: 30,
             height: 30,
-            decoration: BoxDecoration(color: it.bg, borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+                color: it.bg, borderRadius: BorderRadius.circular(8)),
             alignment: Alignment.center,
             child: Icon(it.icon, size: 15, color: it.color),
           ),
@@ -492,10 +1000,24 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(it.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B))),
-                Text(it.value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                Text(it.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF64748B))),
+                Text(it.value,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A))),
                 if (it.sub != null)
-                  Text(it.sub!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8))),
+                  Text(it.sub!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 9.5, color: Color(0xFF94A3B8))),
                 if (it.pct != null) _deltaLabel(it.pct!, it.neutral),
               ],
             ),
@@ -523,9 +1045,12 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           Container(
             width: 30,
             height: 30,
-            decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(8)),
             alignment: Alignment.center,
-            child: const Icon(Icons.shield_outlined, size: 15, color: _cSuccess),
+            child:
+                const Icon(Icons.shield_outlined, size: 15, color: _cSuccess),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -536,19 +1061,39 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                 Row(
                   children: [
                     const Flexible(
-                      child: Text('Rasio Preventive', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B))),
+                      child: Text('Rasio Preventive',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF64748B))),
                     ),
                     const SizedBox(width: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(999)),
-                      child: const Text('target 90%', style: TextStyle(fontSize: 8.5, color: Color(0xFF64748B))),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(999)),
+                      child: const Text('target belum ditetapkan',
+                          style: TextStyle(
+                              fontSize: 8.5, color: Color(0xFF64748B))),
                     ),
                   ],
                 ),
-                Text(ratio == null ? '-' : '${ratio.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                Text('$preventive PM vs $corrective CM', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8))),
-                if (deltaPts != null) _deltaLabel(deltaPts, false, suffix: ' poin'),
+                Text(ratio == null ? '-' : '${ratio.toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A))),
+                Text('$preventive PM vs $corrective CM',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 9.5, color: Color(0xFF94A3B8))),
+                if (deltaPts != null)
+                  _deltaLabel(deltaPts, false, suffix: ' poin'),
               ],
             ),
           ),
@@ -557,11 +1102,15 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     );
   }
 
-  Widget _deltaLabel(double pct, bool neutral, {String suffix = '% vs periode lalu'}) {
+  Widget _deltaLabel(double pct, bool neutral,
+      {String suffix = '% vs periode lalu'}) {
     if (neutral) {
       return Text(
         '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(0)}$suffix',
-        style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+        style: const TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF64748B)),
       );
     }
     final good = pct >= 0;
@@ -569,14 +1118,16 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(good ? Icons.arrow_outward : Icons.south_east, size: 10, color: color),
+        Icon(good ? Icons.arrow_outward : Icons.south_east,
+            size: 10, color: color),
         const SizedBox(width: 1),
         Flexible(
           child: Text(
             '${pct.abs().toStringAsFixed(0)}$suffix',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
+            style: TextStyle(
+                fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
           ),
         ),
       ],
@@ -587,18 +1138,28 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     Widget dot(Color c, String l) => Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 7, height: 7, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+            Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
             const SizedBox(width: 4),
-            Text(l, style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
+            Text(l,
+                style:
+                    const TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
           ],
         );
     return Wrap(
       spacing: 12,
-      children: [dot(_cSuccess, 'Selesai'), dot(_cBrand, 'Dikerjakan'), dot(_cWarning, 'Belum')],
+      children: [
+        dot(_cSuccess, 'Selesai'),
+        dot(_cBrand, 'Dikerjakan'),
+        dot(_cWarning, 'Belum')
+      ],
     );
   }
 
-  Widget _buildStackedStatus(int total, int open, int inProgress, int closed, int rejected) {
+  Widget _buildStackedStatus(
+      int total, int open, int inProgress, int closed, int rejected) {
     final segments = [
       ('Antre', open, _cWarning),
       ('Dikerjakan', inProgress, _cBrand),
@@ -612,9 +1173,14 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text('$total', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+            Text('$total',
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A))),
             const SizedBox(width: 6),
-            const Text('total WO', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+            const Text('total WO',
+                style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
           ],
         ),
         const SizedBox(height: 10),
@@ -627,7 +1193,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                 : Row(
                     children: segments
                         .where((s) => s.$2 > 0)
-                        .map((s) => Expanded(flex: s.$2, child: Container(color: s.$3)))
+                        .map((s) =>
+                            Expanded(flex: s.$2, child: Container(color: s.$3)))
                         .toList(),
                   ),
           ),
@@ -639,12 +1206,28 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
             padding: const EdgeInsets.only(bottom: 6),
             child: Row(
               children: [
-                Container(width: 9, height: 9, decoration: BoxDecoration(color: s.$3, borderRadius: BorderRadius.circular(2))),
+                Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                        color: s.$3, borderRadius: BorderRadius.circular(2))),
                 const SizedBox(width: 8),
-                Expanded(child: Text(s.$1, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
-                Text('${s.$2}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1F2937))),
+                Expanded(
+                    child: Text(s.$1,
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF64748B)))),
+                Text('${s.$2}',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1F2937))),
                 const SizedBox(width: 8),
-                SizedBox(width: 32, child: Text(pct == null ? '-' : '$pct%', textAlign: TextAlign.right, style: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)))),
+                SizedBox(
+                    width: 32,
+                    child: Text(pct == null ? '-' : '$pct%',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                            fontSize: 11.5, color: Color(0xFF94A3B8)))),
               ],
             ),
           );
@@ -656,7 +1239,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
   Widget _approvalQueueList() {
     final s = _approvalSummary;
     if (s == null) {
-      return const Text('-', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)));
+      return const Text('-',
+          style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)));
     }
     final rows = [
       ('WO Approval', s.woApprovals),
@@ -668,13 +1252,22 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
       children: rows
           .map((r) => Container(
                 margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(8)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(8)),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(r.$1, style: const TextStyle(fontSize: 12.5, color: Color(0xFF475569))),
-                    Text('${r.$2}', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                    Text(r.$1,
+                        style: const TextStyle(
+                            fontSize: 12.5, color: Color(0xFF475569))),
+                    Text('${r.$2}',
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A))),
                   ],
                 ),
               ))
@@ -682,20 +1275,34 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     );
   }
 
-  static const Map<String, Color> _toneGreen = {'bg': Color(0xFFECFDF5), 'fg': Color(0xFF047857)};
+  static const Map<String, Color> _toneGreen = {
+    'bg': Color(0xFFECFDF5),
+    'fg': Color(0xFF047857)
+  };
 
   (Color, Color, String) _statusTone(String raw) {
     final s = raw.toLowerCase().trim();
-    if (s.contains('close') || s.contains('done') || s.contains('complete') || s.contains('approve') || s.contains('active')) {
+    if (s.contains('close') ||
+        s.contains('done') ||
+        s.contains('complete') ||
+        s.contains('approve') ||
+        s.contains('active')) {
       return (_toneGreen['bg']!, _toneGreen['fg']!, raw);
     }
-    if (s.contains('reject') || s.contains('decline') || s.contains('void') || s.contains('fail') || s.contains('error')) {
+    if (s.contains('reject') ||
+        s.contains('decline') ||
+        s.contains('void') ||
+        s.contains('fail') ||
+        s.contains('error')) {
       return (const Color(0xFFFFF1F2), const Color(0xFFBE123C), raw);
     }
     if (s.contains('progress') || s.contains('running')) {
       return (const Color(0xFFECFEFF), const Color(0xFF0E7490), raw);
     }
-    if (s.contains('wait') || s.contains('pending') || s.contains('hold') || s.contains('need')) {
+    if (s.contains('wait') ||
+        s.contains('pending') ||
+        s.contains('hold') ||
+        s.contains('need')) {
       return (const Color(0xFFFFFBEB), const Color(0xFF92400E), raw);
     }
     return (const Color(0xFFF1F5F9), const Color(0xFF475569), raw);
@@ -705,21 +1312,55 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     if (_recentWo.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: Text('Belum ada data.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
+        child: Center(
+            child: Text('Belum ada data.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
       );
     }
-    const moduleLabel = {'meso': 'MESO', 'maintenance': 'Maintenance', 'production': 'Production', 'is': 'IS', 'ga': 'GA'};
+    const moduleLabel = {
+      'meso': 'MESO',
+      'maintenance': 'Maintenance',
+      'production': 'Production',
+      'is': 'IS',
+      'ga': 'GA'
+    };
     return Column(
       children: [
-        Row(
-          children: const [
-            Expanded(flex: 3, child: Text('No. WO', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8)))),
-            Expanded(flex: 4, child: Text('Deskripsi', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8)))),
-            Expanded(flex: 2, child: Text('Modul', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8)))),
-            Expanded(flex: 2, child: Text('Status', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8)))),
+        const Row(
+          children: [
+            Expanded(
+                flex: 3,
+                child: Text('No. WO',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8)))),
+            Expanded(
+                flex: 4,
+                child: Text('Deskripsi',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8)))),
+            Expanded(
+                flex: 2,
+                child: Text('Modul',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8)))),
+            Expanded(
+                flex: 2,
+                child: Text('Status',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8)))),
           ],
         ),
-        const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Divider(height: 1)),
+        const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Divider(height: 1)),
         ..._recentWo.map((r) {
           final status = '${r['status'] ?? ''}';
           final tone = _statusTone(status);
@@ -728,17 +1369,46 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(flex: 3, child: Text('${r['wo_number'] ?? '-'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)))),
-                Expanded(flex: 4, child: Text('${r['job_title'] ?? '-'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569)))),
-                Expanded(flex: 2, child: Text(moduleLabel['${r['module'] ?? ''}'] ?? '${r['module'] ?? '-'}', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+                Expanded(
+                    flex: 3,
+                    child: Text('${r['wo_number'] ?? '-'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1E293B)))),
+                Expanded(
+                    flex: 4,
+                    child: Text('${r['job_title'] ?? '-'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11.5, color: Color(0xFF475569)))),
+                Expanded(
+                    flex: 2,
+                    child: Text(
+                        moduleLabel['${r['module'] ?? ''}'] ??
+                            '${r['module'] ?? '-'}',
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFF64748B)))),
                 Expanded(
                   flex: 2,
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(color: tone.$1, borderRadius: BorderRadius.circular(999)),
-                      child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: tone.$2)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                          color: tone.$1,
+                          borderRadius: BorderRadius.circular(999)),
+                      child: Text(status,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              color: tone.$2)),
                     ),
                   ),
                 ),
@@ -750,7 +1420,12 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     );
   }
 
-  Widget _card({required String title, Widget? trailing, IconData? titleIcon, Color? titleIconColor, required Widget child}) {
+  Widget _card(
+      {required String title,
+      Widget? trailing,
+      IconData? titleIcon,
+      Color? titleIconColor,
+      required Widget child}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -766,11 +1441,16 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
           Row(
             children: [
               if (titleIcon != null) ...[
-                Icon(titleIcon, size: 15, color: titleIconColor ?? const Color(0xFF64748B)),
+                Icon(titleIcon,
+                    size: 15, color: titleIconColor ?? const Color(0xFF64748B)),
                 const SizedBox(width: 6),
               ],
               Expanded(
-                child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF111827))),
+                child: Text(title,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF111827))),
               ),
               if (trailing != null) trailing,
             ],
@@ -792,5 +1472,6 @@ class _KpiData {
   final String? sub;
   final double? pct;
   final bool neutral;
-  _KpiData(this.label, this.value, this.icon, this.color, this.bg, {this.sub, this.pct, this.neutral = false});
+  _KpiData(this.label, this.value, this.icon, this.color, this.bg,
+      {this.sub, this.pct, this.neutral = false});
 }
