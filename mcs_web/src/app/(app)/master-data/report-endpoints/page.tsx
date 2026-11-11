@@ -1,29 +1,117 @@
 "use client";
-import { useState } from "react";
+
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Button, Card, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/modal";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast";
-import { deleteReportEndpointConfig,getReportEndpointConfigs,saveReportEndpointConfig,type ReportEndpointConfig } from "@/lib/api/report-center";
+import {
+  deleteReportEndpointConfig,
+  getReportEndpointConfigs,
+  saveReportEndpointConfig,
+  syncReportCatalog,
+  updateReportDefinition,
+  type ReportEndpointConfig,
+} from "@/lib/api/report-center";
 
-const empty={protocol:"ASYNC_JOB",endpoint_name:"MCS Reporting Async",catalog_url:"",base_url:"http://192.168.10.100:5007/reports",system_code:"mcs",report_type:"report-assets",report_title:"Laporan Assets",report_description:"Laporan daftar asset dari layanan reporting/Gotenberg.",category:"Asset Management",output_format:"PDF",default_params:"{}",required_permission:"report_asset",auth_header_name:"",auth_header_value:"",timeout_seconds:"30",status:"ACTIVE",notes:"Token user MCS yang sedang login diteruskan ke service reporting."};
+const PERMISSIONS = [
+  ["", "Semua user login"],
+  ["report_asset", "Report Asset"],
+  ["report_asset_history", "Report Asset History"],
+  ["list_of_asset", "List of Asset"],
+  ["report_so", "Report Stock Opname"],
+  ["recap_wo", "Recap Work Order"],
+  ["template_crystal_report", "Template Crystal Report"],
+] as const;
 
-export default function ReportEndpointPage(){
-  const toast=useToast();const [form,setForm]=useState<Record<string,string>>(empty);const [open,setOpen]=useState(false);const [saving,setSaving]=useState(false);
-  const query=useQuery({queryKey:["report-endpoint-config"],queryFn:({signal})=>getReportEndpointConfigs(signal)});
-  const edit=(row?:ReportEndpointConfig)=>{setForm(row?{id:String(row.id),protocol:row.protocol||"CATALOG",endpoint_name:row.endpoint_name,catalog_url:row.catalog_url,base_url:row.base_url||row.catalog_url,system_code:row.system_code||"mcs",report_type:row.report_type||"report-assets",report_title:row.report_title||"Laporan Assets",report_description:row.report_description||"",category:row.category||"General",output_format:row.output_format||"PDF",default_params:row.default_params||"{}",required_permission:row.required_permission||"",auth_header_name:row.auth_header_name||"",auth_header_value:"",timeout_seconds:String(row.timeout_seconds),status:row.status,notes:row.notes||""}:empty);setOpen(true);};
-  const save=async()=>{setSaving(true);try{if(form.protocol==="ASYNC_JOB")JSON.parse(form.default_params||"{}");await saveReportEndpointConfig(form);toast.success("Endpoint report disimpan");setOpen(false);await query.refetch();}catch(e){toast.error("Endpoint gagal disimpan",e instanceof Error?e.message:undefined);}finally{setSaving(false);}};
-  const remove=async(id:number)=>{if(!confirm("Hapus endpoint report ini?"))return;await deleteReportEndpointConfig(id);await query.refetch();};
-  return <PageContainer title="Endpoint Report Center" description="Konfigurasi katalog report atau layanan reporting async. Credential hanya digunakan oleh backend." actions={<Button onClick={()=>edit()}><Plus className="h-4 w-4"/>Tambah Endpoint</Button>}>
-    <Card className="border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><strong>Async Job:</strong> MCS meneruskan token user yang sedang login, membuat job, mengecek status berkala, lalu mengunduh PDF. Hak akses report mengikuti permission user MCS.</Card>
-    <div className="space-y-3">{query.data?.data.map(row=><Card key={`${row.id}:${row.report_type||"catalog"}`} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div><p className="font-semibold">{row.endpoint_name}</p><p className="break-all text-xs text-slate-500">{row.protocol==="ASYNC_JOB"?row.base_url:row.catalog_url}</p><p className="mt-1 text-xs text-slate-400">{row.protocol||"CATALOG"}{row.report_type?` · ${row.report_type}`:""} · Auth {row.has_auth?"tersimpan":"belum diisi"}</p></div><StatusBadge status={row.status}/><div className="ml-auto flex gap-2"><Button variant="ghost" onClick={()=>edit(row)}><Pencil className="h-4 w-4"/>Ubah</Button><Button variant="ghost" className="text-rose-600" onClick={()=>remove(row.id)}><Trash2 className="h-4 w-4"/></Button></div></Card>)}</div>
-    <Modal open={open} onClose={()=>setOpen(false)} title="Konfigurasi Endpoint Report" size="lg" footer={<><Button variant="secondary" onClick={()=>setOpen(false)}>Batal</Button><Button loading={saving} onClick={save}>Simpan</Button></>}>
-      <div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Mode endpoint" required><Select value={form.protocol} onChange={e=>setForm(v=>({...v,protocol:e.target.value}))}><option value="ASYNC_JOB">Async Job</option><option value="CATALOG">Catalog API</option></Select></Field><Field label="Status"><Select value={form.status} onChange={e=>setForm(v=>({...v,status:e.target.value}))}><option>ACTIVE</option><option>INACTIVE</option></Select></Field><Field label="Nama endpoint" required><Input value={form.endpoint_name} onChange={e=>setForm(v=>({...v,endpoint_name:e.target.value}))}/></Field><Field label="Timeout (detik)"><Input type="number" min="3" max="120" value={form.timeout_seconds} onChange={e=>setForm(v=>({...v,timeout_seconds:e.target.value}))}/></Field>
-      {form.protocol==="ASYNC_JOB"?<><div className="sm:col-span-2"><Field label="Base URL job" required><Input value={form.base_url} onChange={e=>setForm(v=>({...v,base_url:e.target.value}))} placeholder="http://192.168.10.100:5007/reports"/></Field></div><Field label="System code" required><Input value={form.system_code} onChange={e=>setForm(v=>({...v,system_code:e.target.value}))}/></Field><Field label="Report type" required><Input value={form.report_type} onChange={e=>setForm(v=>({...v,report_type:e.target.value}))}/></Field><Field label="Judul report" required><Input value={form.report_title} onChange={e=>setForm(v=>({...v,report_title:e.target.value}))}/></Field><Field label="Kategori"><Input value={form.category} onChange={e=>setForm(v=>({...v,category:e.target.value}))}/></Field><Field label="Format"><Select value={form.output_format} onChange={e=>setForm(v=>({...v,output_format:e.target.value}))}><option>PDF</option><option>XLSX</option></Select></Field><Field label="Default params (JSON)"><Input value={form.default_params} onChange={e=>setForm(v=>({...v,default_params:e.target.value}))}/></Field><Field label="Permission yang diperlukan"><Select value={form.required_permission} onChange={e=>setForm(v=>({...v,required_permission:e.target.value}))}><option value="">Semua user login</option><option value="report_asset">Report Asset</option><option value="report_asset_history">Report Asset History</option><option value="list_of_asset">List of Asset</option><option value="report_so">Report Stock Opname</option><option value="recap_wo">Recap WO</option><option value="template_crystal_report">Template Crystal Report</option></Select></Field><div className="sm:col-span-2"><Field label="Deskripsi report"><Input value={form.report_description} onChange={e=>setForm(v=>({...v,report_description:e.target.value}))}/></Field></div><div className="sm:col-span-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Authorization menggunakan token user MCS yang sedang login. Tidak ada token service yang disimpan.</div></>:<><div className="sm:col-span-2"><Field label="Catalog URL" required><Input value={form.catalog_url} onChange={e=>setForm(v=>({...v,catalog_url:e.target.value}))}/></Field></div><Field label="Auth header"><Input value={form.auth_header_name} onChange={e=>setForm(v=>({...v,auth_header_name:e.target.value}))}/></Field><Field label="Auth value"><Input type="password" value={form.auth_header_value} onChange={e=>setForm(v=>({...v,auth_header_value:e.target.value}))}/></Field></>}
-      <div className="sm:col-span-2"><Field label="Catatan"><Textarea value={form.notes} onChange={e=>setForm(v=>({...v,notes:e.target.value}))}/></Field></div></div>
+const empty = {
+  protocol: "ASYNC_JOB", endpoint_name: "MCS Reporting Async", catalog_url: "",
+  base_url: "http://192.168.10.100:5007/reports",
+  report_catalog_url: "http://192.168.10.100:5007/report-types",
+  system_code: "mcs", report_type: "report-assets", report_title: "Laporan Assets",
+  report_description: "Laporan daftar asset dari layanan reporting/Gotenberg.",
+  category: "Asset Management", output_format: "PDF", default_params: "{}",
+  required_permission: "report_asset", auth_header_name: "", auth_header_value: "",
+  timeout_seconds: "30", status: "ACTIVE",
+  notes: "Katalog disinkron otomatis; token user MCS diteruskan saat membuat report.",
+};
+
+export default function ReportEndpointPage() {
+  const toast = useToast();
+  const [form, setForm] = useState<Record<string,string>>(empty);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [working, setWorking] = useState<number | null>(null);
+  const query = useQuery({ queryKey: ["report-endpoint-config"], queryFn: ({ signal }) => getReportEndpointConfigs(signal) });
+  const responseRows = query.data?.data;
+  const rows = useMemo(() => responseRows ?? [], [responseRows]);
+  const endpoints = useMemo(() => [...new Map(rows.map((row) => [row.id,row])).values()], [rows]);
+  const definitions = rows.filter((row) => row.report_definition_id);
+
+  const edit = (row?: ReportEndpointConfig) => {
+    setForm(row ? {
+      id: String(row.id), protocol: row.protocol || "CATALOG", endpoint_name: row.endpoint_name,
+      catalog_url: row.catalog_url, base_url: row.base_url || row.catalog_url,
+      report_catalog_url: row.report_catalog_url || "", system_code: row.system_code || "mcs",
+      report_type: row.report_type || "report-assets", report_title: row.report_title || "Laporan Assets",
+      report_description: row.report_description || "", category: row.category || "General",
+      output_format: row.output_format || "PDF", default_params: row.default_params || "{}",
+      required_permission: row.required_permission || "", auth_header_name: row.auth_header_name || "",
+      auth_header_value: "", timeout_seconds: String(row.timeout_seconds), status: row.status,
+      notes: row.notes || "",
+    } : empty);
+    setOpen(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if(form.protocol === "ASYNC_JOB")JSON.parse(form.default_params || "{}");
+      await saveReportEndpointConfig(form);toast.success("Endpoint report disimpan");setOpen(false);await query.refetch();
+    } catch(error) { toast.error("Endpoint gagal disimpan",error instanceof Error?error.message:undefined); }
+    finally { setSaving(false); }
+  };
+
+  const sync = async (id:number) => {
+    setWorking(id);
+    try { const result=await syncReportCatalog(id);toast.success("Katalog report tersinkron",`${result.data.created} baru · ${result.data.updated} diperbarui · ${result.data.unavailable} unavailable`);await query.refetch(); }
+    catch(error){toast.error("Sinkronisasi gagal",error instanceof Error?error.message:undefined);}
+    finally{setWorking(null);}
+  };
+
+  const updateDefinition = async (row:ReportEndpointConfig,status:string,permission:string) => {
+    if(!row.report_definition_id)return;setWorking(row.report_definition_id);
+    try{await updateReportDefinition(row.report_definition_id,{status:status as "ACTIVE"|"INACTIVE",required_permission:permission});toast.success("Akses report diperbarui");await query.refetch();}
+    catch(error){toast.error("Akses report gagal diperbarui",error instanceof Error?error.message:undefined);}
+    finally{setWorking(null);}
+  };
+
+  const remove = async(id:number) => { if(!confirm("Hapus endpoint beserta definisi report-nya?"))return;await deleteReportEndpointConfig(id);await query.refetch(); };
+
+  return <PageContainer title="Katalog & Akses Report" description="Cron mengambil katalog Laravel setiap 10 menit. Report baru harus diaktifkan dan diberi permission sebelum tampil ke user." actions={<Button onClick={() => edit()}><Plus className="h-4 w-4"/> Tambah Endpoint</Button>}>
+    <Card className="border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><strong>Alur aman:</strong> katalog terdeteksi otomatis → report baru berstatus nonaktif → admin memilih permission → report aktif muncul hanya kepada user yang berhak.</Card>
+
+    <div className="space-y-3">{endpoints.map((endpoint) => <Card key={endpoint.id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
+      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="font-semibold">{endpoint.endpoint_name}</p><StatusBadge status={endpoint.status}/></div><p className="mt-1 break-all text-xs text-slate-500">Job: {endpoint.base_url || endpoint.catalog_url}</p>{endpoint.report_catalog_url ? <p className="break-all text-xs text-slate-500">Catalog: {endpoint.report_catalog_url}</p> : null}</div>
+      <div className="flex flex-wrap gap-2"><Button variant="secondary" loading={working===endpoint.id} onClick={() => sync(endpoint.id)}><RefreshCw className="h-4 w-4"/> Sinkronkan Sekarang</Button><Button variant="ghost" onClick={() => edit(endpoint)}><Pencil className="h-4 w-4"/> Endpoint</Button><Button variant="ghost" className="text-rose-600" onClick={() => remove(endpoint.id)}><Trash2 className="h-4 w-4"/></Button></div>
+    </Card>)}</div>
+
+    <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Report terdeteksi</h2><span className="text-sm text-slate-500">{definitions.length} report</span></div>
+    <div className="grid gap-3 xl:grid-cols-2">{definitions.map((row) => {
+      const active=row.report_status==="ACTIVE";const available=row.catalog_status!=="UNAVAILABLE";
+      return <Card key={row.report_definition_id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-900">{row.report_title}</p><p className="truncate text-xs text-slate-500">{row.report_type} · {row.category}</p></div><div className="flex gap-1"><StatusBadge status={row.catalog_status||"AVAILABLE"}/><StatusBadge status={row.report_status||"INACTIVE"}/></div></div>
+        <p className="mt-2 text-xs text-slate-400">Parameter: {(() => { try{return (JSON.parse(row.catalog_params||"[]") as string[]).join(", ")||"tanpa filter";}catch{return "-";} })()}</p>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end"><div className="flex-1"><Field label="Permission user"><Select disabled={working===row.report_definition_id} value={row.required_permission||""} onChange={(event)=>updateDefinition(row,row.report_status||"INACTIVE",event.target.value)}>{PERMISSIONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</Select></Field></div><Button disabled={!available} loading={working===row.report_definition_id} variant={active?"secondary":"primary"} onClick={()=>updateDefinition(row,active?"INACTIVE":"ACTIVE",row.required_permission||"")}>{active?"Nonaktifkan":"Aktifkan"}</Button></div>
+      </Card>;
+    })}</div>
+
+    <Modal open={open} onClose={() => setOpen(false)} title="Konfigurasi Endpoint Report" size="lg" footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Batal</Button><Button loading={saving} onClick={save}>Simpan</Button></>}>
+      <div className="grid gap-4 sm:grid-cols-2"><Field label="Mode endpoint" required><Select value={form.protocol} onChange={(event)=>setForm((value)=>({...value,protocol:event.target.value}))}><option value="ASYNC_JOB">Async Job</option><option value="CATALOG">Catalog API</option></Select></Field><Field label="Status endpoint"><Select value={form.status} onChange={(event)=>setForm((value)=>({...value,status:event.target.value}))}><option>ACTIVE</option><option>INACTIVE</option></Select></Field><Field label="Nama endpoint" required><Input value={form.endpoint_name} onChange={(event)=>setForm((value)=>({...value,endpoint_name:event.target.value}))}/></Field><Field label="Timeout (detik)"><Input type="number" min="3" max="120" value={form.timeout_seconds} onChange={(event)=>setForm((value)=>({...value,timeout_seconds:event.target.value}))}/></Field>
+      {form.protocol==="ASYNC_JOB"?<><div className="sm:col-span-2"><Field label="Base URL job" required><Input value={form.base_url} onChange={(event)=>setForm((value)=>({...value,base_url:event.target.value}))}/></Field></div><div className="sm:col-span-2"><Field label="URL katalog report" required><Input value={form.report_catalog_url} onChange={(event)=>setForm((value)=>({...value,report_catalog_url:event.target.value}))}/></Field></div><Field label="System code" required><Input value={form.system_code} onChange={(event)=>setForm((value)=>({...value,system_code:event.target.value}))}/></Field><Field label="Report seed"><Input value={form.report_type} onChange={(event)=>setForm((value)=>({...value,report_type:event.target.value}))}/></Field><Field label="Judul seed"><Input value={form.report_title} onChange={(event)=>setForm((value)=>({...value,report_title:event.target.value}))}/></Field><Field label="Permission seed"><Select value={form.required_permission} onChange={(event)=>setForm((value)=>({...value,required_permission:event.target.value}))}>{PERMISSIONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</Select></Field></>:<div className="sm:col-span-2"><Field label="Catalog URL" required><Input value={form.catalog_url} onChange={(event)=>setForm((value)=>({...value,catalog_url:event.target.value}))}/></Field></div>}
+      <div className="sm:col-span-2"><Field label="Catatan"><Textarea value={form.notes} onChange={(event)=>setForm((value)=>({...value,notes:event.target.value}))}/></Field></div></div>
     </Modal>
   </PageContainer>;
 }

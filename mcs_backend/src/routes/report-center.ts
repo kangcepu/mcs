@@ -5,6 +5,7 @@ import { authenticate, permissionFields, requirePermission } from '../auth.js';
 import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, created, HttpError, ok } from '../http.js';
 import type { AuthRequest } from '../types.js';
+import { syncReportCatalogEndpoint } from '../lib/report-catalog-sync.js';
 
 export const reportCenterRouter = Router();
 const canConfigure = requirePermission('user_management');
@@ -25,7 +26,7 @@ function validUrl(value: unknown) {
   return url.toString().replace(/\/$/, '');
 }
 type Endpoint = { id:number;endpoint_name:string;catalog_url:string;auth_header_name:string|null;auth_header_value:string|null;timeout_seconds:number;status:string;notes:string|null;base_url?:string|null;system_code?:string|null };
-type Report = { id:string;title:string;description:string|null;category:string;format:string;report_type?:string;run_url?:string;protocol:'CATALOG'|'ASYNC_JOB';endpoint_id?:number;endpoint_name?:string };
+type Report = { id:string;title:string;description:string|null;category:string;format:string;report_type?:string;params?:string[];run_url?:string;protocol:'CATALOG'|'ASYNC_JOB';endpoint_id?:number;endpoint_name?:string };
 const authHeaders = (endpoint: Endpoint, accept: string) => {
   const headers: Record<string,string> = { Accept: accept };
   if (endpoint.auth_header_name && endpoint.auth_header_value) headers[endpoint.auth_header_name] = endpoint.auth_header_value;
@@ -39,6 +40,13 @@ function parseParams(value: unknown): Record<string,unknown> {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
   } catch { /* handled below */ }
   throw new HttpError(422, 'Params harus berupa JSON object.');
+}
+function catalogParams(value: unknown): string[] {
+  if (!value) return [];
+  try {
+    const parsed=Array.isArray(value)?value:JSON.parse(String(value));
+    return Array.isArray(parsed)?parsed.map(item=>String(item).trim()).filter(Boolean):[];
+  } catch { return []; }
 }
 function normalizeCatalog(payload: any): Report[] {
   const source = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.reports) ? payload.reports : [];
@@ -76,7 +84,7 @@ async function asyncDefinition(endpointId: number, reportId: number) {
     FROM external_report_definition d
     JOIN external_report_endpoint e ON e.id=d.endpoint_id
     JOIN external_report_async_config a ON a.endpoint_id=e.id
-    WHERE d.id=? AND e.id=? AND d.status='ACTIVE' AND e.status='ACTIVE'`,[reportId,endpointId]);
+    WHERE d.id=? AND e.id=? AND d.status='ACTIVE' AND d.catalog_status='AVAILABLE' AND e.status='ACTIVE'`,[reportId,endpointId]);
 }
 
 function optionalFilter(value: unknown, max = 255) {
@@ -86,23 +94,26 @@ function optionalFilter(value: unknown, max = 255) {
 }
 
 async function validateReportParams(definition: any, input: Record<string,unknown>) {
-  if(String(definition.report_type)!=='report-assets')return input;
-  const company=optionalFilter(input.company);
-  const location=optionalFilter(input.location);
-  const status=optionalFilter(input.status,20).toLowerCase();
+  const allowed=new Set(catalogParams(definition.catalog_params));
+  const sanitized=Object.fromEntries(Object.entries(input).filter(([key,value])=>allowed.has(key)&&String(value??'').trim()!==''));
+  if(String(definition.report_type)!=='report-assets')return sanitized;
+  const company=optionalFilter(sanitized.company);
+  const location=optionalFilter(sanitized.location);
+  const status=optionalFilter(sanitized.status,20).toLowerCase();
   if(status&&!['active','inactive'].includes(status))throw new HttpError(422,'Status asset tidak valid.');
   if(company&&!await one('SELECT AssetID FROM asset WHERE CompanyName=? LIMIT 1',[company]))throw new HttpError(422,'Company tidak ditemukan pada data asset.');
   if(location&&!await one("SELECT AssetID FROM asset WHERE LocationAsset=? AND (?='' OR CompanyName=?) LIMIT 1",[location,company,company]))throw new HttpError(422,'Lokasi tidak ditemukan pada scope company yang dipilih.');
-  return {...input,company:company||undefined,location:location||undefined,status:status||undefined};
+  return {...sanitized,company:company||undefined,location:location||undefined,status:status||undefined};
 }
 
 reportCenterRouter.get('/report-center/config',authenticate,canConfigure,asyncHandler(async(_req,res)=>{
   await ensureFeature();
   const asyncExists=await tableExists('external_report_async_config');
   const data=await rows<any>(asyncExists?`SELECT e.id,e.endpoint_name,e.catalog_url,e.auth_header_name,CASE WHEN e.auth_header_value IS NULL OR e.auth_header_value='' THEN 0 ELSE 1 END has_auth,e.timeout_seconds,e.status,e.notes,e.created_at,e.updated_at,
-    CASE WHEN a.endpoint_id IS NULL THEN 'CATALOG' ELSE 'ASYNC_JOB' END protocol,a.base_url,a.system_code,d.report_type,d.report_title,d.description report_description,d.category,d.output_format,d.default_params,d.required_permission
+    CASE WHEN a.endpoint_id IS NULL THEN 'CATALOG' ELSE 'ASYNC_JOB' END protocol,a.base_url,a.catalog_url report_catalog_url,a.system_code,
+    d.id report_definition_id,d.report_type,d.report_title,d.description report_description,d.category,d.output_format,d.default_params,d.catalog_params,d.required_permission,d.status report_status,d.catalog_status,d.discovered_at,d.last_seen_at
     FROM external_report_endpoint e LEFT JOIN external_report_async_config a ON a.endpoint_id=e.id
-    LEFT JOIN external_report_definition d ON d.endpoint_id=e.id AND d.status='ACTIVE' ORDER BY e.endpoint_name,d.report_title`
+    LEFT JOIN external_report_definition d ON d.endpoint_id=e.id ORDER BY e.endpoint_name,d.report_title`
     :`SELECT id,endpoint_name,catalog_url,auth_header_name,CASE WHEN auth_header_value IS NULL OR auth_header_value='' THEN 0 ELSE 1 END has_auth,timeout_seconds,status,notes,created_at,updated_at,'CATALOG' protocol FROM external_report_endpoint ORDER BY endpoint_name`);
   ok(res,data);
 }));
@@ -123,7 +134,8 @@ reportCenterRouter.post('/report-center/config',authenticate,canConfigure,asyncH
     }
     if(protocol==='ASYNC_JOB'){
       const reportType=String(text(req.body.report_type,120,true));const params=parseParams(req.body.default_params??'{}');
-      await connection.execute(`INSERT INTO external_report_async_config (endpoint_id,base_url,system_code,created_at,updated_at) VALUES (?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE base_url=VALUES(base_url),system_code=VALUES(system_code),updated_at=NOW()`,[endpointId,url,text(req.body.system_code,80,true)]);
+      const catalogUrl=validUrl(req.body.report_catalog_url??new URL('/report-types',url).toString());
+      await connection.execute(`INSERT INTO external_report_async_config (endpoint_id,base_url,catalog_url,system_code,created_at,updated_at) VALUES (?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE base_url=VALUES(base_url),catalog_url=VALUES(catalog_url),system_code=VALUES(system_code),updated_at=NOW()`,[endpointId,url,catalogUrl,text(req.body.system_code,80,true)]);
       const requiredPermission=String(req.body.required_permission??'').trim();if(requiredPermission&&!permissionFields.includes(requiredPermission as any))throw new HttpError(422,'Permission report tidak valid.');
       await connection.execute(`INSERT INTO external_report_definition (endpoint_id,report_type,report_title,description,category,output_format,default_params,required_permission,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'ACTIVE',NOW(),NOW()) ON DUPLICATE KEY UPDATE report_title=VALUES(report_title),description=VALUES(description),category=VALUES(category),output_format=VALUES(output_format),default_params=VALUES(default_params),required_permission=VALUES(required_permission),status='ACTIVE',updated_at=NOW()`,[endpointId,reportType,text(req.body.report_title,180,true),text(req.body.report_description,500),text(req.body.category,120)??'General',String(req.body.output_format??'PDF').toUpperCase(),JSON.stringify(params),requiredPermission||null]);
     }else await connection.execute('DELETE FROM external_report_async_config WHERE endpoint_id=?',[endpointId]);
@@ -134,11 +146,28 @@ reportCenterRouter.post('/report-center/config',authenticate,canConfigure,asyncH
 
 reportCenterRouter.delete('/report-center/config/:id',authenticate,canConfigure,asyncHandler(async(req,res)=>{await ensureFeature();await execute('DELETE FROM external_report_endpoint WHERE id=?',[Number(req.params.id)]);ok(res,null,'Endpoint dihapus.');}));
 
+reportCenterRouter.post('/report-center/catalog-sync/:id',authenticate,canConfigure,asyncHandler(async(req,res)=>{
+  await ensureFeature();
+  const result=await syncReportCatalogEndpoint(Number(req.params.id));
+  ok(res,result,`Katalog tersinkron: ${result.created} baru, ${result.updated} diperbarui.`);
+}));
+
+reportCenterRouter.patch('/report-center/definitions/:id',authenticate,canConfigure,asyncHandler(async(req,res)=>{
+  await ensureFeature();
+  const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)throw new HttpError(422,'ID report tidak valid.');
+  const status=String(req.body.status??'').toUpperCase();if(!['ACTIVE','INACTIVE'].includes(status))throw new HttpError(422,'Status report tidak valid.');
+  const requiredPermission=String(req.body.required_permission??'').trim();if(requiredPermission&&!permissionFields.includes(requiredPermission as any))throw new HttpError(422,'Permission report tidak valid.');
+  const definition=await one<any>('SELECT id,catalog_status FROM external_report_definition WHERE id=?',[id]);if(!definition)throw new HttpError(404,'Definisi report tidak ditemukan.');
+  if(status==='ACTIVE'&&definition.catalog_status!=='AVAILABLE')throw new HttpError(422,'Report tidak tersedia pada katalog reporting.');
+  await execute('UPDATE external_report_definition SET status=?,required_permission=?,updated_at=NOW() WHERE id=?',[status,requiredPermission||null,id]);
+  ok(res,{id,status,required_permission:requiredPermission||null},status==='ACTIVE'?'Report diaktifkan.':'Report dinonaktifkan.');
+}));
+
 reportCenterRouter.get('/report-center/catalog',authenticate,asyncHandler(async(req:AuthRequest,res)=>{
   await ensureFeature();const asyncExists=await tableExists('external_report_async_config');
   const endpoints=await rows<Endpoint>(asyncExists?`SELECT e.*,a.base_url,a.system_code FROM external_report_endpoint e LEFT JOIN external_report_async_config a ON a.endpoint_id=e.id WHERE e.status='ACTIVE' ORDER BY e.endpoint_name`:`SELECT * FROM external_report_endpoint WHERE status='ACTIVE' ORDER BY endpoint_name`);
   const output:Report[]=[];const errors:any[]=[];
-  for(const endpoint of endpoints){try{if(endpoint.base_url){const definitions=await rows<any>(`SELECT * FROM external_report_definition WHERE endpoint_id=? AND status='ACTIVE' ORDER BY category,report_title`,[endpoint.id]);output.push(...definitions.filter(item=>canAccessDefinition(req,item.required_permission)).map(item=>({id:String(item.id),title:item.report_title,description:item.description,category:item.category,format:item.output_format,report_type:item.report_type,protocol:'ASYNC_JOB' as const,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}else{const reports=await loadCatalog(endpoint);output.push(...reports.map(report=>({...report,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}}catch(error){errors.push({endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name,message:error instanceof Error?error.message:'Endpoint gagal dibaca'});}}
+  for(const endpoint of endpoints){try{if(endpoint.base_url){const definitions=await rows<any>(`SELECT * FROM external_report_definition WHERE endpoint_id=? AND status='ACTIVE' AND catalog_status='AVAILABLE' ORDER BY category,report_title`,[endpoint.id]);output.push(...definitions.filter(item=>canAccessDefinition(req,item.required_permission)).map(item=>({id:String(item.id),title:item.report_title,description:item.description,category:item.category,format:item.output_format,report_type:item.report_type,params:catalogParams(item.catalog_params),protocol:'ASYNC_JOB' as const,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}else{const reports=await loadCatalog(endpoint);output.push(...reports.map(report=>({...report,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}}catch(error){errors.push({endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name,message:error instanceof Error?error.message:'Endpoint gagal dibaca'});}}
   ok(res,{reports:output,errors,endpoints_count:endpoints.length});
 }));
 
@@ -147,21 +176,25 @@ reportCenterRouter.get('/report-center/filters/:endpointId/:reportId',authentica
   const definition=await asyncDefinition(Number(req.params.endpointId),Number(req.params.reportId));
   if(!definition)throw new HttpError(404,'Definisi async report tidak ditemukan atau belum aktif.');
   if(!canAccessDefinition(req,definition.required_permission))throw new HttpError(403,'Anda tidak memiliki permission untuk report ini.');
-  if(String(definition.report_type)!=='report-assets')return ok(res,{report_type:definition.report_type,companies:[],locations:[],matched_assets:null});
+  const supported=catalogParams(definition.catalog_params);
+  if(!supported.some(item=>['company','location','category','status'].includes(item)))return ok(res,{report_type:definition.report_type,companies:[],locations:[],categories:[],matched_assets:null});
   const company=optionalFilter(req.query.company);
   const location=optionalFilter(req.query.location);
+  const category=optionalFilter(req.query.category);
   const status=optionalFilter(req.query.status,20).toLowerCase();
   if(status&&!['active','inactive'].includes(status))throw new HttpError(422,'Status asset tidak valid.');
-  const [companies,locations]=await Promise.all([
+  const [companies,locations,categories]=await Promise.all([
     rows<{value:string;label:string}>(`SELECT DISTINCT CompanyName value,CompanyName label FROM asset WHERE CompanyName IS NOT NULL AND TRIM(CompanyName)<>'' AND TRIM(CompanyName)<>'-' ORDER BY CompanyName`),
     rows<{value:string;label:string}>(`SELECT DISTINCT LocationAsset value,LocationAsset label FROM asset WHERE LocationAsset IS NOT NULL AND TRIM(LocationAsset)<>'' AND TRIM(LocationAsset)<>'-' AND (?='' OR CompanyName=?) ORDER BY LocationAsset`,[company,company]),
+    rows<{value:string;label:string}>(`SELECT DISTINCT CategoryAsset value,CategoryAsset label FROM asset WHERE CategoryAsset IS NOT NULL AND TRIM(CategoryAsset)<>'' AND TRIM(CategoryAsset)<>'-' ORDER BY CategoryAsset`),
   ]);
   const where:string[]=[];const params:unknown[]=[];
   if(company){where.push('CompanyName=?');params.push(company);}
   if(location){where.push('LocationAsset=?');params.push(location);}
+  if(category){where.push('CategoryAsset=?');params.push(category);}
   if(status){where.push('LOWER(active)=?');params.push(status);}
   const count=await one<{total:number}>(`SELECT COUNT(*) total FROM asset${where.length?` WHERE ${where.join(' AND ')}`:''}`,params);
-  ok(res,{report_type:definition.report_type,companies,locations,matched_assets:Number(count?.total??0)});
+  ok(res,{report_type:definition.report_type,companies,locations,categories,matched_assets:Number(count?.total??0)});
 }));
 
 reportCenterRouter.get('/report-center/run/:endpointId/:reportId',authenticate,asyncHandler(async(req,res)=>{

@@ -35,6 +35,9 @@ export const config = {
   // nyusul sebelum jam 00:01 berikutnya.
   scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '1 0 * * *',
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
+  // Sinkron daftar report Laravel. Report baru tetap INACTIVE sampai admin
+  // memilih permission dan mengaktifkannya dari Master Data.
+  reportCatalogSyncCronExpr: process.env.REPORT_CATALOG_SYNC_CRON_EXPR ?? '*/10 * * * *',
   // Opt-in supaya deployment fondasi Energy tidak mengubah alur Asset/WO
   // existing sebelum company pilot siap.
   energyModuleEnabled: boolean('ENERGY_MODULE_ENABLED', false),

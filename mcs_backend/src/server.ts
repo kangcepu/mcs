@@ -57,6 +57,7 @@ import { sparepartWoRouter } from './routes/sparepart-wo.js';
 import { sparepartInventoryRouter } from './routes/sparepart-inventory.js';
 import { sparepartGovernanceRouter } from './routes/sparepart-governance.js';
 import { reportCenterRouter } from './routes/report-center.js';
+import { syncAllReportCatalogs } from './lib/report-catalog-sync.js';
 import { systemAuditMiddleware } from './system-audit.js';
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
@@ -160,5 +161,16 @@ const energyGovernanceTask = cron.schedule('*/15 * * * *', () => {
   syncAutomaticEnergyNcr().catch((error) => console.error('Energy Governance NCR sync failed:', error));
 }, { timezone: 'Asia/Jakarta' });
 
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+const reportCatalogTask = cron.schedule(config.reportCatalogSyncCronExpr, () => {
+  syncAllReportCatalogs()
+    .then((result) => { if(result.length)console.log('Report catalog sync:',result); })
+    .catch((error) => console.error('Report catalog sync failed:',error));
+}, { timezone: 'Asia/Jakarta' });
+
+// Sinkron pertama saat service hidup agar tidak perlu menunggu tick cron.
+syncAllReportCatalogs()
+  .then((result) => { if(result.length)console.log('Initial report catalog sync:',result); })
+  .catch((error) => console.error('Initial report catalog sync failed:',error));
+
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); reportCatalogTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());
