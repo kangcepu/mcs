@@ -61,7 +61,15 @@ class ApiErrorHelper {
   static String _pickMapString(Map data, List<String> keys) {
     for (final key in keys) {
       if (data.containsKey(key)) {
-        return _normalize(data[key]?.toString() ?? '');
+        final value = data[key];
+        if (value is Map) {
+          final nested = _pickMapString(
+              value, const ['message', 'error', 'detail', 'reason']);
+          if (nested.isNotEmpty) return nested;
+          continue;
+        }
+        final text = _normalize(value?.toString() ?? '');
+        if (text != '[object Object]') return text;
       }
     }
     return '';

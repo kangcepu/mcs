@@ -162,7 +162,7 @@ export function ChildAssetsPanel({
                             <span className={`block pl-5 text-xs ${linked ? "text-slate-400" : "text-amber-600"}`}>{linked ? item.AssetCode : "Asset Code / QR belum diisi"}</span>
                           </td>
                           <td className="px-3 py-2.5 text-slate-600">{item.CategoryAsset || item.frequency || "-"}</td>
-                          <td className="px-3 py-2.5 text-slate-600">{item.LocationAsset || item.pic || "-"}</td>
+                          <td className="px-3 py-2.5 text-slate-600">{item.pic || item.LocationAsset || "-"}</td>
                           <td className="px-3 py-2.5"><ChildPhotoCell detailId={item.id} slot={1} url={item.photo_1_url} name={item.photo_1_name} canWrite={canWrite} onUpload={uploadPhoto} onDelete={deletePhoto} /></td>
                           <td className="px-3 py-2.5"><ChildPhotoCell detailId={item.id} slot={2} url={item.photo_2_url} name={item.photo_2_name} canWrite={canWrite} onUpload={uploadPhoto} onDelete={deletePhoto} /></td>
                           <td className={`px-3 py-2.5 ${linked ? "text-emerald-700" : "text-amber-700"}`}>{linked ? (item.active === "active" ? "Aktif" : "Nonaktif") : "Belum tertaut"}</td>

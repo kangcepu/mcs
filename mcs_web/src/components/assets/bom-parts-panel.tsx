@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   History,
   ImageIcon,
@@ -32,9 +32,11 @@ type ModalKind = null | "sub" | "edit" | "use" | "restock" | "history" | "photos
 export function BomPartsPanel({
   assetCode,
   canWrite,
+  highlightedPartId,
 }: {
   assetCode: string;
   canWrite: boolean;
+  highlightedPartId?: number;
 }) {
   const toast = useToast();
   const { data, isLoading, error, refetch } = useBomParts(assetCode);
@@ -43,6 +45,14 @@ export function BomPartsPanel({
 
   const [modal, setModal] = useState<ModalKind>(null);
   const [active, setActive] = useState<BomPart | null>(null);
+
+  useEffect(() => {
+    if (!highlightedPartId || isLoading) return;
+    document.getElementById(`bom-part-${highlightedPartId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [highlightedPartId, isLoading, rows.length]);
 
   const open = (kind: ModalKind, part?: BomPart) => {
     if (part) setActive(part);
@@ -118,7 +128,16 @@ export function BomPartsPanel({
                 }
 
                 return (
-                  <tr key={row.id} className={inactive ? "opacity-50" : ""}>
+                  <tr
+                    id={`bom-part-${row.id}`}
+                    key={row.id}
+                    className={[
+                      inactive ? "opacity-50" : "",
+                      Number(row.id) === highlightedPartId
+                        ? "bg-amber-50 ring-1 ring-inset ring-amber-300"
+                        : "",
+                    ].join(" ")}
+                  >
                     <td
                       className="px-3 py-2 text-slate-800"
                       style={{ paddingLeft: level * 18 + 12 }}

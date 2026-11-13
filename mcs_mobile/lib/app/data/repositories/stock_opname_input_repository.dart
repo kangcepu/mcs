@@ -134,6 +134,30 @@ class StockOpnameInputRepository {
     );
   }
 
+  Future<Map<String, dynamic>?> _resolveBomQr(
+    String value,
+    Map<String, String> headers,
+  ) async {
+    final looksLikeBom = RegExp(r'^MCS:B:', caseSensitive: false)
+            .hasMatch(value) ||
+        RegExp(r'^BOM-\d+$', caseSensitive: false).hasMatch(value) ||
+        RegExp(r'/b/[0-9a-z]+/?(?:\?|$)', caseSensitive: false).hasMatch(value);
+    if (!looksLikeBom) return null;
+    try {
+      final uri =
+          Uri.parse('${ApiConstants.baseUrl}${ApiConstants.reports}/qr-bom')
+              .replace(queryParameters: {'code': value});
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode != 200) return null;
+      final body = _tryDecodeMap(_stripBom(response.body));
+      final data = body['data'];
+      return data is Map ? Map<String, dynamic>.from(data) : null;
+    } catch (error) {
+      debugPrint('SO resolve QR BOM failed: $error');
+      return null;
+    }
+  }
+
   bool _isMostlyPrintable(String value) {
     if (value.isEmpty) {
       return false;
@@ -453,10 +477,25 @@ class StockOpnameInputRepository {
 
   Future<Map<String, dynamic>> scanAsset(String noSO, String assetCode) async {
     try {
-      final scannedValue = assetCode.trim();
+      final originalScannedValue = assetCode.trim();
 
       // Postman flow: check -> submit, sending AssetCode as-is (often a URL).
       final headers = await _getHeaders();
+      final bomPart = await _resolveBomQr(originalScannedValue, headers);
+      var scannedValue = originalScannedValue;
+      if (bomPart != null) {
+        scannedValue = (bomPart['asset_code'] ?? bomPart['AssetCode'] ?? '')
+            .toString()
+            .trim();
+        if (scannedValue.isEmpty) {
+          return {
+            'status': false,
+            'message':
+                'BOM / Part tidak memiliki asset induk untuk Stock Opname.',
+            'statusCode': 422,
+          };
+        }
+      }
       final checkUri = Uri.parse(ApiConstants.scanAssetCheck(noSO));
 
       http.Response checkResponse =
@@ -589,10 +628,16 @@ class StockOpnameInputRepository {
       final submitBody = _tryDecodeMap(_stripBom(submitRaw));
       if (submitResponse.statusCode == 200 ||
           submitResponse.statusCode == 201) {
+        final defaultMessage = bomPart == null
+            ? 'Asset scanned successfully'
+            : 'BOM / Part ${bomPart['part_name'] ?? bomPart['tool_code'] ?? ''} dikenali. Asset induk $validAssetCode masuk Stock Opname.';
         return {
           'status': true,
-          'message': _readMessage(submitBody, 'Asset scanned successfully'),
+          'message': bomPart == null
+              ? _readMessage(submitBody, defaultMessage)
+              : defaultMessage,
           'statusCode': submitResponse.statusCode,
+          if (bomPart != null) 'bomPart': bomPart,
         };
       }
 

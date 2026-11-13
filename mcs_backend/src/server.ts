@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import { config } from './config.js';
 import { one, pool } from './db.js';
 import { normalizeAssetLookup } from './lib/asset-lookup.js';
+import { parseBomQrPartId } from './lib/bom-qr.js';
 import { approvalCenterRouter } from './routes/approval-center.js';
 import { myWorkRouter } from './routes/my-work.js';
 import { closeErpPools } from './lib/erp.js';
@@ -82,6 +83,23 @@ app.get(['/Detail_asset', '/Detail_asset/', '/detail_asset', '/detail_asset/'], 
   if (!asset?.AssetCode) throw new HttpError(404, 'Asset not found');
   const encodedCode = asset.AssetCode.split('/').map(encodeURIComponent).join('/');
   res.redirect(302, `${config.webBaseUrl}/assets/${encodedCode}`);
+}));
+// QR BOM / Part dibuat sebagai URL pendek supaya dapat dibuka baik dari
+// kamera biasa maupun aplikasi MCS. Token adalah primary key base36.
+app.get(['/b/:token', '/B/:token', '/api/b/:token', '/api/v2/b/:token'], asyncHandler(async (req, res) => {
+  const partId = parseBomQrPartId(`MCS:B:${req.params.token}`);
+  if (!partId) throw new HttpError(400, 'QR BOM / Part tidak valid');
+  const part = await one<{ id: number; AssetCode: string | null }>(
+    'SELECT id, AssetCode FROM tb_parts_bom WHERE id=? AND deleted_at IS NULL LIMIT 1',
+    [partId],
+  );
+  if (!part) throw new HttpError(404, 'BOM / Part tidak ditemukan');
+  if (!part.AssetCode?.trim()) {
+    res.redirect(302, `${config.webBaseUrl}/reports/qr/bom/${part.id}`);
+    return;
+  }
+  const encodedCode = part.AssetCode.split('/').map(encodeURIComponent).join('/');
+  res.redirect(302, `${config.webBaseUrl}/assets/${encodedCode}?tab=bom&part=${part.id}`);
 }));
 const uploadRoot = path.resolve(config.uploadDir);
 app.get('/uploads/*splat', asyncHandler(async (req, res) => {

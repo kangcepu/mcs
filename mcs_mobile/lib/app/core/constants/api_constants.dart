@@ -99,13 +99,13 @@ class ApiConstants {
   static const String divisions = '/v2/master/divisions';
   static const String sections = '/v2/master/sections';
   static const String reports = '/v2/reports';
+  static const String reportCenter = '/v2/report-center';
   static const String assets = '/v2/assets';
   static const String assetDetail = '/v2/assets/detail';
   static const String assetMutationMeta = '/v2/asset-mutations/meta';
   static const String assetMutationAssets = '/v2/asset-mutations/assets';
   static const String assetMutationRequests = '/v2/asset-mutations';
-  static const String assetMutationRequestDetail =
-      '/v2/asset-mutations/detail';
+  static const String assetMutationRequestDetail = '/v2/asset-mutations/detail';
   static const String assetMutationAddDetail =
       '/v2/asset-mutations/detail-item';
   static const String assetMutationDeleteDetail =
@@ -154,8 +154,7 @@ class ApiConstants {
   static const String addJobExplanationWoProduction =
       '/v2/production/add_job_explanation';
   static const String addLaborWoProduction = '/v2/production/add_labor';
-  static const String addMaterialWoProduction =
-      '/v2/production/add_material';
+  static const String addMaterialWoProduction = '/v2/production/add_material';
   static const String completeWoProduction = '/v2/production/complete';
   static const String closeWoProduction = '/v2/production/closed';
   static const String voidWoProduction = '/v2/production/void';
@@ -205,8 +204,7 @@ class ApiConstants {
   static const String myWoOperational = '/v2/maintenance/my_wo';
   static const String createWoOperational = '/v2/maintenance/create';
   static const String updateWoOperational = '/v2/maintenance/update';
-  static const String updateAssetWoOperational =
-      '/v2/maintenance/update_asset';
+  static const String updateAssetWoOperational = '/v2/maintenance/update_asset';
   static const String deleteWoOperational = '/v2/maintenance/delete';
   static const String approveWoOperational = '/v2/maintenance/approve';
   static const String declineWoOperational = '/v2/maintenance/decline';
@@ -218,10 +216,8 @@ class ApiConstants {
   static const String deleteExecutorWoOperational =
       '/v2/maintenance/delete_executor';
   static const String addLaborWoOperational = '/v2/maintenance/add_labor';
-  static const String removeLaborWoOperational =
-      '/v2/maintenance/remove_labor';
-  static const String addMaterialWoOperational =
-      '/v2/maintenance/add_material';
+  static const String removeLaborWoOperational = '/v2/maintenance/remove_labor';
+  static const String addMaterialWoOperational = '/v2/maintenance/add_material';
   static const String removeMaterialWoOperational =
       '/v2/maintenance/remove_material';
   static const String getMaterialReceivedWoOperational =
@@ -241,14 +237,12 @@ class ApiConstants {
       '/v2/maintenance/void_candidates';
   static const String voidPreventiveWoOperational =
       '/v2/maintenance/void_preventive';
-  static const String voidHistoryWoOperational =
-      '/v2/maintenance/void_history';
+  static const String voidHistoryWoOperational = '/v2/maintenance/void_history';
   static const String getNewWoOperational = '/v2/maintenance/get_new';
   static const String getListUserWoOperational =
       '/v2/maintenance/get_list_user';
   static const String partExecutionWoMtc = '/v2/meso/part_execution';
-  static const String partExecutionMediaWoMtc =
-      '/v2/meso/part_execution_media';
+  static const String partExecutionMediaWoMtc = '/v2/meso/part_execution_media';
 
   // Daily Control (dulu '/daily_control/*', sekarang '/v2/daily-control/*').
   static const String dailyControlList = '/v2/daily-control';
@@ -288,8 +282,7 @@ class ApiConstants {
   static const String materialPartRequestList = '/v2/material-usage/list';
   static const String materialPartRequestSelect =
       '/v2/material-usage/select-parts';
-  static const String materialPartRequestCancel =
-      '/v2/material-usage/cancel';
+  static const String materialPartRequestCancel = '/v2/material-usage/cancel';
 
   // Notifikasi (dulu hardcode '/notification/summary' & '/notification/detail'
   // langsung di repository-nya, bukan lewat ApiConstants — path itu tidak

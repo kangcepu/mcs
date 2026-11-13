@@ -5,7 +5,7 @@ import { API_V2_URL } from "@/lib/env";
 export interface ReportEndpointConfig {id:number;endpoint_name:string;catalog_url:string;auth_header_name:string|null;has_auth:number;timeout_seconds:number;status:string;notes:string|null;protocol?:"CATALOG"|"ASYNC_JOB";base_url?:string|null;report_catalog_url?:string|null;system_code?:string|null;report_definition_id?:number|null;report_type?:string|null;report_title?:string|null;report_description?:string|null;category?:string|null;output_format?:string|null;default_params?:string|null;catalog_params?:string|null;required_permission?:string|null;report_status?:string|null;catalog_status?:string|null;discovered_at?:string|null;last_seen_at?:string|null}
 export interface ExternalReport {id:string;title:string;description:string|null;category:string;format:string;report_type?:string;params?:string[];endpoint_id:number;endpoint_name:string;protocol?:"CATALOG"|"ASYNC_JOB"}
 export interface ReportCatalog {reports:ExternalReport[];errors:Array<{endpoint_id:number;endpoint_name:string;message:string}>;endpoints_count:number}
-export interface ReportFilterOptions {report_type:string;companies:Array<{value:string;label:string}>;locations:Array<{value:string;label:string}>;categories:Array<{value:string;label:string}>;matched_assets:number|null}
+export interface ReportFilterOptions {report_type:string;companies:Array<{value:string;label:string}>;locations:Array<{value:string;label:string}>;categories:Array<{value:string;label:string}>;statuses:Array<{value:string;label:string}>;types:Array<{value:string;label:string}>;priorities:Array<{value:string;label:string}>;shifts:Array<{value:string;label:string}>;divisions:Array<{value:string;label:string}>;matched_assets:number|null}
 export const getReportEndpointConfigs=(signal?:AbortSignal)=>apiV2.get<ReportEndpointConfig[]>("/report-center/config",{signal});
 export const saveReportEndpointConfig=(body:unknown)=>apiV2.post<{id:number}>("/report-center/config",body);
 export const deleteReportEndpointConfig=(id:number)=>apiV2.delete(`/report-center/config/${id}`);
@@ -37,16 +37,17 @@ async function fetchReportBlob(url:string,report:ExternalReport,signal?:AbortSig
 
 async function generateExternalReport(report:ExternalReport,params:Record<string,string>={},options:ReportGenerationOptions={}){
   if(report.protocol!=="ASYNC_JOB")return fetchReportBlob(`${API_V2_URL}/report-center/run/${report.endpoint_id}/${encodeURIComponent(report.id)}`,report,options.signal);
-  const created=await apiV2.post<{id:number;job_id:string;status:string}>(`/report-center/jobs/${report.endpoint_id}/${encodeURIComponent(report.id)}`,{params},{signal:options.signal});
+  const created=await apiV2.post<{id:number;job_id:string;status:string;reused?:boolean;ready?:boolean}>(`/report-center/jobs/${report.endpoint_id}/${encodeURIComponent(report.id)}`,{params},{signal:options.signal});
   const localJobId=created.data.id;
   options.onProgress?.(0,"QUEUED");
-  for(let attempt=0;attempt<30;attempt+=1){
-    if(attempt>0)await wait(2000,options.signal);
+  if(created.data.ready){options.onProgress?.(100,"COMPLETED");return fetchReportBlob(`${API_V2_URL}/report-center/jobs/${localJobId}/download`,report,options.signal);}
+  for(let attempt=0;attempt<12;attempt+=1){
+    if(attempt>0)await wait(5000,options.signal);
     const status=await apiV2.get<{id:number;job_id:string;status:string;ready:boolean;response?:{progress?:number}}>(`/report-center/jobs/${localJobId}`,{signal:options.signal});
     const progress=Number(status.data.response?.progress);
     options.onProgress?.(Number.isFinite(progress)?Math.max(0,Math.min(100,progress)):null,status.data.status);
     if(status.data.ready)return fetchReportBlob(`${API_V2_URL}/report-center/jobs/${localJobId}/download`,report,options.signal);
-    if(["FAILED","ERROR","CANCELLED","CANCELED"].includes(status.data.status))throw new Error(`Pembuatan report gagal dengan status ${status.data.status}.`);
+    if(["FAILED","ERROR","CANCELLED","CANCELED"].includes(status.data.status)){const detail=(status.data.response as {error?:string;message?:string}|undefined)?.error||(status.data.response as {error?:string;message?:string}|undefined)?.message;throw new Error(detail||`Pembuatan report gagal dengan status ${status.data.status}.`);}
   }
   throw new Error("Layanan reporting belum menyelesaikan report setelah 60 detik. Proses di server reporting kemungkinan tertahan; silakan coba lagi atau hubungi tim reporting.");
 }

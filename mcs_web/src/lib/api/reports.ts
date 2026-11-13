@@ -110,6 +110,47 @@ export function getQrReport(
   });
 }
 
+export interface BomQrListItem {
+  part_id: number;
+  tool_code: string;
+  part_name: string;
+  header?: string | null;
+  asset_code: string;
+  asset_name?: string | null;
+  company?: string | null;
+  qty_on_hand?: number | string | null;
+  uom?: string | null;
+  is_active?: number | string | null;
+}
+
+export interface BomQrReportData extends BomQrListItem {
+  qr_content: string;
+  qr_payload?: string;
+  qr_image?: string | null;
+  label_width_mm: number;
+  label_height_mm: number;
+}
+
+export function getBomQrList(
+  filters: { q?: string; page?: number; per_page?: number },
+  signal?: AbortSignal,
+): Promise<ApiResponse<BomQrListItem[]>> {
+  return apiV2.get<BomQrListItem[]>("/reports/qr-bom", {
+    params: filters,
+    signal,
+  });
+}
+
+export function getBomQrReport(
+  partId: number,
+  signal?: AbortSignal,
+): Promise<ApiResponse<BomQrReportData>> {
+  return apiV2.get<BomQrReportData>("/reports/qr-bom", {
+    params: { part_id: partId },
+    signal,
+  });
+}
+
 /** PDF per No. SO melalui proxy V2 yang sudah memvalidasi user saat ini. */
 export async function getStockOpnamePdf(noSo: string): Promise<Blob> {
   const token = getToken();

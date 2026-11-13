@@ -155,6 +155,67 @@ class ReportsRepository {
     }
   }
 
+  Future<ReportPage> bomQrList({
+    String q = '',
+    int page = 1,
+    int perPage = 15,
+  }) async {
+    try {
+      final response = await _api.get(
+        '${ApiConstants.reports}/qr-bom',
+        queryParameters: {
+          if (q.trim().isNotEmpty) 'q': q.trim(),
+          'page': page,
+          'per_page': perPage,
+        },
+      );
+      final body = response.data;
+      if (body is! Map || body['success'] != true) {
+        throw Exception(body is Map ? body['message'] : 'Respons tidak valid');
+      }
+      final data = body['data'];
+      final rows = data is List
+          ? data
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList()
+          : <Map<String, dynamic>>[];
+      final meta = body['meta'] is Map ? body['meta'] as Map : const {};
+      int asInt(dynamic v, int d) => int.tryParse('$v') ?? d;
+      return ReportPage(
+        rows: rows,
+        page: asInt(meta['page'], page),
+        perPage: asInt(meta['per_page'], perPage),
+        total: asInt(meta['total'], rows.length),
+        totalPages: asInt(meta['total_pages'], 1),
+      );
+    } catch (e) {
+      throw Exception(ApiErrorHelper.toUserMessage(
+        e,
+        fallback: 'Gagal memuat daftar BOM / Part.',
+      ));
+    }
+  }
+
+  Future<Map<String, dynamic>> bomQr(int partId) async {
+    try {
+      final response = await _api.get(
+        '${ApiConstants.reports}/qr-bom',
+        queryParameters: {'part_id': partId},
+      );
+      final body = response.data;
+      if (body is Map && body['success'] == true && body['data'] is Map) {
+        return Map<String, dynamic>.from(body['data'] as Map);
+      }
+      throw Exception('QR BOM / Part tidak ditemukan');
+    } catch (e) {
+      throw Exception(ApiErrorHelper.toUserMessage(
+        e,
+        fallback: 'Gagal memuat QR BOM / Part.',
+      ));
+    }
+  }
+
   /// Unduh hasil export (xlsx/pdf) dari backend lalu buka dengan aplikasi
   /// bawaan perangkat.
   Future<void> downloadAndOpen(

@@ -16,7 +16,7 @@ import {
   type ExternalReport,
 } from "@/lib/api/report-center";
 
-const emptyFilters = { q: "", company: "", location: "", category: "", status: "", date_from: "", date_to: "" };
+const emptyFilters = { q: "", company: "", location: "", category: "", status: "", date_from: "", date_to: "", type_wo: "", priority: "", shift: "", id_division: "", job_executor: "" };
 const PAGE_SIZE = 12;
 const REPORT_TONES = [
   { icon: "bg-blue-50 text-blue-600", accent: "bg-blue-500", badge: "bg-blue-50 text-blue-700" },
@@ -52,7 +52,12 @@ function DynamicReportFilters({ report, value, onChange }: {
       {has("location")?<div><Label>Lokasi</Label><Select value={value.location} onChange={(event) => onChange({ ...value, location: event.target.value })}><option value="">Semua lokasi</option>{data?.locations?.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
       {has("category")?<div><Label>Kategori</Label><Select value={value.category} onChange={(event) => onChange({ ...value, category: event.target.value })}><option value="">Semua kategori</option>{data?.categories?.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
       {has("status")&&report.report_type==="report-assets"?<div><Label>Status asset</Label><Select value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value })}><option value="">Semua status</option><option value="active">Aktif</option><option value="inactive">Nonaktif</option></Select></div>:null}
-      {has("status")&&report.report_type!=="report-assets"?<div><Label>Status</Label><Input value={value.status} onChange={(event)=>onChange({...value,status:event.target.value})} placeholder="Contoh: OPEN atau APPROVED" /></div>:null}
+      {has("status")&&report.report_type!=="report-assets"?<div><Label>Status</Label><Select value={value.status} onChange={(event)=>onChange({...value,status:event.target.value})}><option value="">Semua status</option>{data?.statuses?.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
+      {has("type_wo")?<div><Label>Tipe Work Order</Label><Select value={value.type_wo} onChange={(event)=>onChange({...value,type_wo:event.target.value})}><option value="">Semua tipe</option>{data?.types?.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
+      {has("priority")?<div><Label>Prioritas</Label><Select value={value.priority} onChange={(event)=>onChange({...value,priority:event.target.value})}><option value="">Semua prioritas</option>{data?.priorities?.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
+      {has("shift")?<div><Label>Shift</Label><Select value={value.shift} onChange={(event)=>onChange({...value,shift:event.target.value})}><option value="">Semua shift</option>{data?.shifts?.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
+      {has("id_division")?<div><Label>Divisi</Label><Select value={value.id_division} onChange={(event)=>onChange({...value,id_division:event.target.value})}><option value="">Semua divisi</option>{data?.divisions?.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>:null}
+      {has("job_executor")?<div><Label>Eksekutor</Label><Input value={value.job_executor} onChange={(event)=>onChange({...value,job_executor:event.target.value})} placeholder="Nama atau kode eksekutor" /></div>:null}
       {has("date_from")?<div><Label>Tanggal mulai</Label><Input type="date" value={value.date_from} onChange={(event)=>onChange({...value,date_from:event.target.value})} /></div>:null}
       {has("date_to")?<div><Label>Tanggal selesai</Label><Input type="date" value={value.date_to} onChange={(event)=>onChange({...value,date_to:event.target.value})} /></div>:null}
     </div>

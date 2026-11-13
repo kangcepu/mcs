@@ -2,6 +2,8 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
+  getBomQrList,
+  getBomQrReport,
   getAssetHistoryReport,
   getQrReport,
   getRecapWorkOrderFilterOptions,
@@ -49,5 +51,23 @@ export function useQrReport(assetCode: string) {
     queryKey: ["report", "qr", assetCode],
     queryFn: ({ signal }) => getQrReport(assetCode, signal),
     enabled: Boolean(assetCode),
+  });
+}
+
+export function useBomQrList(filters: { q?: string; page?: number; per_page?: number }) {
+  return useQuery({
+    queryKey: ["report", "qr-bom", filters],
+    queryFn: ({ signal }) => getBomQrList(filters, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useBomQrReport(partId: number) {
+  return useQuery({
+    queryKey: ["report", "qr-bom-detail", partId],
+    queryFn: ({ signal }) => getBomQrReport(partId, signal),
+    enabled: partId > 0,
   });
 }

@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/routes/app_routes.dart';
+import '../../../core/widgets/pdf_viewer_page.dart';
+import '../../../data/repositories/report_center_repository.dart';
 
 enum ReportTarget {
   assets,
@@ -39,6 +41,7 @@ class ReportItem {
 }
 
 class ReportsController extends GetxController {
+  final ReportCenterRepository _reportCenter = ReportCenterRepository();
   static const List<String> _assetKeys = ['list_of_asset', 'privilage_asset'];
   static const List<String> _recapKeys = [
     'recap_wo',
@@ -112,11 +115,90 @@ class ReportsController extends GetxController {
   ];
 
   final RxList<ReportItem> reports = <ReportItem>[].obs;
+  final RxList<ExternalReportItem> externalReports = <ExternalReportItem>[].obs;
+  final RxBool loadingExternal = false.obs;
+  final RxString externalError = ''.obs;
+  final RxString reportSearch = ''.obs;
+  final RxString reportCategory = ''.obs;
+  final RxBool generating = false.obs;
+  final RxInt generationProgress = 0.obs;
+  final RxString generationStatus = ''.obs;
+
+  List<String> get externalCategories {
+    final values =
+        externalReports.map((item) => item.category).toSet().toList();
+    values.sort();
+    return values;
+  }
+
+  List<ExternalReportItem> get filteredExternalReports {
+    final query = reportSearch.value.trim().toLowerCase();
+    return externalReports.where((item) {
+      final matchesCategory =
+          reportCategory.value.isEmpty || item.category == reportCategory.value;
+      final text =
+          '${item.title} ${item.description} ${item.category}'.toLowerCase();
+      return matchesCategory && (query.isEmpty || text.contains(query));
+    }).toList();
+  }
 
   @override
   void onInit() {
     super.onInit();
     loadReportsByPermission();
+    loadExternalReports();
+  }
+
+  Future<void> loadExternalReports() async {
+    loadingExternal.value = true;
+    externalError.value = '';
+    try {
+      externalReports.assignAll(await _reportCenter.catalog());
+    } catch (error) {
+      externalError.value = error.toString().replaceFirst('Exception: ', '');
+    } finally {
+      loadingExternal.value = false;
+    }
+  }
+
+  Future<ReportFilterOptions> loadFilterOptions(
+      ExternalReportItem report, Map<String, String> params) {
+    return _reportCenter.filterOptions(report, params);
+  }
+
+  Future<void> previewExternalReport(
+      ExternalReportItem report, Map<String, String> params) async {
+    if (generating.value) return;
+    generating.value = true;
+    generationProgress.value = 0;
+    generationStatus.value = 'QUEUED';
+    try {
+      final generated = await _reportCenter.generate(
+        report,
+        params,
+        onProgress: (progress, status) {
+          generationProgress.value = progress ?? generationProgress.value;
+          generationStatus.value = status;
+        },
+      );
+      Get.back();
+      await Get.to(() => PdfViewerPage(
+            title: generated.filename,
+            bytes: generated.bytes,
+          ));
+    } catch (error) {
+      Get.snackbar(
+        'Report gagal dibuat',
+        error.toString().replaceFirst('Exception: ', ''),
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFFFEE2E2),
+        colorText: const Color(0xFF991B1B),
+      );
+    } finally {
+      generating.value = false;
+      generationProgress.value = 0;
+      generationStatus.value = '';
+    }
   }
 
   Future<void> loadReportsByPermission() async {

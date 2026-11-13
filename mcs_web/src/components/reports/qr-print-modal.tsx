@@ -6,7 +6,7 @@ import { ExternalLink, Printer } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
 import { LoadingSkeleton, ErrorState } from "@/components/ui/states";
-import { useQrReport } from "@/hooks/use-reports";
+import { useBomQrReport, useQrReport } from "@/hooks/use-reports";
 import { pick } from "@/lib/display";
 
 function QrLabel({
@@ -153,6 +153,101 @@ export function QrPrintModal({
                 qrImage={qrImage}
                 qrContent={qrContent}
               />
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function BomQrLabel({
+  name,
+  code,
+  assetCode,
+  qrImage,
+}: {
+  name: string;
+  code: string;
+  assetCode: string;
+  qrImage: string;
+}) {
+  return (
+    <div className="bom-qr-label">
+      <div className="bom-qr-label__qr-wrap">
+        {qrImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={qrImage} alt={`QR ${code}`} className="bom-qr-label__qr" />
+        ) : null}
+      </div>
+      <div className="bom-qr-label__info">
+        <span className="bom-qr-label__caption">MCS TOOL / BOM</span>
+        <strong className="bom-qr-label__name">{name || "-"}</strong>
+        <span className="bom-qr-label__code">{code}</span>
+        <span className="bom-qr-label__asset">{assetCode || "Tanpa asset"}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Label 50×12 mm untuk NIIMBOT B18; QR diprioritaskan agar mudah dipindai. */
+export function BomQrPrintModal({
+  partId,
+  onClose,
+}: {
+  partId: number;
+  onClose: () => void;
+}) {
+  const open = partId > 0;
+  const { data, isLoading, error, refetch } = useBomQrReport(partId);
+  const item = data?.data;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const name = String(item?.part_name ?? item?.header ?? "");
+  const code = String(item?.tool_code ?? "");
+  const assetCode = String(item?.asset_code ?? "");
+  const qrImage = String(item?.qr_image ?? "");
+  const qrContent = String(item?.qr_content ?? "");
+
+  return (
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        size="lg"
+        title="Cetak QR BOM / Part"
+        description="Format NIIMBOT B18 · label 50 × 12 mm"
+      >
+        {isLoading ? (
+          <LoadingSkeleton rows={4} />
+        ) : error ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
+        ) : !item ? (
+          <ErrorState error={new Error("BOM / Part tidak ditemukan.")} />
+        ) : (
+          <div className="flex flex-col items-center gap-4">
+            <div className="bom-qr-label-scale overflow-hidden rounded ring-1 ring-slate-300">
+              <BomQrLabel name={name} code={code} assetCode={assetCode} qrImage={qrImage} />
+            </div>
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-center text-xs text-amber-800">
+              Atur ukuran kertas printer ke <strong>50 × 12 mm</strong>, skala 100%, dan margin 0.
+            </div>
+            <Button onClick={() => window.print()}>
+              <Printer className="h-4 w-4" /> Cetak NIIMBOT B18
+            </Button>
+            <p className="max-w-md break-all rounded bg-slate-50 px-3 py-1.5 text-center text-xs text-slate-500">
+              Isi QR compact: {qrContent}
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {mounted && open && item
+        ? createPortal(
+            <div id="bom-qr-print-root">
+              <style>{"@page { size: 50mm 12mm; margin: 0; }"}</style>
+              <BomQrLabel name={name} code={code} assetCode={assetCode} qrImage={qrImage} />
             </div>,
             document.body,
           )

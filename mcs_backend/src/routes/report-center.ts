@@ -67,10 +67,23 @@ async function loadCatalog(endpoint: Endpoint) {
 }
 const upstreamJobId = (payload:any) => String(payload?.jobId ?? payload?.job_id ?? payload?.id ?? payload?.data?.jobId ?? payload?.data?.job_id ?? payload?.data?.id ?? '').trim();
 const upstreamStatus = (payload:any) => String(payload?.status ?? payload?.state ?? payload?.data?.status ?? payload?.data?.state ?? 'PROCESSING').trim().toUpperCase();
+const upstreamErrorMessage = (payload:any):string => {
+  const value=payload?.message??payload?.error??payload?.detail??payload?.data?.message??payload?.data?.error;
+  if(typeof value==='string')return value.trim();
+  if(value&&typeof value==='object'){
+    const nested=value.message??value.error??value.detail??value.reason;
+    if(typeof nested==='string')return nested.trim();
+    try{return JSON.stringify(value);}catch{return 'Layanan reporting mengembalikan error yang tidak dapat dibaca.';}
+  }
+  return '';
+};
 const userAuthorization = (req: AuthRequest) => {
-  const value=String(req.header('authorization')??'').trim();
-  if(!/^Bearer\s+\S+/i.test(value))throw new HttpError(401,'Token user MCS tidak tersedia.');
-  return value;
+  const authorization=String(req.header('authorization')??'').trim();
+  if(!req.user||!/^Bearer\s+\S+/i.test(authorization))throw new HttpError(401,'Token user MCS tidak tersedia.');
+  // Reporting memakai token user yang login untuk scope dan permission report.
+  // Jangan sign ulang: beberapa endpoint reporting mengikat job/download ke
+  // token asli yang dipakai saat job dibuat.
+  return authorization;
 };
 const canAccessDefinition = (req: AuthRequest, requiredPermission: unknown) => {
   const user=req.user;if(!user)return false;
@@ -87,6 +100,24 @@ async function asyncDefinition(endpointId: number, reportId: number) {
     WHERE d.id=? AND e.id=? AND d.status='ACTIVE' AND d.catalog_status='AVAILABLE' AND e.status='ACTIVE'`,[reportId,endpointId]);
 }
 
+const STANDARD_REPORT_PARAMS=['q','company','location','category','status','date_from','date_to','type_wo','priority','shift','id_division','job_executor'] as const;
+function effectiveReportParams(definition: any): string[] {
+  const params=new Set(catalogParams(definition.catalog_params));
+  const reportType=String(definition.report_type??'').toLowerCase();
+  const category=String(definition.category??'').toLowerCase();
+  params.add('q');
+  if(category.includes('asset')||reportType.includes('asset')){
+    for(const name of ['company','location','category','status'] as const)params.add(name);
+    if(/history|mutation|write-off|condition|stock-opname/.test(reportType)){
+      params.add('date_from');params.add('date_to');
+    }
+  }
+  if(category.includes('maintenance')||reportType.includes('maintenance')||reportType.startsWith('report-mt')){
+    for(const name of ['company','status','date_from','date_to','type_wo','priority','shift','id_division','job_executor'] as const)params.add(name);
+  }
+  return STANDARD_REPORT_PARAMS.filter(name=>params.has(name));
+}
+
 function optionalFilter(value: unknown, max = 255) {
   const result=String(value??'').trim();
   if(result.length>max)throw new HttpError(422,`Filter maksimal ${max} karakter.`);
@@ -94,9 +125,16 @@ function optionalFilter(value: unknown, max = 255) {
 }
 
 async function validateReportParams(definition: any, input: Record<string,unknown>) {
-  const allowed=new Set(catalogParams(definition.catalog_params));
+  const allowed=new Set(effectiveReportParams(definition));
   const sanitized=Object.fromEntries(Object.entries(input).filter(([key,value])=>allowed.has(key)&&String(value??'').trim()!==''));
-  if(String(definition.report_type)!=='report-assets')return sanitized;
+  const reportType=String(definition.report_type??'');
+  for(const field of ['date_from','date_to'] as const){
+    const value=optionalFilter(sanitized[field],10);
+    if(value&&!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new HttpError(422,`${field==='date_from'?'Tanggal mulai':'Tanggal selesai'} tidak valid.`);
+    if(value)sanitized[field]=value;
+  }
+  if(sanitized.date_from&&sanitized.date_to&&String(sanitized.date_from)>String(sanitized.date_to))throw new HttpError(422,'Tanggal mulai tidak boleh melewati tanggal selesai.');
+  if(reportType!=='report-assets')return sanitized;
   const company=optionalFilter(sanitized.company);
   const location=optionalFilter(sanitized.location);
   const status=optionalFilter(sanitized.status,20).toLowerCase();
@@ -167,7 +205,7 @@ reportCenterRouter.get('/report-center/catalog',authenticate,asyncHandler(async(
   await ensureFeature();const asyncExists=await tableExists('external_report_async_config');
   const endpoints=await rows<Endpoint>(asyncExists?`SELECT e.*,a.base_url,a.system_code FROM external_report_endpoint e LEFT JOIN external_report_async_config a ON a.endpoint_id=e.id WHERE e.status='ACTIVE' ORDER BY e.endpoint_name`:`SELECT * FROM external_report_endpoint WHERE status='ACTIVE' ORDER BY endpoint_name`);
   const output:Report[]=[];const errors:any[]=[];
-  for(const endpoint of endpoints){try{if(endpoint.base_url){const definitions=await rows<any>(`SELECT * FROM external_report_definition WHERE endpoint_id=? AND status='ACTIVE' AND catalog_status='AVAILABLE' ORDER BY category,report_title`,[endpoint.id]);output.push(...definitions.filter(item=>canAccessDefinition(req,item.required_permission)).map(item=>({id:String(item.id),title:item.report_title,description:item.description,category:item.category,format:item.output_format,report_type:item.report_type,params:catalogParams(item.catalog_params),protocol:'ASYNC_JOB' as const,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}else{const reports=await loadCatalog(endpoint);output.push(...reports.map(report=>({...report,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}}catch(error){errors.push({endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name,message:error instanceof Error?error.message:'Endpoint gagal dibaca'});}}
+  for(const endpoint of endpoints){try{if(endpoint.base_url){const definitions=await rows<any>(`SELECT * FROM external_report_definition WHERE endpoint_id=? AND status='ACTIVE' AND catalog_status='AVAILABLE' ORDER BY category,report_title`,[endpoint.id]);output.push(...definitions.filter(item=>canAccessDefinition(req,item.required_permission)).map(item=>({id:String(item.id),title:item.report_title,description:item.description,category:item.category,format:item.output_format,report_type:item.report_type,params:effectiveReportParams(item),protocol:'ASYNC_JOB' as const,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}else{const reports=await loadCatalog(endpoint);output.push(...reports.map(report=>({...report,endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name})));}}catch(error){errors.push({endpoint_id:endpoint.id,endpoint_name:endpoint.endpoint_name,message:error instanceof Error?error.message:'Endpoint gagal dibaca'});}}
   ok(res,{reports:output,errors,endpoints_count:endpoints.length});
 }));
 
@@ -176,17 +214,46 @@ reportCenterRouter.get('/report-center/filters/:endpointId/:reportId',authentica
   const definition=await asyncDefinition(Number(req.params.endpointId),Number(req.params.reportId));
   if(!definition)throw new HttpError(404,'Definisi async report tidak ditemukan atau belum aktif.');
   if(!canAccessDefinition(req,definition.required_permission))throw new HttpError(403,'Anda tidak memiliki permission untuk report ini.');
-  const supported=catalogParams(definition.catalog_params);
-  if(!supported.some(item=>['company','location','category','status'].includes(item)))return ok(res,{report_type:definition.report_type,companies:[],locations:[],categories:[],matched_assets:null});
+  const supported=effectiveReportParams(definition);
+  if(!supported.some(item=>['company','location','category','status','type_wo','priority','shift','id_division'].includes(item)))return ok(res,{report_type:definition.report_type,companies:[],locations:[],categories:[],statuses:[],types:[],priorities:[],shifts:[],divisions:[],matched_assets:null});
   const company=optionalFilter(req.query.company);
   const location=optionalFilter(req.query.location);
   const category=optionalFilter(req.query.category);
   const status=optionalFilter(req.query.status,20).toLowerCase();
   if(status&&!['active','inactive'].includes(status))throw new HttpError(422,'Status asset tidak valid.');
-  const [companies,locations,categories]=await Promise.all([
+  const [companies,locations,categories,statuses,types,priorities,shifts,divisions]=await Promise.all([
     rows<{value:string;label:string}>(`SELECT DISTINCT CompanyName value,CompanyName label FROM asset WHERE CompanyName IS NOT NULL AND TRIM(CompanyName)<>'' AND TRIM(CompanyName)<>'-' ORDER BY CompanyName`),
     rows<{value:string;label:string}>(`SELECT DISTINCT LocationAsset value,LocationAsset label FROM asset WHERE LocationAsset IS NOT NULL AND TRIM(LocationAsset)<>'' AND TRIM(LocationAsset)<>'-' AND (?='' OR CompanyName=?) ORDER BY LocationAsset`,[company,company]),
     rows<{value:string;label:string}>(`SELECT DISTINCT CategoryAsset value,CategoryAsset label FROM asset WHERE CategoryAsset IS NOT NULL AND TRIM(CategoryAsset)<>'' AND TRIM(CategoryAsset)<>'-' ORDER BY CategoryAsset`),
+    rows<{value:string;label:string}>(`SELECT value,value label FROM (
+      SELECT DISTINCT status value FROM tb_wo_mtc_operational WHERE status IS NOT NULL AND TRIM(status)<>''
+      UNION SELECT DISTINCT status FROM tb_wo_mtc WHERE status IS NOT NULL AND TRIM(status)<>''
+      UNION SELECT DISTINCT status FROM tb_wo_it WHERE status IS NOT NULL AND TRIM(status)<>''
+      UNION SELECT DISTINCT status FROM tb_wo_ga WHERE status IS NOT NULL AND TRIM(status)<>''
+      UNION SELECT DISTINCT status FROM tb_wo_preventive WHERE status IS NOT NULL AND TRIM(status)<>''
+    ) x ORDER BY value`),
+    rows<{value:string;label:string}>(`SELECT value,value label FROM (
+      SELECT DISTINCT type_wo value FROM tb_wo_mtc_operational WHERE type_wo IS NOT NULL AND TRIM(type_wo)<>''
+      UNION SELECT DISTINCT type_wo FROM tb_wo_mtc WHERE type_wo IS NOT NULL AND TRIM(type_wo)<>''
+      UNION SELECT DISTINCT type_wo FROM tb_wo_it WHERE type_wo IS NOT NULL AND TRIM(type_wo)<>''
+      UNION SELECT DISTINCT type_wo FROM tb_wo_ga WHERE type_wo IS NOT NULL AND TRIM(type_wo)<>''
+      UNION SELECT DISTINCT type_wo FROM tb_wo_preventive WHERE type_wo IS NOT NULL AND TRIM(type_wo)<>''
+    ) x ORDER BY value`),
+    rows<{value:string;label:string}>(`SELECT value,value label FROM (
+      SELECT DISTINCT priority value FROM tb_wo_mtc_operational WHERE priority IS NOT NULL AND TRIM(priority)<>''
+      UNION SELECT DISTINCT priority FROM tb_wo_mtc WHERE priority IS NOT NULL AND TRIM(priority)<>''
+      UNION SELECT DISTINCT priority FROM tb_wo_it WHERE priority IS NOT NULL AND TRIM(priority)<>''
+      UNION SELECT DISTINCT priority FROM tb_wo_ga WHERE priority IS NOT NULL AND TRIM(priority)<>''
+      UNION SELECT DISTINCT priority FROM tb_wo_preventive WHERE priority IS NOT NULL AND TRIM(priority)<>''
+    ) x ORDER BY value`),
+    rows<{value:string;label:string}>(`SELECT value,value label FROM (
+      SELECT DISTINCT shift value FROM tb_wo_mtc_operational WHERE shift IS NOT NULL AND TRIM(shift)<>''
+      UNION SELECT DISTINCT shift FROM tb_wo_mtc WHERE shift IS NOT NULL AND TRIM(shift)<>''
+      UNION SELECT DISTINCT shift FROM tb_wo_it WHERE shift IS NOT NULL AND TRIM(shift)<>''
+      UNION SELECT DISTINCT shift FROM tb_wo_ga WHERE shift IS NOT NULL AND TRIM(shift)<>''
+      UNION SELECT DISTINCT shift FROM tb_wo_preventive WHERE shift IS NOT NULL AND TRIM(shift)<>''
+    ) x ORDER BY value`),
+    rows<{value:string;label:string}>(`SELECT CAST(id_division AS CHAR) value,division_name label FROM tb_division WHERE division_name IS NOT NULL AND TRIM(division_name)<>'' ORDER BY division_name`),
   ]);
   const where:string[]=[];const params:unknown[]=[];
   if(company){where.push('CompanyName=?');params.push(company);}
@@ -194,7 +261,7 @@ reportCenterRouter.get('/report-center/filters/:endpointId/:reportId',authentica
   if(category){where.push('CategoryAsset=?');params.push(category);}
   if(status){where.push('LOWER(active)=?');params.push(status);}
   const count=await one<{total:number}>(`SELECT COUNT(*) total FROM asset${where.length?` WHERE ${where.join(' AND ')}`:''}`,params);
-  ok(res,{report_type:definition.report_type,companies,locations,categories,matched_assets:Number(count?.total??0)});
+  ok(res,{report_type:definition.report_type,companies,locations,categories,statuses,types,priorities,shifts,divisions,matched_assets:Number(count?.total??0)});
 }));
 
 reportCenterRouter.get('/report-center/run/:endpointId/:reportId',authenticate,asyncHandler(async(req,res)=>{
@@ -202,13 +269,20 @@ reportCenterRouter.get('/report-center/run/:endpointId/:reportId',authenticate,a
 }));
 
 reportCenterRouter.post('/report-center/jobs/:endpointId/:reportId',authenticate,asyncHandler(async(req:AuthRequest,res)=>{
-  await ensureFeature();const definition=await asyncDefinition(Number(req.params.endpointId),Number(req.params.reportId));if(!definition)throw new HttpError(404,'Definisi async report tidak ditemukan atau belum aktif.');if(!canAccessDefinition(req,definition.required_permission))throw new HttpError(403,'Anda tidak memiliki permission untuk report ini.');const params=await validateReportParams(definition,{...parseParams(definition.default_params),...parseParams(req.body.params??{})});const url=new URL(definition.base_url);url.searchParams.set('system',definition.system_code||'mcs');const response=await fetch(url,{method:'POST',headers:{Authorization:userAuthorization(req),Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({type:definition.report_type,params})});const payload=await response.json().catch(()=>null);if(!response.ok)throw new HttpError(response.status===401||response.status===403?response.status:502,`Gagal membuat job report (HTTP ${response.status}).`);const jobId=upstreamJobId(payload);if(!jobId)throw new HttpError(502,'Respons reporting tidak memiliki jobId.');const result=await execute(`INSERT INTO external_report_job (endpoint_id,report_definition_id,upstream_job_id,status,request_params,upstream_response,requested_by,requested_user_id,requested_at) VALUES (?,?,?,'QUEUED',?,?,?,?,NOW())`,[definition.endpoint_id,definition.id,jobId,JSON.stringify(params),JSON.stringify(payload),actor(req),req.user!.id_user]);created(res,{id:result.insertId,job_id:jobId,status:'QUEUED'},'Job report berhasil dibuat.');
+  await ensureFeature();const definition=await asyncDefinition(Number(req.params.endpointId),Number(req.params.reportId));if(!definition)throw new HttpError(404,'Definisi async report tidak ditemukan atau belum aktif.');if(!canAccessDefinition(req,definition.required_permission))throw new HttpError(403,'Anda tidak memiliki permission untuk report ini.');const params=await validateReportParams(definition,{...parseParams(definition.default_params),...parseParams(req.body.params??{})});const serializedParams=JSON.stringify(params);
+  // Reporting mengikat job ke token persis yang dipakai ketika create.
+  // Mobile/tablet membawa token berbeda dari browser meskipun user sama,
+  // sehingga reuse lintas device akan ditolak sebagai token invalid/expired.
+  const forceNew=['1','true','yes','on'].includes(String(req.body.force_new??'').toLowerCase());
+  const reusable=forceNew?null:await one<any>(`SELECT id,upstream_job_id,status FROM external_report_job WHERE endpoint_id=? AND report_definition_id=? AND requested_user_id=? AND request_params=? AND status IN ('QUEUED','PENDING','PROCESSING') AND requested_at>=DATE_SUB(NOW(),INTERVAL 10 MINUTE) ORDER BY id DESC LIMIT 1`,[definition.endpoint_id,definition.id,req.user!.id_user,serializedParams]);
+  if(reusable)return ok(res,{id:reusable.id,job_id:reusable.upstream_job_id,status:reusable.status,reused:true,ready:false},'Job report yang masih aktif dilanjutkan.');
+  const url=new URL(definition.base_url);url.searchParams.set('system',definition.system_code||'mcs');const response=await fetch(url,{method:'POST',headers:{Authorization:userAuthorization(req),Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({type:definition.report_type,params})});const payload=await response.json().catch(()=>null);if(!response.ok){const upstreamMessage=upstreamErrorMessage(payload);if(response.status===429)throw new HttpError(429,upstreamMessage||'Antrean reporting sedang penuh atau batas request tercapai. Tunggu beberapa saat lalu coba kembali.');if(response.status===401||response.status===403)throw new HttpError(502,upstreamMessage||'Layanan reporting menolak autentikasi user MCS.');throw new HttpError(502,upstreamMessage||`Gagal membuat job report (HTTP ${response.status}).`);}const jobId=upstreamJobId(payload);if(!jobId)throw new HttpError(502,'Respons reporting tidak memiliki jobId.');const result=await execute(`INSERT INTO external_report_job (endpoint_id,report_definition_id,upstream_job_id,status,request_params,upstream_response,requested_by,requested_user_id,requested_at) VALUES (?,?,?,'QUEUED',?,?,?,?,NOW())`,[definition.endpoint_id,definition.id,jobId,serializedParams,JSON.stringify(payload),actor(req),req.user!.id_user]);created(res,{id:result.insertId,job_id:jobId,status:'QUEUED',reused:false},'Job report berhasil dibuat.');
 }));
 
 reportCenterRouter.get('/report-center/jobs/:id',authenticate,asyncHandler(async(req:AuthRequest,res)=>{
-  await ensureFeature();const job=await one<any>(`SELECT j.*,e.timeout_seconds,a.base_url FROM external_report_job j JOIN external_report_endpoint e ON e.id=j.endpoint_id JOIN external_report_async_config a ON a.endpoint_id=e.id WHERE j.id=?`,[Number(req.params.id)]);if(!job)throw new HttpError(404,'Job report tidak ditemukan.');if(String(req.user!.username).toUpperCase()!=='SUPERUSER'&&Number(job.requested_user_id)!==Number(req.user!.id_user))throw new HttpError(403,'Job report ini milik user lain.');const url=`${String(job.base_url).replace(/\/$/,'')}/${encodeURIComponent(job.upstream_job_id)}`;const response=await fetch(url,{headers:{Authorization:userAuthorization(req),Accept:'application/json'}});const payload=await response.json().catch(()=>null);if(!response.ok)throw new HttpError(response.status===401||response.status===403?response.status:502,`Gagal mengecek status report (HTTP ${response.status}).`);const status=upstreamStatus(payload);const ready=Boolean(payload?.ready??payload?.completed??payload?.data?.ready??payload?.data?.completed)||['COMPLETED','COMPLETE','SUCCESS','SUCCEEDED','DONE','READY','FINISHED'].includes(status);await execute(`UPDATE external_report_job SET status=?,upstream_response=?,last_checked_at=NOW(),completed_at=CASE WHEN ? THEN COALESCE(completed_at,NOW()) ELSE completed_at END WHERE id=?`,[status,JSON.stringify(payload),ready?1:0,job.id]);ok(res,{id:job.id,job_id:job.upstream_job_id,status,ready,response:payload});
+  await ensureFeature();const job=await one<any>(`SELECT j.*,e.timeout_seconds,a.base_url FROM external_report_job j JOIN external_report_endpoint e ON e.id=j.endpoint_id JOIN external_report_async_config a ON a.endpoint_id=e.id WHERE j.id=?`,[Number(req.params.id)]);if(!job)throw new HttpError(404,'Job report tidak ditemukan.');if(String(req.user!.username).toUpperCase()!=='SUPERUSER'&&Number(job.requested_user_id)!==Number(req.user!.id_user))throw new HttpError(403,'Job report ini milik user lain.');const url=`${String(job.base_url).replace(/\/$/,'')}/${encodeURIComponent(job.upstream_job_id)}`;const response=await fetch(url,{headers:{Authorization:userAuthorization(req),Accept:'application/json'}});const payload=await response.json().catch(()=>null);if(!response.ok){if(response.status===429)throw new HttpError(429,'Layanan reporting membatasi pengecekan status. Tunggu beberapa saat lalu coba kembali.');if(response.status===401||response.status===403)throw new HttpError(502,'Layanan reporting menolak autentikasi ketika mengecek status report.');throw new HttpError(502,`Gagal mengecek status report (HTTP ${response.status}).`);}const status=upstreamStatus(payload);const ready=Boolean(payload?.ready??payload?.completed??payload?.data?.ready??payload?.data?.completed)||['COMPLETED','COMPLETE','SUCCESS','SUCCEEDED','DONE','READY','FINISHED'].includes(status);await execute(`UPDATE external_report_job SET status=?,upstream_response=?,last_checked_at=NOW(),completed_at=CASE WHEN ? THEN COALESCE(completed_at,NOW()) ELSE completed_at END WHERE id=?`,[status,JSON.stringify(payload),ready?1:0,job.id]);ok(res,{id:job.id,job_id:job.upstream_job_id,status,ready,response:payload});
 }));
 
 reportCenterRouter.get('/report-center/jobs/:id/download',authenticate,asyncHandler(async(req:AuthRequest,res)=>{
-  await ensureFeature();const job=await one<any>(`SELECT j.*,e.timeout_seconds,a.base_url,d.report_title,d.output_format FROM external_report_job j JOIN external_report_endpoint e ON e.id=j.endpoint_id JOIN external_report_async_config a ON a.endpoint_id=e.id JOIN external_report_definition d ON d.id=j.report_definition_id WHERE j.id=?`,[Number(req.params.id)]);if(!job)throw new HttpError(404,'Job report tidak ditemukan.');if(String(req.user!.username).toUpperCase()!=='SUPERUSER'&&Number(job.requested_user_id)!==Number(req.user!.id_user))throw new HttpError(403,'Job report ini milik user lain.');const url=`${String(job.base_url).replace(/\/$/,'')}/${encodeURIComponent(job.upstream_job_id)}/download`;const upstream=await fetch(url,{headers:{Authorization:userAuthorization(req),Accept:'application/pdf'}});if(!upstream.ok||!upstream.body)throw new HttpError(upstream.status===401||upstream.status===403?upstream.status:502,`Download report gagal (HTTP ${upstream.status}).`);res.status(upstream.status);res.setHeader('Content-Type',upstream.headers.get('content-type')||'application/pdf');res.setHeader('Content-Disposition',upstream.headers.get('content-disposition')||`attachment; filename="${String(job.report_title).replace(/[^a-z0-9_-]+/gi,'-')}.${String(job.output_format||'PDF').toLowerCase()}"`);Readable.fromWeb(upstream.body as any).pipe(res);
+  await ensureFeature();const job=await one<any>(`SELECT j.*,e.timeout_seconds,a.base_url,d.report_title,d.output_format FROM external_report_job j JOIN external_report_endpoint e ON e.id=j.endpoint_id JOIN external_report_async_config a ON a.endpoint_id=e.id JOIN external_report_definition d ON d.id=j.report_definition_id WHERE j.id=?`,[Number(req.params.id)]);if(!job)throw new HttpError(404,'Job report tidak ditemukan.');if(String(req.user!.username).toUpperCase()!=='SUPERUSER'&&Number(job.requested_user_id)!==Number(req.user!.id_user))throw new HttpError(403,'Job report ini milik user lain.');const url=`${String(job.base_url).replace(/\/$/,'')}/${encodeURIComponent(job.upstream_job_id)}/download`;const upstream=await fetch(url,{headers:{Authorization:userAuthorization(req),Accept:'application/pdf'}});if(!upstream.ok||!upstream.body){if(upstream.status===401||upstream.status===403)throw new HttpError(502,'Layanan reporting menolak autentikasi ketika mengambil PDF.');throw new HttpError(502,`Download report gagal (HTTP ${upstream.status}).`);}res.status(upstream.status);res.setHeader('Content-Type',upstream.headers.get('content-type')||'application/pdf');res.setHeader('Content-Disposition',upstream.headers.get('content-disposition')||`attachment; filename="${String(job.report_title).replace(/[^a-z0-9_-]+/gi,'-')}.${String(job.output_format||'PDF').toLowerCase()}"`);Readable.fromWeb(upstream.body as any).pipe(res);
 }));

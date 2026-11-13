@@ -52,11 +52,13 @@ export default function AssetDetailPage({
   const code = assetCode.map(decodeURIComponent).join("/");
   const searchParams = useSearchParams();
   const from = searchParams.get("from");
+  const requestedTab = searchParams.get("tab");
+  const highlightedPartId = Number(searchParams.get("part") ?? 0);
   const returnHref = from ? `/assets?${decodeURIComponent(from)}` : undefined;
 
   const toast = useToast();
   const canWrite = useCan(PERMISSIONS.privilageAsset);
-  const [tab, setTab] = useState("general");
+  const [tab, setTab] = useState(requestedTab === "bom" ? "bom" : "general");
   const [editOpen, setEditOpen] = useState(false);
   const [moveParentOpen, setMoveParentOpen] = useState(false);
   const confirm = useConfirm();
@@ -237,7 +239,11 @@ export default function AssetDetailPage({
 
           {tab === "bom" && (
             <div className="card p-5">
-              <BomPartsPanel assetCode={code} canWrite={canWrite} />
+              <BomPartsPanel
+                assetCode={code}
+                canWrite={canWrite}
+                highlightedPartId={highlightedPartId > 0 ? highlightedPartId : undefined}
+              />
             </div>
           )}
 

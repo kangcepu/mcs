@@ -23,7 +23,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
 
   bool _isProcessing = false;
   String? _lastCode;
-  String _message = 'Arahkan kamera ke QR asset';
+  String _message = 'Arahkan kamera ke QR asset atau BOM / Part';
   Timer? _debounce;
 
   @override
@@ -42,17 +42,29 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
     setState(() {
       _isProcessing = true;
       _lastCode = value;
-      _message = 'Mencari data asset...';
+      _message = 'Mencari data asset atau BOM / Part...';
     });
 
-    final asset = await _masterRepository.findAssetByScanValue(value);
+    final bomPart = await _masterRepository.findBomPartByScanValue(value);
+    Map<String, dynamic>? asset;
+    if (bomPart != null) {
+      final parentCode = (bomPart['asset_code'] ?? bomPart['AssetCode'] ?? '')
+          .toString()
+          .trim();
+      if (parentCode.isNotEmpty) {
+        asset = await _masterRepository.getAssetDetail(assetCode: parentCode);
+        if (asset.isNotEmpty) asset['_scanned_bom_part'] = bomPart;
+      }
+    } else {
+      asset = await _masterRepository.findAssetByScanValue(value);
+    }
     if (!mounted) {
       return;
     }
 
     if (asset == null || asset.isEmpty) {
       setState(() {
-        _message = 'Asset tidak ditemukan. Coba scan ulang.';
+        _message = 'Asset atau BOM / Part tidak ditemukan. Coba scan ulang.';
         _isProcessing = false;
       });
       Future.delayed(const Duration(seconds: 2), () {
@@ -61,7 +73,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
         }
         setState(() {
           _lastCode = null;
-          _message = 'Arahkan kamera ke QR asset';
+          _message = 'Arahkan kamera ke QR asset atau BOM / Part';
         });
       });
       return;
@@ -91,7 +103,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
     setState(() {
       _isProcessing = false;
       _lastCode = null;
-      _message = 'Arahkan kamera ke QR asset';
+      _message = 'Arahkan kamera ke QR asset atau BOM / Part';
     });
     await _scannerController.start();
   }
@@ -131,6 +143,9 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
         final assetName = (asset['AssetName'] ?? '-').toString();
         final company =
             (asset['Company'] ?? asset['CompanyName'] ?? '-').toString();
+        final bomPart = asset['_scanned_bom_part'] is Map
+            ? Map<String, dynamic>.from(asset['_scanned_bom_part'] as Map)
+            : null;
 
         return SafeArea(
           child: Padding(
@@ -139,11 +154,27 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Asset Terdeteksi',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                Text(
+                  bomPart == null
+                      ? 'Asset Terdeteksi'
+                      : 'BOM / Part Terdeteksi',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
+                if (bomPart != null) ...[
+                  Text(
+                    (bomPart['part_name'] ?? bomPart['part'] ?? '-').toString(),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    '${bomPart['tool_code'] ?? ''} · Stok ${bomPart['qty_on_hand'] ?? '-'} ${bomPart['uom'] ?? ''}',
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Asset induk',
+                      style: TextStyle(fontSize: 12, color: Colors.black54)),
+                ],
                 Text('$assetCode - $assetName'),
                 Text(
                   company,
@@ -245,7 +276,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan QR Asset'),
+        title: const Text('Scan QR Asset / BOM'),
       ),
       body: Stack(
         children: [

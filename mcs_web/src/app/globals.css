@@ -209,6 +209,83 @@ body {
 #qr-print-root {
   display: none;
 }
+
+/* Label BOM / alat kecil untuk NIIMBOT B18: 50 × 12 mm. */
+.bom-qr-label {
+  box-sizing: border-box;
+  width: 50mm;
+  height: 12mm;
+  display: flex;
+  align-items: center;
+  gap: 1mm;
+  overflow: hidden;
+  border: 0.25mm solid #000;
+  border-radius: 0.5mm;
+  padding: 0.5mm;
+  background: #fff;
+  color: #000;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.bom-qr-label__qr-wrap {
+  width: 10.5mm;
+  height: 10.5mm;
+  flex: 0 0 10.5mm;
+  display: grid;
+  place-items: center;
+}
+.bom-qr-label__qr {
+  display: block;
+  width: 10.5mm;
+  height: 10.5mm;
+  image-rendering: pixelated;
+}
+.bom-qr-label__info {
+  min-width: 0;
+  flex: 1;
+  height: 10.5mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.05;
+}
+.bom-qr-label__caption {
+  font-size: 1.2mm;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.bom-qr-label__name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 1.9mm;
+  line-height: 1.05;
+  margin: 0.35mm 0;
+  overflow-wrap: anywhere;
+}
+.bom-qr-label__code {
+  font-size: 1.65mm;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.bom-qr-label__asset {
+  max-width: 36mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.25mm;
+}
+.bom-qr-label-scale {
+  width: calc(50mm * 2.4);
+  height: calc(12mm * 2.4);
+}
+.bom-qr-label-scale > .bom-qr-label {
+  transform: scale(2.4);
+  transform-origin: top left;
+}
+#bom-qr-print-root {
+  display: none;
+}
 @media print {
   @page {
     size: 60mm 30mm;
@@ -222,16 +299,20 @@ body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  body > *:not(#qr-print-root) {
+  body > *:not(#qr-print-root):not(#bom-qr-print-root) {
     display: none !important;
   }
-  #qr-print-root {
+  #qr-print-root,
+  #bom-qr-print-root {
     display: block !important;
     position: absolute;
     left: 0;
     top: 0;
   }
   #qr-print-root .qr-label {
+    box-shadow: none !important;
+  }
+  #bom-qr-print-root .bom-qr-label {
     box-shadow: none !important;
   }
 }

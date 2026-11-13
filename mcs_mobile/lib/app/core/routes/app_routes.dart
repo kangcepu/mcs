@@ -50,6 +50,8 @@ import '../../modules/stock_opname/controllers/non_part_controller.dart';
 import '../../modules/stock_opname/controllers/status_so_controller.dart';
 import '../../modules/scanning/views/wo_qr_scan_page.dart';
 import '../../modules/reports/views/reports_page.dart';
+import '../../modules/reports/views/report_menu_page.dart';
+import '../../modules/reports/views/report_legacy_page.dart';
 import '../../modules/reports/views/report_asset_page.dart';
 import '../../modules/reports/views/report_asset_detail_page.dart';
 import '../../modules/reports/views/report_asset_mutation_page.dart';
@@ -101,6 +103,8 @@ class AppRoutes {
   static const String stockOpnameStatus = '/stock_opname/status';
   static const String woScan = '/scanning';
   static const String reports = '/reports';
+  static const String reportCenter = '/reports/center';
+  static const String reportLegacy = '/reports/legacy';
   static const String reportAsset = '/reports/asset';
   static const String reportAssetDetail = '/reports/asset/detail';
   static const String reportAssetMutation = '/reports/asset_mutation';
@@ -312,7 +316,15 @@ class AppRoutes {
     ),
     GetPage(
       name: reports,
+      page: () => const ReportMenuPage(),
+    ),
+    GetPage(
+      name: reportCenter,
       page: () => const ReportsPage(),
+    ),
+    GetPage(
+      name: reportLegacy,
+      page: () => const ReportLegacyPage(),
     ),
     GetPage(
       name: reportAsset,

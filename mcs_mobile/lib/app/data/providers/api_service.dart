@@ -39,7 +39,8 @@ class ApiService {
             options.headers['Authorization'] = 'Bearer $token';
           }
 
-          options.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+          options.headers['Cache-Control'] =
+              'no-cache, no-store, must-revalidate';
           options.headers['Pragma'] = 'no-cache';
           options.headers['Expires'] = '0';
 
@@ -84,7 +85,11 @@ class ApiService {
           }
           final hadAuthHeader =
               e.requestOptions.headers['Authorization'] != null;
-          if (e.response?.statusCode == 401 && hadAuthHeader) {
+          final isReportCenterRequest =
+              e.requestOptions.path.contains('/report-center/');
+          if (e.response?.statusCode == 401 &&
+              hadAuthHeader &&
+              !isReportCenterRequest) {
             unawaited(_handleSessionExpired());
           }
           return handler.next(e);

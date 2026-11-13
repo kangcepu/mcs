@@ -67,29 +67,13 @@ final List<TabletNavSection> tabletNavSections = [
         icon: Icons.bar_chart_outlined, // FileBarChart2
         children: const [
           TabletNavChild(
-              title: 'Report Assets',
-              icon: Icons.description_outlined,
-              route: AppRoutes.reportAsset), // FileText
+              title: 'Report Center',
+              icon: Icons.dashboard_customize_outlined,
+              route: AppRoutes.reportCenter),
           TabletNavChild(
-              title: 'Asset History',
+              title: 'Report Legacy',
               icon: Icons.history_outlined,
-              route: AppRoutes.reportAssetHistory), // ClipboardList
-          TabletNavChild(
-              title: 'Cetak QR',
-              icon: Icons.qr_code_outlined,
-              route: AppRoutes.reportQr), // FileBarChart2
-          TabletNavChild(
-              title: 'Report Stock Opname',
-              icon: Icons.inventory_outlined,
-              route: AppRoutes.reportSo), // PackageSearch
-          TabletNavChild(
-              title: 'List Of Asset',
-              icon: Icons.inventory_2_outlined,
-              route: AppRoutes.reportAsset), // Boxes
-          TabletNavChild(
-              title: 'Recap Work Order',
-              icon: Icons.summarize_outlined,
-              route: AppRoutes.reportWoRecap), // ClipboardCheck
+              route: AppRoutes.reportLegacy),
         ],
       ),
       const TabletNavItem(

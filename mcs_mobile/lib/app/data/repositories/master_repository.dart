@@ -327,4 +327,30 @@ class MasterRepository {
     // Ini mencegah scanner membuka asset lain secara diam-diam.
     return assets.length == 1 ? _normalizeAssetMap(assets.first) : null;
   }
+
+  /// Resolve QR BOM baru (`/b/<token>`) maupun label compact lama
+  /// (`MCS:B:<token>`). Endpoint mengembalikan part sekaligus AssetCode induk.
+  Future<Map<String, dynamic>?> findBomPartByScanValue(String rawValue) async {
+    final value = rawValue.trim();
+    if (value.isEmpty) return null;
+    final looksLikeBom = RegExp(r'^MCS:B:', caseSensitive: false)
+            .hasMatch(value) ||
+        RegExp(r'^BOM-\d+$', caseSensitive: false).hasMatch(value) ||
+        RegExp(r'/b/[0-9a-z]+/?(?:\?|$)', caseSensitive: false).hasMatch(value);
+    if (!looksLikeBom) return null;
+
+    try {
+      final response = await _apiService.get(
+        '${ApiConstants.reports}/qr-bom',
+        queryParameters: {'code': value},
+      );
+      final body = response.data;
+      if (body is Map && body['success'] == true && body['data'] is Map) {
+        return Map<String, dynamic>.from(body['data'] as Map);
+      }
+    } catch (error) {
+      debugPrint('findBomPartByScanValue error: $error');
+    }
+    return null;
+  }
 }

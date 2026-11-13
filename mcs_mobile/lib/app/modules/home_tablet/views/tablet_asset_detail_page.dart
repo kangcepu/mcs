@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/constants/api_constants.dart';
 import '../../../core/utils/wo_status.dart';
 import '../../../data/providers/api_service.dart';
+import 'tablet_asset_related_manager.dart';
 
 const _brand = Color(0xFF1B54E0);
 const _ink = Color(0xFF0F172A);
@@ -53,12 +55,21 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
   String? _error;
   Map<String, dynamic> _asset = {};
   List<Map<String, dynamic>> _customDetails = [];
+  bool _canWriteAsset = false;
 
   @override
   void initState() {
     super.initState();
     _asset = Map<String, dynamic>.from(widget.initialRow);
+    _loadPermission();
     _load();
+  }
+
+  Future<void> _loadPermission() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(
+        () => _canWriteAsset = (prefs.getInt('privilage_asset') ?? 0) == 1);
   }
 
   Future<void> _load() async {
@@ -520,123 +531,13 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
   }
 
   Widget _buildRelated() {
-    final children = _maps(_asset['children']);
-    final groups = _maps(_asset['related_groups']);
-    if (children.isEmpty && groups.isEmpty) {
-      return _empty(Icons.hub_outlined, 'Belum ada aset terkait');
-    }
-    final rows = <Widget>[];
-    final groupedAssetIds = <int>{};
-    for (final group in groups) {
-      rows.add(_relatedGroupHeader(_value(group['child_name'])));
-      for (final item in _maps(group['items'])) {
-        final linkedId = _int(item['linked_asset_id']);
-        if (linkedId > 0) groupedAssetIds.add(linkedId);
-        rows.add(_relatedItem(item, nested: true));
-      }
-    }
-    for (final child in children) {
-      if (groupedAssetIds.contains(_int(child['AssetID']))) continue;
-      rows.add(_relatedItem(child));
-    }
-    return _panel(
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _tableHeader(['ASET / KOMPONEN', 'KATEGORI', 'LOKASI', 'STATUS'],
-              const [4, 2, 2, 2]),
-          ...rows,
-        ],
-      ),
-    );
-  }
-
-  Widget _relatedGroupHeader(String label) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        color: const Color(0xFFF1F5F9),
-        child: Text(
-          label,
-          style: const TextStyle(
-              fontSize: 12.5, fontWeight: FontWeight.w700, color: _ink),
-        ),
-      );
-
-  Widget _relatedItem(Map<String, dynamic> item, {bool nested = false}) {
-    final code = _value(item['AssetCode'] ?? item['asset_code'], fallback: '');
-    final linked = code.isNotEmpty;
-    final name = _value(
-      item['item_name'] ?? item['AssetName'] ?? item['asset_name'],
-    );
-    final active = '${item['active']}'.toLowerCase() == 'active';
-    return Material(
-      color: linked ? Colors.white : const Color(0xFFFFFBEB),
-      child: InkWell(
-        onTap: linked ? () => widget.onOpenAsset(code) : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: EdgeInsets.only(left: nested ? 18 : 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: linked ? const Color(0xFF1D4ED8) : _ink,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        linked ? code : 'Asset Code / QR belum diisi',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          color: linked
-                              ? const Color(0xFF94A3B8)
-                              : const Color(0xFFD97706),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  _value(item['CategoryAsset'] ?? item['frequency']),
-                  style: const TextStyle(fontSize: 11.5, color: _muted),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  _value(item['LocationAsset'] ?? item['pic']),
-                  style: const TextStyle(fontSize: 11.5, color: _muted),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  linked ? (active ? 'Aktif' : 'Nonaktif') : 'Belum tertaut',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: linked
-                        ? (active ? const Color(0xFF15803D) : _muted)
-                        : const Color(0xFFD97706),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return TabletAssetRelatedManager(
+      assetCode: widget.assetCode,
+      children: _maps(_asset['children']),
+      groups: _maps(_asset['related_groups']),
+      canWrite: _canWriteAsset,
+      onOpenAsset: widget.onOpenAsset,
+      onChanged: _load,
     );
   }
 

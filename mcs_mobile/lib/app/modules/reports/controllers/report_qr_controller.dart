@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/reports_repository.dart';
@@ -37,7 +38,8 @@ class ReportQrController extends GetxController with RealtimeRefresh {
     super.onInit();
     scrollController.addListener(() {
       final c = scrollController;
-      if (c.hasClients && c.position.pixels >= c.position.maxScrollExtent - 280) {
+      if (c.hasClients &&
+          c.position.pixels >= c.position.maxScrollExtent - 280) {
         loadMore();
       }
     });
@@ -158,24 +160,63 @@ class ReportQrController extends GetxController with RealtimeRefresh {
     _snack('Tersalin', successMessage);
   }
 
-  Future<void> saveAndOpenLabel(GlobalKey boundaryKey, String assetCode) async {
+  Future<File> _captureLabel(
+    GlobalKey boundaryKey,
+    String code, {
+    double pixelRatio = 5,
+  }) async {
+    final boundary = boundaryKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary?;
+    if (boundary == null) throw Exception('Label belum siap');
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) throw Exception('Gagal membuat gambar label');
+    final dir = await getTemporaryDirectory();
+    final safe = code.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final file = File('${dir.path}/label-qr-$safe.png');
+    await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+    return file;
+  }
+
+  Future<void> saveAndOpenLabel(
+    GlobalKey boundaryKey,
+    String code, {
+    double pixelRatio = 5,
+  }) async {
     try {
-      final boundary = boundaryKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null) throw Exception('Label belum siap');
-      final image = await boundary.toImage(pixelRatio: 5);
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) throw Exception('Gagal membuat gambar label');
-      final dir = await getTemporaryDirectory();
-      final safe = assetCode.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final file = File('${dir.path}/label-qr-$safe.png');
-      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+      final file = await _captureLabel(
+        boundaryKey,
+        code,
+        pixelRatio: pixelRatio,
+      );
       final result = await OpenFile.open(file.path, type: 'image/png');
       if (result.type != ResultType.done) {
         _snack('Label tersimpan', 'Lokasi file: ${file.path}');
       }
     } catch (e) {
       _snack('Gagal menyiapkan label', _msg(e), error: true);
+    }
+  }
+
+  Future<void> shareLabel(
+    GlobalKey boundaryKey,
+    String code, {
+    double pixelRatio = 5,
+  }) async {
+    try {
+      final file = await _captureLabel(
+        boundaryKey,
+        code,
+        pixelRatio: pixelRatio,
+      );
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'image/png')],
+        subject: 'Label QR $code',
+        text: 'Label QR $code · ukuran kertas 50 × 12 mm',
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
+      );
+    } catch (e) {
+      _snack('Gagal membagikan label', _msg(e), error: true);
     }
   }
 
@@ -188,4 +229,107 @@ class ReportQrController extends GetxController with RealtimeRefresh {
       colorText: error ? Colors.white : null,
     );
   }
+}
+
+class ReportBomQrController extends GetxController {
+  static const int _perPage = 15;
+
+  final ReportsRepository _repository = ReportsRepository();
+  final searchController = TextEditingController();
+  final scrollController = ScrollController();
+
+  final items = <Map<String, dynamic>>[].obs;
+  final isLoading = false.obs;
+  final isLoadingMore = false.obs;
+  final errorMessage = ''.obs;
+  final total = 0.obs;
+  final query = ''.obs;
+
+  Timer? _debounce;
+  int _page = 1;
+  bool _hasMore = false;
+  int _token = 0;
+
+  @override
+  void onInit() {
+    super.onInit();
+    scrollController.addListener(() {
+      final c = scrollController;
+      if (c.hasClients &&
+          c.position.pixels >= c.position.maxScrollExtent - 280) {
+        loadMore();
+      }
+    });
+    load();
+  }
+
+  @override
+  void onClose() {
+    _debounce?.cancel();
+    searchController.dispose();
+    scrollController.dispose();
+    super.onClose();
+  }
+
+  static String read(Map<String, dynamic> row, List<String> keys) =>
+      ReportQrController.read(row, keys);
+
+  String _msg(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+  void onSearchChanged(String value) {
+    query.value = value.trim();
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), load);
+  }
+
+  void clearSearch() {
+    searchController.clear();
+    onSearchChanged('');
+  }
+
+  Future<void> load() async {
+    final token = ++_token;
+    isLoading.value = true;
+    errorMessage.value = '';
+    try {
+      final result = await _repository.bomQrList(
+        q: query.value,
+        perPage: _perPage,
+      );
+      if (token != _token) return;
+      items.assignAll(result.rows);
+      total.value = result.total;
+      _page = result.page;
+      _hasMore = result.hasMore;
+    } catch (e) {
+      if (token != _token) return;
+      items.clear();
+      errorMessage.value = _msg(e);
+    } finally {
+      if (token == _token) isLoading.value = false;
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (!_hasMore || isLoading.value || isLoadingMore.value) return;
+    final token = _token;
+    isLoadingMore.value = true;
+    try {
+      final result = await _repository.bomQrList(
+        q: query.value,
+        page: _page + 1,
+        perPage: _perPage,
+      );
+      if (token != _token) return;
+      items.addAll(result.rows);
+      _page = result.page;
+      _hasMore = result.hasMore;
+    } catch (_) {
+      // Daftar yang sudah tampil dipertahankan bila load-more gagal.
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchQr(int partId) => _repository.bomQr(partId);
 }

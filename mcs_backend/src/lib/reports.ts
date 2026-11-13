@@ -4,6 +4,7 @@ import { HttpError } from '../http.js';
 import { getSetting } from './app-settings.js';
 import { qrPngDataUrl } from './qr.js';
 import { normalizeAssetLookup } from './asset-lookup.js';
+import { bomQrToken } from './bom-qr.js';
 
 export async function recapWorkOrderOptions(): Promise<Record<string, unknown>> {
   const [companies, divisions] = await Promise.all([
@@ -193,5 +194,78 @@ export async function getQrReport(identifier: string): Promise<Record<string, un
   return {
     asset, asset_code: assetCode, asset_name: String(asset.AssetName ?? ''), company_name: companyName,
     logo_url: logoUrl, qr_content: qrContent, qr_payload: qrContent, qr_image: qrImage, qr_url: printUrl, print_url: printUrl,
+  };
+}
+
+export interface BomQrFilters {
+  q?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export async function getBomQrList(filters: BomQrFilters): Promise<{
+  data: Record<string, unknown>[];
+  meta: Record<string, unknown>;
+}> {
+  const page = Math.max(1, Number(filters.page ?? 1));
+  const perPage = Math.min(100, Math.max(10, Number(filters.per_page ?? 15)));
+  const query = String(filters.q ?? '').trim();
+  const where = ["p.deleted_at IS NULL", "TRIM(COALESCE(p.part,''))<>''"];
+  const params: unknown[] = [];
+  if (query) {
+    where.push('(p.part LIKE ? OR p.header LIKE ? OR p.AssetCode LIKE ? OR a.AssetName LIKE ? OR p.company LIKE ?)');
+    params.push(...Array(5).fill(`%${query}%`));
+  }
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+  const totalRow = await one<{ total: number }>(
+    `SELECT COUNT(*) total FROM tb_parts_bom p LEFT JOIN asset a ON a.AssetCode=p.AssetCode ${whereSql}`,
+    params,
+  );
+  const total = Number(totalRow?.total ?? 0);
+  const data = await rows<Record<string, unknown>>(
+    `SELECT p.id AS part_id,p.part AS part_name,p.header,p.AssetCode AS asset_code,
+            a.AssetName AS asset_name,p.company,p.qty_on_hand,p.uom,p.is_active,
+            CONCAT('BOM-',LPAD(p.id,6,'0')) AS tool_code
+     FROM tb_parts_bom p
+     LEFT JOIN asset a ON a.AssetCode=p.AssetCode
+     ${whereSql}
+     ORDER BY p.AssetCode,p.no_urut,p.id LIMIT ? OFFSET ?`,
+    [...params, perPage, (page - 1) * perPage],
+  );
+  return {
+    data,
+    meta: {
+      page,
+      per_page: perPage,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / perPage)),
+    },
+  };
+}
+
+export async function getBomQrReport(partId: number): Promise<Record<string, unknown> | null> {
+  if (!Number.isSafeInteger(partId) || partId < 1) return null;
+  const part = await one<Record<string, unknown>>(
+    `SELECT p.id AS part_id,p.part AS part_name,p.header,p.AssetCode AS asset_code,
+            a.AssetName AS asset_name,p.company,p.qty_on_hand,p.uom,p.is_active
+     FROM tb_parts_bom p
+     LEFT JOIN asset a ON a.AssetCode=p.AssetCode
+     WHERE p.id=? AND p.deleted_at IS NULL LIMIT 1`,
+    [partId],
+  );
+  if (!part) return null;
+  const toolCode = `BOM-${String(partId).padStart(6, '0')}`;
+  // Jalur /api/v2 diteruskan reverse proxy publik ke backend. Endpoint ini
+  // meneruskan ke detail asset induk dan tab BOM, sedangkan scanner MCS juga
+  // memahami format compact lama `MCS:B:*` agar label lama tetap berlaku.
+  const qrContent = `${config.legacyBaseUrl}/api/v2/b/${bomQrToken(partId)}`;
+  return {
+    ...part,
+    tool_code: toolCode,
+    qr_content: qrContent,
+    qr_payload: qrContent,
+    qr_image: await qrPngDataUrl(qrContent, { errorCorrectionLevel: 'M', margin: 1, scale: 12 }),
+    label_width_mm: 50,
+    label_height_mm: 12,
   };
 }

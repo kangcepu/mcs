@@ -10,10 +10,11 @@ import { asyncHandler, HttpError, ok, created, legacyOk } from '../http.js';
 import { deleteSetting, ensureAppSettingTable, getSetting, putSetting } from '../lib/app-settings.js';
 import { encryptSecret } from '../lib/crypto-secrets.js';
 import { FIREBASE_CREDENTIAL_SETTING_KEY } from '../lib/fcm.js';
-import { getAssetReportList, getAssetsHistoryReport, getQrReport, recapWorkOrderOptions } from '../lib/reports.js';
+import { getAssetReportList, getAssetsHistoryReport, getBomQrList, getBomQrReport, getQrReport, recapWorkOrderOptions } from '../lib/reports.js';
 import { getStockOpnameReport, getStockOpnamePdf, getStockOpnameAssetDetail } from '../lib/stock-opname-proxy.js';
 import { getNotificationDetail, getNotificationSummary } from '../lib/notifications.js';
 import { nowInJakarta } from '../lib/daily-control.js';
+import { parseBomQrPartId } from '../lib/bom-qr.js';
 import { runPreventiveAlarmCron } from '../lib/preventive-alarm.js';
 import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl, putStorageConfig, saveFileWithKey, saveUploadedFile, testStorageConnection } from '../lib/storage.js';
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
@@ -316,6 +317,23 @@ miscRouter.get('/reports/:report', authenticate, asyncHandler(async (req, res) =
     const result = await getQrReport(q('asset') || q('asset_code'));
     if (!result) throw new HttpError(404, 'Asset not found', 'ASSET_NOT_FOUND');
     ok(res, result);
+    return;
+  }
+  if (report === 'qr-bom') {
+    const scanCode = q('code') || q('qr');
+    // Resolve hasil scan tersedia bagi seluruh user terautentikasi agar
+    // operator Stock Opname tidak wajib diberi hak kelola/list Asset. Daftar
+    // dan pencetakan QR tetap mengikuti permission Asset.
+    if (!scanCode && !canReadAssets(user)) throw new HttpError(403, 'Asset access is not permitted', 'REPORT_ACCESS_DENIED');
+    const partId = scanCode ? (parseBomQrPartId(scanCode) ?? 0) : Number(req.query.part_id ?? 0);
+    if (partId > 0) {
+      const result = await getBomQrReport(partId);
+      if (!result) throw new HttpError(404, 'BOM / Part tidak ditemukan.', 'BOM_PART_NOT_FOUND');
+      ok(res, result);
+      return;
+    }
+    const { data, meta } = await getBomQrList({ q: q('q'), page, per_page: perPage });
+    ok(res, data, undefined, meta);
     return;
   }
   if (report === 'stock-opname') {
