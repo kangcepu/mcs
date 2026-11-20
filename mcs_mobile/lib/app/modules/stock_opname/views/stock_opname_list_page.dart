@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/stock_opname_controller.dart';
+import '../../../data/models/stock_opname_model.dart';
 
 class StockOpnameListPage extends GetView<StockOpnameController> {
-  const StockOpnameListPage({Key? key}) : super(key: key);
+  const StockOpnameListPage({super.key});
 
   static const Color _primary = Color(0xFF7A1B0C);
 
@@ -54,7 +55,7 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
                 ],
               )
             : AppBar(
-                title: Text('Stock Opname List'),
+                title: const Text('Stock Opname List'),
                 backgroundColor: _primary,
               ),
         body: _buildBody(),
@@ -74,7 +75,7 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (controller.stockOpnameList.isEmpty) {
+    if (controller.stockOpnameList.isEmpty && controller.mySchedules.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -101,119 +102,178 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
 
     return RefreshIndicator(
       onRefresh: controller.fetchStockOpnameList,
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-        itemCount: controller.stockOpnameList.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final stockOpname = controller.stockOpnameList[index];
-          final isSelected =
-              controller.selectedItems.contains(stockOpname.noSO);
+        children: [
+          if (controller.mySchedules.isNotEmpty) ...[
+            _scheduleSection(controller.mySchedules),
+            const SizedBox(height: 18),
+          ],
+          ...controller.stockOpnameList.asMap().entries.map((entry) {
+            final index = entry.key;
+            final stockOpname = entry.value;
+            final isSelected =
+                controller.selectedItems.contains(stockOpname.noSO);
 
-          return GestureDetector(
-            onLongPress: () => controller.toggleSelection(stockOpname.noSO),
-            onTap: () {
-              if (controller.selectedItems.isNotEmpty) {
-                controller.toggleSelection(stockOpname.noSO);
-                return;
-              }
+            return Padding(
+                padding: EdgeInsets.only(
+                    bottom: index == controller.stockOpnameList.length - 1
+                        ? 0
+                        : 12),
+                child: GestureDetector(
+                  onLongPress: () =>
+                      controller.toggleSelection(stockOpname.noSO),
+                  onTap: () {
+                    if (controller.selectedItems.isNotEmpty) {
+                      controller.toggleSelection(stockOpname.noSO);
+                      return;
+                    }
 
-              final route = stockOpname.isBOM
-                  ? '/stock_opname/input_bom'
-                  : '/stock_opname/input';
-              Get.toNamed(
-                route,
-                arguments: {
-                  'noSO': stockOpname.noSO,
-                  'tgl': stockOpname.tgl,
-                  'companies': stockOpname.companies,
-                  'isLocked': stockOpname.isLocked,
-                  'lockedDate': stockOpname.lockedDate,
-                  'isBOM': stockOpname.isBOM,
-                  'locations': stockOpname.locations,
-                },
-              );
-            },
-            child: Card(
-              elevation: 4,
-              shadowColor: Colors.black.withValues(alpha: 0.2),
-              margin: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              color: isSelected ? const Color(0xFFECE7F7) : Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
+                    final route = stockOpname.isBOM
+                        ? '/stock_opname/input_bom'
+                        : '/stock_opname/input';
+                    Get.toNamed(
+                      route,
+                      arguments: {
+                        'noSO': stockOpname.noSO,
+                        'tgl': stockOpname.tgl,
+                        'companies': stockOpname.companies,
+                        'isLocked': stockOpname.isLocked,
+                        'lockedDate': stockOpname.lockedDate,
+                        'isBOM': stockOpname.isBOM,
+                        'locations': stockOpname.locations,
+                      },
+                    );
+                  },
+                  child: Card(
+                    elevation: 4,
+                    shadowColor: Colors.black.withValues(alpha: 0.2),
+                    margin: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    color: isSelected ? const Color(0xFFECE7F7) : Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                stockOpname.noSO,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 18,
-                                  color: Color(0xFF212121),
+                              Expanded(
+                                child: Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      stockOpname.noSO,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 18,
+                                        color: Color(0xFF212121),
+                                      ),
+                                    ),
+                                    if (stockOpname.isBOM)
+                                      _badge('BOM', Colors.blue),
+                                    if (stockOpname.isLocked)
+                                      _badge(
+                                        'LOCKED • ${_formatDateId(stockOpname.lockedDate ?? '')}',
+                                        Colors.red,
+                                      ),
+                                  ],
                                 ),
                               ),
-                              if (stockOpname.isBOM) _badge('BOM', Colors.blue),
-                              if (stockOpname.isLocked)
-                                _badge(
-                                  'LOCKED • ${_formatDateId(stockOpname.lockedDate ?? '')}',
-                                  Colors.red,
+                              const SizedBox(width: 8),
+                              Text(
+                                _formatDateId(stockOpname.tgl),
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.grey,
                                 ),
+                              ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _formatDateId(stockOpname.tgl),
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Colors.grey,
+                          const SizedBox(height: 10),
+                          const Divider(height: 1),
+                          const SizedBox(height: 12),
+                          _infoRow(
+                            Icons.business,
+                            Colors.blue,
+                            stockOpname.companies.join(', '),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const Divider(height: 1),
-                    const SizedBox(height: 12),
-                    _infoRow(
-                      Icons.business,
-                      Colors.blue,
-                      stockOpname.companies.join(', '),
-                    ),
-                    const SizedBox(height: 8),
-                    _infoRow(
-                      Icons.category,
-                      Colors.green,
-                      stockOpname.categories.join(', '),
-                    ),
-                    if (stockOpname.locations.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _infoRow(
-                        Icons.location_on,
-                        Colors.orange,
-                        stockOpname.locations.join(', '),
+                          const SizedBox(height: 8),
+                          _infoRow(
+                            Icons.category,
+                            Colors.green,
+                            stockOpname.categories.join(', '),
+                          ),
+                          if (stockOpname.locations.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _infoRow(
+                              Icons.location_on,
+                              Colors.orange,
+                              stockOpname.locations.join(', '),
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+                    ),
+                  ),
+                ));
+          }),
+        ],
       ),
+    );
+  }
+
+  Widget _scheduleSection(List<StockOpnameScheduleAssignment> schedules) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(children: [
+          Icon(Icons.event_available_rounded, color: _primary, size: 21),
+          SizedBox(width: 8),
+          Text('Jadwal SO Saya',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+        const SizedBox(height: 9),
+        ...schedules.map((schedule) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFED7AA)),
+              ),
+              child: Row(children: [
+                const CircleAvatar(
+                    backgroundColor: Color(0xFFEA580C),
+                    child: Icon(Icons.calendar_month_rounded,
+                        color: Colors.white, size: 20)),
+                const SizedBox(width: 11),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(schedule.name,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 3),
+                      Text(
+                          'Berikutnya ${_formatDateId(schedule.nextRunDate)} · ${schedule.isBOM ? 'BOM / Part' : 'Asset'} · ${schedule.companies.join(', ')}',
+                          style: const TextStyle(
+                              fontSize: 12, color: Color(0xFF64748B))),
+                      if ((schedule.lastNoSO ?? '').isNotEmpty)
+                        Text('SO terakhir: ${schedule.lastNoSO}',
+                            style: const TextStyle(
+                                fontSize: 11, color: Color(0xFF9A3412))),
+                    ])),
+              ]),
+            )),
+      ],
     );
   }
 

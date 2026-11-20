@@ -62,6 +62,7 @@ const Map<String, _Def> _kStatusMap = {
   'done': _Def('green', 'Selesai'),
   'completed': _Def('green', 'Selesai'),
   'closed': _Def('green', 'Ditutup'),
+  'auto_closed': _Def('slate', 'Auto Closed'),
   'close': _Def('green', 'Ditutup'),
   'cancelled': _Def('slate', 'Dibatalkan'),
   'canceled': _Def('slate', 'Dibatalkan'),
@@ -100,7 +101,9 @@ String _titleCaseFallback(String key) {
 
 WoStatusInfo woStatusInfo(String? raw) {
   final key = (raw ?? '').toLowerCase().trim();
-  if (key.isEmpty) return WoStatusInfo(_kToneBg['slate']!, _kToneFg['slate']!, '-');
+  if (key.isEmpty) {
+    return WoStatusInfo(_kToneBg['slate']!, _kToneFg['slate']!, '-');
+  }
   final def = _kStatusMap[key];
   final tone = def?.tone ?? 'slate';
   final label = def?.label ?? _titleCaseFallback(key);

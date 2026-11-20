@@ -28,7 +28,7 @@ export interface MyWorkItem {
 }
 
 export interface MyWorkCategory {
-  key: "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "preventive_missing" | "stock_opname_unlocked";
+  key: "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "preventive_missing" | "asset_missing_pic" | "stock_opname_schedule" | "stock_opname_unlocked";
   label: string;
   count: number;
   items: MyWorkItem[];

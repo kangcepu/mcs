@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { deleteObjectKey, getObjectStream, guessMime, saveFileWithKey, saveUploadedFile } from '../lib/storage.js';
+import { recordAssetAudit } from '../lib/asset-audit.js';
 import type { AuthRequest } from '../types.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -60,6 +61,10 @@ equipmentRouter.post('/equipment/parts/sub', authenticate, canManage, asyncHandl
     'INSERT INTO tb_parts_bom (id_nested,AssetCode,level,parent,no_urut,header,part,qty_on_hand,uom,company,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,NOW(),NOW())',
     [b.id_nested ?? `${Date.now()}`, code, b.level ?? 1, b.parent ?? 0, Number(b.no_urut ?? next?.next ?? 1), b.header ?? '', b.part, Number(b.qty_on_hand ?? 0), b.uom ?? 'PCS', b.company ?? ''],
   );
+  await recordAssetAudit(code, 'BOM_PART_CREATED', 'BOM', `BOM / Part ${String(b.part)} ditambahkan`, (req as AuthRequest).user!.fullname, {
+    after: { id: result.insertId, part: b.part, qty_on_hand: Number(b.qty_on_hand ?? 0), uom: b.uom ?? 'PCS' },
+    referenceType: 'BOM_PART', referenceId: result.insertId,
+  });
   created(res, { id: result.insertId }, 'Part created');
 }));
 
@@ -79,10 +84,13 @@ equipmentRouter.post('/equipment/parts/update', authenticate, canManage, asyncHa
   const keys = Object.keys(fields);
   if (!keys.length) throw new HttpError(400, 'No changes provided');
 
-  const existing = await one('SELECT id FROM tb_parts_bom WHERE id=?', [id]);
+  const existing = await one<Record<string, unknown> & { id: number; AssetCode: string; part: string }>('SELECT * FROM tb_parts_bom WHERE id=?', [id]);
   if (!existing) throw new HttpError(404, 'Part not found');
 
   await execute(`UPDATE tb_parts_bom SET ${keys.map((k) => `\`${k}\`=?`).join(',')}, updated_at=NOW() WHERE id=?`, [...keys.map((k) => fields[k]), id]);
+  await recordAssetAudit(existing.AssetCode, 'BOM_PART_UPDATED', 'BOM', `BOM / Part ${existing.part} diperbarui`, (req as AuthRequest).user!.fullname, {
+    before: existing, after: fields, referenceType: 'BOM_PART', referenceId: id,
+  });
   ok(res, { id }, 'Part updated');
 }));
 
@@ -90,7 +98,12 @@ equipmentRouter.post('/equipment/parts/toggle', authenticate, canManage, asyncHa
   const { id } = req.body;
   if (!id) throw new HttpError(400, 'id is required');
 
+  const part = await one<{ AssetCode: string; part: string; is_active: number }>('SELECT AssetCode,part,is_active FROM tb_parts_bom WHERE id=?', [id]);
+  if (!part) throw new HttpError(404, 'Part not found');
   await execute('UPDATE tb_parts_bom SET is_active=IF(is_active=1,0,1),updated_at=NOW() WHERE id=?', [id]);
+  await recordAssetAudit(part.AssetCode, 'BOM_PART_STATUS_CHANGED', 'BOM', `Status BOM / Part ${part.part} diperbarui`, (req as AuthRequest).user!.fullname, {
+    before: { is_active: part.is_active }, after: { is_active: part.is_active ? 0 : 1 }, referenceType: 'BOM_PART', referenceId: id,
+  });
   ok(res, { id }, 'Part status updated');
 }));
 
@@ -98,7 +111,12 @@ equipmentRouter.post('/equipment/parts/enable', authenticate, canManage, asyncHa
   const { id } = req.body;
   if (!id) throw new HttpError(400, 'id is required');
 
+  const part = await one<{ AssetCode: string; part: string; is_active: number }>('SELECT AssetCode,part,is_active FROM tb_parts_bom WHERE id=?', [id]);
+  if (!part) throw new HttpError(404, 'Part not found');
   await execute('UPDATE tb_parts_bom SET is_active=1,updated_at=NOW() WHERE id=?', [id]);
+  await recordAssetAudit(part.AssetCode, 'BOM_PART_ENABLED', 'BOM', `BOM / Part ${part.part} diaktifkan`, (req as AuthRequest).user!.fullname, {
+    before: { is_active: part.is_active }, after: { is_active: 1 }, referenceType: 'BOM_PART', referenceId: id,
+  });
   ok(res, { id }, 'Part status updated');
 }));
 
@@ -107,7 +125,12 @@ equipmentRouter.post('/equipment/parts/disable', authenticate, canManage, asyncH
   if (!id) throw new HttpError(400, 'id is required');
 
   const who = (req as AuthRequest).user!.fullname;
+  const part = await one<{ AssetCode: string; part: string; is_active: number }>('SELECT AssetCode,part,is_active FROM tb_parts_bom WHERE id=?', [id]);
+  if (!part) throw new HttpError(404, 'Part not found');
   await execute('UPDATE tb_parts_bom SET is_active=0,disabled_by=?,disabled_at=NOW(),updated_at=NOW() WHERE id=?', [who, id]);
+  await recordAssetAudit(part.AssetCode, 'BOM_PART_DISABLED', 'BOM', `BOM / Part ${part.part} dinonaktifkan`, who, {
+    before: { is_active: part.is_active }, after: { is_active: 0 }, referenceType: 'BOM_PART', referenceId: id,
+  });
   ok(res, { id }, 'Part status updated');
 }));
 
@@ -146,6 +169,10 @@ equipmentRouter.post('/equipment/parts/use', authenticate, canManage, asyncHandl
       );
     }
   });
+  await recordAssetAudit(part.AssetCode, 'BOM_PART_USED', 'BOM_STOCK', `Pemakaian ${qtyUsed} part untuk ${usedFor}`, who, {
+    before: { qty_on_hand: qtyBefore }, after: { qty_on_hand: qtyAfter, qty_used: qtyUsed, used_for: usedFor },
+    referenceType: 'BOM_PART', referenceId: partId,
+  });
 
   ok(res, { qty_before: qtyBefore, qty_used: qtyUsed, qty_after: qtyAfter, is_disabled: isDisabled }, 'Part usage recorded');
 }));
@@ -177,6 +204,10 @@ equipmentRouter.post('/equipment/parts/restock', authenticate, canManage, asyncH
       await connection.execute('UPDATE tb_parts_bom SET qty_on_hand=?, updated_at=NOW() WHERE id=?', [qtyAfter, partId]);
     }
   });
+  await recordAssetAudit(part.AssetCode, 'BOM_PART_RESTOCKED', 'BOM_STOCK', `Restock ${qtyAdded} part`, who, {
+    before: { qty_on_hand: qtyBefore }, after: { qty_on_hand: qtyAfter, qty_added: qtyAdded, notes },
+    referenceType: 'BOM_PART', referenceId: partId,
+  });
 
   ok(res, { qty_before: qtyBefore, qty_added: qtyAdded, qty_after: qtyAfter, is_enabled: isEnabled }, 'Part restocked');
 }));
@@ -196,7 +227,7 @@ equipmentRouter.delete('/equipment/parts/history', authenticate, canManage, asyn
   const id = req.body.id ?? req.query.id;
   if (!id) throw new HttpError(400, 'id is required');
 
-  const history = await one<{ id: number; part_id: number; qty_used: number }>('SELECT id, part_id, qty_used FROM tb_parts_usage_history WHERE id=? AND deleted_at IS NULL', [id]);
+  const history = await one<{ id: number; part_id: number; qty_used: number; AssetCode: string; used_for: string }>('SELECT id,part_id,qty_used,AssetCode,used_for FROM tb_parts_usage_history WHERE id=? AND deleted_at IS NULL', [id]);
   if (!history) throw new HttpError(404, 'History not found');
 
   const who = (req as AuthRequest).user!.fullname;
@@ -215,6 +246,9 @@ equipmentRouter.delete('/equipment/parts/history', authenticate, canManage, asyn
     } else {
       await connection.execute('UPDATE tb_parts_bom SET qty_on_hand=?, total_used=?, updated_at=NOW() WHERE id=?', [newStock, newTotalUsed, part.id]);
     }
+  });
+  await recordAssetAudit(history.AssetCode, 'BOM_USAGE_REVERSED', 'BOM_STOCK', `Riwayat pemakaian part dibatalkan (${history.used_for})`, who, {
+    before: history, referenceType: 'BOM_USAGE', referenceId: history.id,
   });
 
   ok(res, { id }, 'History deleted');
@@ -269,6 +303,9 @@ equipmentRouter.post('/equipment/bom-photos', authenticate, canManage, bomPhotoU
     'INSERT INTO tb_attachment_asset (filename, AssetCode, id_attachment_asset_category, part_id, bom_id_nested, token, original_filename, mime, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,NOW())',
     [filename, assetCode, categoryId, partId > 0 ? partId : null, partId > 0 ? null : bomIdNested, partId > 0 ? null : token, req.file.originalname, 'image/webp', (req as AuthRequest).user!.fullname],
   );
+  await recordAssetAudit(assetCode, 'BOM_PHOTO_UPLOADED', 'ATTACHMENT', 'Foto BOM / Part diunggah', (req as AuthRequest).user!.fullname, {
+    after: { id: result.insertId, part_id: partId || null, file_name: filename }, referenceType: 'BOM_PHOTO', referenceId: result.insertId,
+  });
   created(res, { id: result.insertId, filename, url: `/uploads/masterAsset/${filename}` }, 'Foto diunggah');
 }));
 
@@ -276,13 +313,16 @@ equipmentRouter.delete('/equipment/bom-photos', authenticate, canManage, asyncHa
   const id = Number(req.body.id ?? req.query.id ?? 0);
   if (id <= 0) throw new HttpError(422, 'id is required');
 
-  const row = await one<{ id: number; filename: string }>('SELECT id, filename FROM tb_attachment_asset WHERE id=?', [id]);
+  const row = await one<{ id: number; filename: string; AssetCode: string; part_id: number | null }>('SELECT id,filename,AssetCode,part_id FROM tb_attachment_asset WHERE id=?', [id]);
   if (!row) throw new HttpError(422, 'Attachment not found');
 
   const filePath = path.join(MASTER_ASSET_DIR, row.filename);
   if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch { } }
   await deleteObjectKey(`masterAsset/${row.filename}`);
   await execute('DELETE FROM tb_attachment_asset WHERE id=?', [id]);
+  await recordAssetAudit(row.AssetCode, 'BOM_PHOTO_DELETED', 'ATTACHMENT', 'Foto BOM / Part dihapus', (req as AuthRequest).user!.fullname, {
+    before: row, referenceType: 'BOM_PHOTO', referenceId: row.id,
+  });
   ok(res, { id }, 'Foto dihapus');
 }));
 

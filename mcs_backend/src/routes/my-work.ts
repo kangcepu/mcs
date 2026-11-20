@@ -6,7 +6,7 @@ import {
   getPendingWoClosings,
   getPendingMaterialRequests,
 } from '../lib/approval-center.js';
-import { getUnlockedStockOpnames, getWoTodo } from '../lib/my-work.js';
+import { getAssignedStockOpnameSchedules, getMissingAssetPics, getUnlockedStockOpnames, getWoTodo } from '../lib/my-work.js';
 import type { AuthRequest } from '../types.js';
 import { getPreventiveCoverageAssets } from '../lib/preventive-coverage.js';
 
@@ -23,13 +23,15 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
   const user = (req as AuthRequest).user!;
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
-  const [woApprovals, woClosings, materials, woTodo, soUnlocked, preventiveMissing] = await Promise.all([
+  const [woApprovals, woClosings, materials, woTodo, soSchedules, soUnlocked, preventiveMissing, assetMissingPic] = await Promise.all([
     getPendingWoApprovals(user),
     getPendingWoClosings(user),
     getPendingMaterialRequests(user),
     getWoTodo(user),
+    getAssignedStockOpnameSchedules(user),
     getUnlockedStockOpnames(token, user),
     getPreventiveCoverageAssets(user),
+    getMissingAssetPics(user),
   ]);
 
   const categories = [
@@ -64,6 +66,18 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
       items: preventiveMissing.slice(0, PREVIEW_LIMIT),
     },
     {
+      key: 'asset_missing_pic',
+      label: 'Aset Belum Memiliki PIC',
+      count: assetMissingPic.length,
+      items: assetMissingPic.slice(0, PREVIEW_LIMIT),
+    },
+    {
+      key: 'stock_opname_schedule',
+      label: 'Jadwal Stock Opname',
+      count: soSchedules.length,
+      items: soSchedules.slice(0, PREVIEW_LIMIT),
+    },
+    {
       key: 'stock_opname_unlocked',
       label: 'Stock Opname Belum Dikunci',
       count: soUnlocked.length,
@@ -83,7 +97,9 @@ const CATEGORY_SEARCH_KEYS: Record<string, string[]> = {
   materials: ['wo_number', 'job_title', 'request_code', 'requested_by_name'],
   wo_todo: ['wo_number', 'job_title', 'asset_name'],
   stock_opname_unlocked: ['no_so'],
+  stock_opname_schedule: ['schedule_name', 'no_so', 'next_run_date'],
   preventive_missing: ['asset_code', 'asset_name', 'company', 'location', 'mtc_area_label'],
+  asset_missing_pic: ['asset_code', 'asset_name', 'company', 'location', 'category'],
 };
 
 /** Daftar lengkap (berpaginasi + bisa dicari) untuk 1 kategori — dipakai halaman /my-work saat 1 tab dipilih. */
@@ -102,7 +118,9 @@ myWorkRouter.get('/my-work/list', authenticate, asyncHandler(async (req, res) =>
     case 'materials': items = await getPendingMaterialRequests(user) as unknown as Record<string, unknown>[]; break;
     case 'wo_todo': items = await getWoTodo(user) as unknown as Record<string, unknown>[]; break;
     case 'stock_opname_unlocked': items = await getUnlockedStockOpnames(token, user) as unknown as Record<string, unknown>[]; break;
+    case 'stock_opname_schedule': items = await getAssignedStockOpnameSchedules(user); break;
     case 'preventive_missing': items = await getPreventiveCoverageAssets(user) as unknown as Record<string, unknown>[]; break;
+    case 'asset_missing_pic': items = await getMissingAssetPics(user) as unknown as Record<string, unknown>[]; break;
     default: items = [];
   }
 

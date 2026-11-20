@@ -15,6 +15,8 @@ import {
   generateAssetCode,
   getAssetDetail,
   getAssetOptions,
+  getAssetPicOptions,
+  getAssetPicSummary,
   importAssets,
   importChildAssets,
   linkPendingChildAsset,
@@ -51,6 +53,14 @@ export function useAssetOptions() {
     queryFn: ({ signal }) => getAssetOptions(signal),
     staleTime: 10 * 60_000,
   });
+}
+
+export function useAssetPicOptions() {
+  return useQuery({ queryKey: ["asset-pic-options"], queryFn: ({ signal }) => getAssetPicOptions(signal), staleTime: 5 * 60_000 });
+}
+
+export function useAssetPicSummary() {
+  return useQuery({ queryKey: ["asset-pic-summary"], queryFn: ({ signal }) => getAssetPicSummary(signal) });
 }
 
 /** Autocomplete aset — cari berdasarkan nama/kode. `q` sudah di-debounce pemanggil. */

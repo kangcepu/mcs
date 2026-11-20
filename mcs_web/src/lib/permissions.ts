@@ -78,7 +78,7 @@ export const AREA_PERMISSIONS = {
     read: [PERMISSIONS.schedule, PERMISSIONS.workCalendar],
     write: [PERMISSIONS.schedule],
   },
-  masterScheduler: {
+  scheduler: {
     read: [PERMISSIONS.schedule],
     write: [PERMISSIONS.schedule],
   },

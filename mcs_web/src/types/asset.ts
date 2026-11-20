@@ -14,6 +14,8 @@ export interface AssetListItem {
   brand?: string | null;
   model?: string | null;
   serial_number?: string | null;
+  pic_user_id?: number | null;
+  pic_name?: string | null;
   [key: string]: unknown;
 }
 
@@ -24,6 +26,8 @@ export interface AssetFilters {
   category?: string;
   is_active?: string;
   unlinked_only?: string;
+  scope?: string;
+  pic_user_id?: string;
   page?: number;
   per_page?: number;
 }
@@ -39,6 +43,9 @@ export interface AssetOptions {
   categories: AssetOption[];
   [key: string]: unknown;
 }
+
+export interface AssetPicOption extends AssetOption { username?: string; division?: string; asset_count?: number }
+export interface AssetPicSummaryRow { pic_user_id: number; pic_name: string; username: string; division?: string; total_assets: number; active_assets: number; disabled_assets: number; inventory_it_assets: number }
 
 export interface AssetBomItem {
   part_code?: string;

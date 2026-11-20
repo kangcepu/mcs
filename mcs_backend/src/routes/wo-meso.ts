@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { execute, one, rows, tableExists, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { getObjectStream, saveUploadedFile } from '../lib/storage.js';
 import { scheduleTypeToDisplayLabel } from '../lib/preventive-schedule.js';
@@ -314,7 +315,7 @@ mesoRouter.use('/meso', authenticate, (req, res, next) => {
 // `DECLINE` gak pernah beneran kesimpen di kolom status manapun — status
 // tolak yang asli adalah `REJECT` (dicek langsung ke data). Tetap disertain
 // `DECLINE` buat jaga-jaga tanpa menghapusnya.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 function normalizeTypeWo(value: unknown): string {
   const upper = String(value ?? '').toUpperCase();
@@ -703,6 +704,8 @@ mesoRouter.post('/meso/close', asyncHandler(async (req, res) => {
     await connection.execute("UPDATE tb_wo_mtc SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
   });
 
+  await processPreventiveCompletion({ moduleCode: 'MESO', woNumber, actor: user.fullname });
+
   legacyOk(res, { wo_number: woNumber, status: 'CLOSED' }, 'WO MTC closed successfully');
 }));
 
@@ -838,6 +841,10 @@ mesoRouter.post('/meso/job_explanation', servicePhotoUpload.array('service_photo
   }
 
   const laborSaved = await saveLaborFromJobUpdate(woNumber, String(executor.job_executor), req.body);
+
+  if (status === 'COMPLETE') {
+    await processPreventiveCompletion({ moduleCode: 'MESO', woNumber, actor: user.fullname });
+  }
 
   legacyOk(res, { labor_saved: laborSaved }, 'Job explanation saved successfully');
 }));

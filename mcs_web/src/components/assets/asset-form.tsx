@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAssetMutations, useAssetOptions } from "@/hooks/use-assets";
 import { ApiError } from "@/types/api";
 import { isAssetInactive, pick } from "@/lib/display";
+import { AssetPicPicker } from "@/components/assets/asset-pic-picker";
 
 const schema = z.object({
   asset_name: z.string().min(1, "Nama aset wajib diisi"),
@@ -27,6 +28,8 @@ const schema = z.object({
   /** Kosong = bukan aset IT. Lepas dari Kategori — satu kategori (mis. Inventaris) bisa campur milik IT & bukan. */
   it_ownership_status: z.enum(["", "inventory", "in_use"]).optional(),
   mtc_area_key: z.enum(["", "GSU_WNB", "GSU_INJECT", "RU_SAWMILL", "RU_PRODUCTION"]).optional(),
+  pic_user_id: z.number({ required_error: "PIC utama wajib dipilih" }).int().positive("PIC utama wajib dipilih"),
+  pic_name: z.string().min(1, "PIC utama wajib dipilih"),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -65,6 +68,7 @@ export function AssetFormModal({
     reset,
     getValues,
     setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -87,6 +91,8 @@ export function AssetFormModal({
       is_active: initial ? !isAssetInactive(i) : true,
       it_ownership_status: pick(i, ["it_ownership_status"]) as "" | "inventory" | "in_use",
       mtc_area_key: (pick(i, ["mtc_area_key"]) || "") as "" | "GSU_WNB" | "GSU_INJECT" | "RU_SAWMILL" | "RU_PRODUCTION",
+      pic_user_id: Number(pick(i, ["pic_user_id"]) || 0) || undefined,
+      pic_name: pick(i, ["pic_name"]),
     });
     // `options` (company/lokasi/kategori) di-fetch async dan sering belum
     // siap saat reset() pertama jalan — <select> native tidak bisa
@@ -223,6 +229,10 @@ export function AssetFormModal({
 
         <Field label="Keterangan">
           <Input {...register("keterangan")} />
+        </Field>
+
+        <Field label="PIC Utama Aset" required error={errors.pic_user_id?.message || errors.pic_name?.message} hint="User yang bertanggung jawab atas keberadaan dan tindak lanjut aset ini.">
+          <AssetPicPicker value={watch("pic_user_id")} name={watch("pic_name")} onChange={(id, selectedName) => { setValue("pic_user_id", id ?? 0, { shouldValidate: true }); setValue("pic_name", selectedName, { shouldValidate: true }); }} />
         </Field>
 
         <Field

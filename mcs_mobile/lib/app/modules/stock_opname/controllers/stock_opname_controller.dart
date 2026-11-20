@@ -7,6 +7,8 @@ class StockOpnameController extends GetxController {
   final StockOpnameRepository _repository = StockOpnameRepository();
 
   final RxList<StockOpname> stockOpnameList = <StockOpname>[].obs;
+  final RxList<StockOpnameScheduleAssignment> mySchedules =
+      <StockOpnameScheduleAssignment>[].obs;
   final RxBool isLoading = false.obs;
   final RxString errorMessage = ''.obs;
   final RxList<String> selectedItems = <String>[].obs;
@@ -22,7 +24,12 @@ class StockOpnameController extends GetxController {
       isLoading.value = true;
       errorMessage.value = '';
 
-      final result = await _repository.getStockOpnameList();
+      final values = await Future.wait([
+        _repository.getStockOpnameList(),
+        _repository.getMySchedules(),
+      ]);
+      final result = values[0] as Map<String, dynamic>;
+      mySchedules.assignAll(values[1] as List<StockOpnameScheduleAssignment>);
 
       if (result['status'] == true) {
         stockOpnameList.value = result['data'];

@@ -1,19 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/routes/app_routes.dart';
 import '../../../data/repositories/report_center_repository.dart';
 import '../controllers/reports_controller.dart';
 
-class ReportsPage extends StatelessWidget {
-  const ReportsPage({super.key});
+class ReportsPage extends StatefulWidget {
+  final String group;
+  const ReportsPage({super.key, this.group = 'main'});
+
+  @override
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> {
+  late final ReportsController controller;
+
+  String get title => switch (widget.group) {
+        'ncr' => 'NCR Report',
+        'master' => 'Master Report',
+        _ => 'Main Report',
+      };
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.put(ReportsController());
+    controller.reportSearch.value = '';
+    controller.reportCategory.value = '';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(ReportsController());
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Report Center'),
+        title: Text(title),
         actions: [
           IconButton(
             tooltip: 'Refresh katalog',
@@ -50,7 +72,15 @@ class ReportsPage extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (controller.externalCategories.isNotEmpty) ...[
+                        if (widget.group == 'main') ...[
+                          const SizedBox(height: 10),
+                          _QrShortcut(
+                            onTap: () => Get.toNamed(AppRoutes.reportQr),
+                          ),
+                        ],
+                        if (controller
+                            .externalCategoriesFor(widget.group)
+                            .isNotEmpty) ...[
                           const SizedBox(height: 10),
                           SizedBox(
                             height: 34,
@@ -58,10 +88,12 @@ class ReportsPage extends StatelessWidget {
                               scrollDirection: Axis.horizontal,
                               children: [
                                 _categoryChip(controller, 'Semua', ''),
-                                ...controller.externalCategories.map(
-                                  (item) =>
-                                      _categoryChip(controller, item, item),
-                                ),
+                                ...controller
+                                    .externalCategoriesFor(widget.group)
+                                    .map(
+                                      (item) =>
+                                          _categoryChip(controller, item, item),
+                                    ),
                               ],
                             ),
                           ),
@@ -96,7 +128,8 @@ class ReportsPage extends StatelessWidget {
                                 : width >= 440
                                     ? 2
                                     : 1;
-                        final reports = controller.filteredExternalReports;
+                        final reports =
+                            controller.filteredExternalReportsFor(widget.group);
                         if (reports.isEmpty) {
                           return const SliverToBoxAdapter(
                             child: Padding(
@@ -163,6 +196,55 @@ class ReportsPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _QrShortcut extends StatelessWidget {
+  final VoidCallback onTap;
+  const _QrShortcut({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: const Row(
+              children: [
+                CircleAvatar(
+                  radius: 19,
+                  backgroundColor: Color(0xFF2563EB),
+                  child: Icon(Icons.qr_code_2_rounded,
+                      color: Colors.white, size: 22),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Cetak QR Asset & BOM / Part',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A))),
+                      SizedBox(height: 2),
+                      Text('Buat label QR langsung dari tablet.',
+                          style: TextStyle(
+                              fontSize: 12, color: Color(0xFF64748B))),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Color(0xFF2563EB)),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 class _ExternalReportCard extends StatelessWidget {

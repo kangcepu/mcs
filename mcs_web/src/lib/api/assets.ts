@@ -7,6 +7,8 @@ import type {
   AssetFilters,
   AssetListItem,
   AssetOptions,
+  AssetPicOption,
+  AssetPicSummaryRow,
 } from "@/types/asset";
 
 export function listAssets(
@@ -212,6 +214,14 @@ export async function downloadChildAssetImportTemplate(): Promise<void> {
 
 export function getAssetOptions(signal?: AbortSignal): Promise<ApiResponse<AssetOptions>> {
   return apiV2.get<AssetOptions>("/assets/options", { signal });
+}
+
+export function getAssetPicOptions(signal?: AbortSignal): Promise<ApiResponse<AssetPicOption[]>> {
+  return apiV2.get<AssetPicOption[]>("/assets/pic-options", { signal });
+}
+
+export function getAssetPicSummary(signal?: AbortSignal): Promise<ApiResponse<{ rows: AssetPicSummaryRow[]; missing_pic: number }>> {
+  return apiV2.get<{ rows: AssetPicSummaryRow[]; missing_pic: number }>("/assets/pic-summary", { signal });
 }
 
 export function generateAssetCode(body: {

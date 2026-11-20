@@ -61,6 +61,12 @@ const _categories = <_CategoryMeta>[
     icon: Icons.event_busy_outlined,
   ),
   _CategoryMeta(
+    key: 'asset_missing_pic',
+    fallbackLabel: 'Aset Belum Memiliki PIC',
+    emptyMessage: 'Semua aset aktif sudah memiliki PIC utama.',
+    icon: Icons.person_off_outlined,
+  ),
+  _CategoryMeta(
     key: 'stock_opname_unlocked',
     fallbackLabel: 'SO Belum Dikunci',
     emptyMessage: 'Semua Stock Opname sudah dikunci.',
@@ -325,7 +331,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
   void _openSelected() {
     final row = _selected;
     if (row == null) return;
-    if (_tab == 'preventive_missing') {
+    if (_tab == 'preventive_missing' || _tab == 'asset_missing_pic') {
       Get.toNamed(AppRoutes.reportAssetDetail, arguments: {'row': row});
       return;
     }
@@ -347,6 +353,43 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
       return;
     }
     Get.toNamed(route, arguments: {'wo_number': woNumber});
+  }
+
+  Future<void> _assignAssetPic() async {
+    final row = _selected;
+    if (row == null) return;
+    final user = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => const _MyWorkPicDialog(),
+    );
+    if (user == null || !mounted) return;
+    final assetCode = '${row['asset_code'] ?? ''}'.trim();
+    try {
+      setState(() => _acting = true);
+      final response = await ApiService().patch(
+        '/v2/assets/detail',
+        queryParameters: {'asset': assetCode},
+        data: {'asset': assetCode, 'pic_user_id': user['id_user']},
+      );
+      final body = response.data;
+      if (body is! Map || (body['success'] != true && body['status'] != true)) {
+        throw Exception(body is Map ? body['message'] : 'Gagal menyimpan PIC.');
+      }
+      Get.snackbar(
+          'My Work', 'PIC aset berhasil ditetapkan ke ${user['fullname']}',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF15803D),
+          colorText: Colors.white);
+      if (mounted) setState(() => _selected = null);
+      await _reloadAll();
+    } catch (error) {
+      Get.snackbar('My Work', error.toString().replaceFirst('Exception: ', ''),
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: _danger,
+          colorText: Colors.white);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
   }
 
   @override
@@ -724,6 +767,12 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
                 icon: const Icon(Icons.close, size: 17),
                 label: const Text('Tolak'),
               ),
+            ] else if (_tab == 'asset_missing_pic') ...[
+              FilledButton.icon(
+                onPressed: _acting ? null : _assignAssetPic,
+                icon: const Icon(Icons.person_add_alt_1, size: 17),
+                label: const Text('Tetapkan PIC'),
+              ),
             ],
             if (_tab != 'materials')
               OutlinedButton.icon(
@@ -868,7 +917,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
   }
 
   String _title(Map<String, dynamic> row) {
-    if (_tab == 'preventive_missing') {
+    if (_tab == 'preventive_missing' || _tab == 'asset_missing_pic') {
       return '${row['asset_name'] ?? row['asset_code'] ?? '-'}';
     }
     if (_tab == 'stock_opname_unlocked') return '${row['no_so'] ?? '-'}';
@@ -880,6 +929,11 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
       'preventive_missing' => [
           row['asset_code'],
           row['mtc_area_label'],
+          row['location'],
+        ],
+      'asset_missing_pic' => [
+          row['asset_code'],
+          row['company'],
           row['location'],
         ],
       'stock_opname_unlocked' => [row['type'], _date(row['tanggal'])],
@@ -905,6 +959,15 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
         MapEntry('Company', _value(row['company'])),
         MapEntry('Lokasi', _value(row['location'])),
         const MapEntry('Status', 'Belum terjadwal'),
+      ];
+    }
+    if (_tab == 'asset_missing_pic') {
+      return [
+        MapEntry('Asset Code', _value(row['asset_code'])),
+        MapEntry('Kategori', _value(row['category'])),
+        MapEntry('Company', _value(row['company'])),
+        MapEntry('Lokasi', _value(row['location'])),
+        const MapEntry('Status', 'PIC belum diisi'),
       ];
     }
     if (_tab == 'stock_opname_unlocked') {
@@ -936,6 +999,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
 
   String get _openLabel => switch (_tab) {
         'preventive_missing' => 'Buka Detail Asset',
+        'asset_missing_pic' => 'Buka Detail Asset',
         'stock_opname_unlocked' => 'Buka Stock Opname',
         _ => 'Buka Detail WO',
       };
@@ -956,4 +1020,98 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
     final parsed = DateTime.tryParse(raw);
     return parsed == null ? raw : DateFormat('dd MMM yyyy').format(parsed);
   }
+}
+
+class _MyWorkPicDialog extends StatefulWidget {
+  const _MyWorkPicDialog();
+
+  @override
+  State<_MyWorkPicDialog> createState() => _MyWorkPicDialogState();
+}
+
+class _MyWorkPicDialogState extends State<_MyWorkPicDialog> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  bool _loading = false;
+  List<Map<String, dynamic>> _rows = [];
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _changed(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () => _search(value));
+  }
+
+  Future<void> _search(String raw) async {
+    final q = raw.trim();
+    if (q.length < 2) {
+      if (mounted) setState(() => _rows = []);
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final response = await ApiService()
+          .get('/v2/users/lookup', queryParameters: {'q': q, 'limit': 20});
+      final body = response.data;
+      final data = body is Map ? body['data'] : null;
+      if (!mounted) return;
+      setState(() {
+        _rows = data is List
+            ? data
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList()
+            : [];
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Pilih PIC Utama Aset'),
+        content: SizedBox(
+          width: 480,
+          height: 360,
+          child: Column(children: [
+            TextField(
+                controller: _controller,
+                autofocus: true,
+                onChanged: _changed,
+                decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Cari nama atau username',
+                    border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            if (_loading) const LinearProgressIndicator(),
+            Expanded(
+                child: _rows.isEmpty
+                    ? const Center(
+                        child: Text(
+                            'Ketik minimal 2 karakter untuk mencari user aktif.'))
+                    : ListView.separated(
+                        itemCount: _rows.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final row = _rows[index];
+                          return ListTile(
+                              title: Text('${row['fullname'] ?? '-'}'),
+                              subtitle: Text('${row['username'] ?? ''}'),
+                              onTap: () => Navigator.pop(context, row));
+                        })),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'))
+        ],
+      );
 }

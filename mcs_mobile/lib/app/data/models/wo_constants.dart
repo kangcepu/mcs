@@ -13,6 +13,7 @@ class WoStatusLabels {
     'NEED_CLOSED': 'Perlu Ditutup',
     'COMPLETE': 'Selesai',
     'CLOSED': 'Ditutup',
+    'AUTO_CLOSED': 'Auto Closed',
     'VOID': 'Void',
     'REJECT': 'Ditolak',
     'DECLINE': 'Ditolak',
@@ -46,6 +47,7 @@ enum WoStatus {
   needClosed('NEED_CLOSED', 'Perlu Ditutup'),
   complete('COMPLETE', 'Selesai'),
   closed('CLOSED', 'Ditutup'),
+  autoClosed('AUTO_CLOSED', 'Auto Closed'),
   void_('VOID', 'Void'),
   decline('DECLINE', 'Ditolak'),
   fromMaintenance('FROM_MAINTENANCE', 'Dari Maintenance');
@@ -64,26 +66,20 @@ enum WoStatus {
   }
 
   bool get isOpen => code == 'WAIT_KA_DIV';
-  
+
   bool get isInProgress => [
-    'WAIT_KA_DEPT_MESO',
-    'WAIT_EXECUTOR_ADMIN',
-    'IN_PROGRESS_EXECUTOR',
-    'WAITING_PARTS',
-    'PARTS_RECEIVED',
-    'COMPLETE_EXECUTOR'
-  ].contains(code);
-  
-  bool get isClosed => [
-    'CLOSED',
-    'COMPLETE',
-    'NEED_CLOSED'
-  ].contains(code);
-  
-  bool get isRejected => [
-    'DECLINE',
-    'VOID'
-  ].contains(code);
+        'WAIT_KA_DEPT_MESO',
+        'WAIT_EXECUTOR_ADMIN',
+        'IN_PROGRESS_EXECUTOR',
+        'WAITING_PARTS',
+        'PARTS_RECEIVED',
+        'COMPLETE_EXECUTOR'
+      ].contains(code);
+
+  bool get isClosed =>
+      ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'NEED_CLOSED'].contains(code);
+
+  bool get isRejected => ['DECLINE', 'VOID'].contains(code);
 }
 
 enum WoType {
@@ -127,6 +123,7 @@ enum WoPriority {
     }
   }
 }
+
 enum ExecutorStatus {
   waiting('WAITING'),
   inProgress('IN_PROGRESS'),

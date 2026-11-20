@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  CalendarCheck2,
   CalendarX2,
   Check,
   ExternalLink,
@@ -10,6 +11,7 @@ import {
   Lock,
   ListTodo,
   Package,
+  UserRoundX,
   X,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
@@ -45,6 +47,8 @@ const CATEGORY_META: Record<
   materials: { icon: <Package className="h-4 w-4" />, empty: "Tidak ada request part yang menunggu." },
   wo_todo: { icon: <ListTodo className="h-4 w-4" />, empty: "Tidak ada WO yang belum Anda kerjakan." },
   preventive_missing: { icon: <CalendarX2 className="h-4 w-4" />, empty: "Semua asset Maintenance di area Anda sudah memiliki jadwal preventive aktif." },
+  asset_missing_pic: { icon: <UserRoundX className="h-4 w-4" />, empty: "Semua aset aktif sudah memiliki PIC utama." },
+  stock_opname_schedule: { icon: <CalendarCheck2 className="h-4 w-4" />, empty: "Tidak ada jadwal Stock Opname untuk Anda." },
   stock_opname_unlocked: { icon: <Lock className="h-4 w-4" />, empty: "Semua Stock Opname sudah dikunci." },
 };
 
@@ -63,20 +67,24 @@ function moduleRouteOf(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string
 }
 
 function itemKey(categoryKey: MyWorkCategoryKey, item: MyWorkItem, i: number): string {
-  if (categoryKey === "preventive_missing") return String(item.asset_id ?? item.asset_code ?? i);
+  if (categoryKey === "preventive_missing" || categoryKey === "asset_missing_pic") return String(item.asset_id ?? item.asset_code ?? i);
+  if (categoryKey === "stock_opname_schedule") return String(item.schedule_id ?? i);
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? i);
   if (categoryKey === "materials") return String(item.request_code ?? i);
   return `${item.wo_number ?? i}`;
 }
 
 function itemTitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
-  if (categoryKey === "preventive_missing") return String(item.asset_name ?? item.asset_code ?? "-");
+  if (categoryKey === "preventive_missing" || categoryKey === "asset_missing_pic") return String(item.asset_name ?? item.asset_code ?? "-");
+  if (categoryKey === "stock_opname_schedule") return String(item.schedule_name ?? "Jadwal Stock Opname");
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? "-");
   return String(item.wo_number ?? "-");
 }
 
 function itemSubtitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
   if (categoryKey === "preventive_missing") return [item.asset_code, item.mtc_area_label, item.location].filter(Boolean).join(" · ");
+  if (categoryKey === "asset_missing_pic") return [item.asset_code, item.company, item.location].filter(Boolean).join(" · ");
+  if (categoryKey === "stock_opname_schedule") return [`Berikutnya ${formatDate(String(item.next_run_date ?? ""))}`, Number(item.is_bom) === 1 ? "BOM / Part" : "Asset", item.no_so].filter(Boolean).join(" · ");
   if (categoryKey === "stock_opname_unlocked") {
     return [item.type, formatDate(item.tanggal)].filter(Boolean).join(" · ");
   }
@@ -170,6 +178,9 @@ export default function MyWorkPage() {
         });
         return `/preventive-schedules?${params.toString()}`;
       }
+      return `/assets/${String(selected.asset_code ?? "").split("/").map(encodeURIComponent).join("/")}`;
+    }
+    if (tab === "asset_missing_pic") {
       return `/assets/${String(selected.asset_code ?? "").split("/").map(encodeURIComponent).join("/")}`;
     }
     if (tab === "materials") return `/material-usage?q=${encodeURIComponent(String(selected.wo_number ?? ""))}`;
@@ -317,26 +328,26 @@ export default function MyWorkPage() {
                   </div>
                 </div>
               )
-            ) : tab === "preventive_missing" ? (
+            ) : tab === "preventive_missing" || tab === "asset_missing_pic" ? (
               <div className="space-y-4">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{selected.asset_name || selected.asset_code || "-"}</p>
-                  <p className="mt-1 text-xs text-slate-500">Asset Maintenance wajib memiliki preventive schedule aktif.</p>
+                  <p className="mt-1 text-xs text-slate-500">{tab === "asset_missing_pic" ? "Aset aktif wajib memiliki PIC utama." : "Asset Maintenance wajib memiliki preventive schedule aktif."}</p>
                 </div>
                 <DescriptionList
                   columns={1}
                   items={[
                     { label: "Asset Code", value: dash(selected.asset_code) },
-                    { label: "Area Maintenance", value: dash(selected.mtc_area_label) },
+                    { label: tab === "asset_missing_pic" ? "Kategori" : "Area Maintenance", value: dash(tab === "asset_missing_pic" ? selected.category : selected.mtc_area_label) },
                     { label: "Company", value: dash(selected.company) },
                     { label: "Lokasi", value: dash(selected.location) },
-                    { label: "Status", value: <StatusBadge status="BELUM TERJADWAL" tone="amber" /> },
+                    { label: "Status", value: <StatusBadge status={tab === "asset_missing_pic" ? "PIC BELUM DIISI" : "BELUM TERJADWAL"} tone="amber" /> },
                   ]}
                 />
                 <div className="border-t border-slate-100 pt-4">
                   <Button onClick={() => window.open(externalHref, "_self")}>
                     <ExternalLink className="h-4 w-4" />
-                    {canManageSchedule ? "Buat Preventive Schedule" : "Buka Detail Asset"}
+                    {tab === "asset_missing_pic" ? "Tetapkan PIC Aset" : canManageSchedule ? "Buat Preventive Schedule" : "Buka Detail Asset"}
                   </Button>
                 </div>
               </div>

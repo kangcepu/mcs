@@ -9,7 +9,7 @@ const WO_TABLES = ['tb_wo_mtc_operational', 'tb_wo_mtc', 'tb_wo_it', 'tb_wo_ga',
 // Status WO yang sudah final/sudah dipindah ke modul lain — "Material Received" tidak boleh
 // menghidupkannya balik jadi PARTS_RECEIVED kalau statusnya sudah salah satu dari ini.
 const WO_LOCKED_STATUSES = new Set([
-  'CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'REJECTED', 'DECLINED',
+  'CLOSED', 'AUTO_CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'REJECTED', 'DECLINED',
   'FORWARD_TO_MESO',
 ]);
 const APPROVAL_TABLE: Record<string, string> = {

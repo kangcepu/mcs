@@ -47,7 +47,8 @@ class MediaPickerHelper {
       );
 
       if (photo == null) return null;
-      return File(photo.path);
+      final original = File(photo.path);
+      return await compressImage(original) ?? original;
     } catch (e) {
       return null;
     }
@@ -62,7 +63,10 @@ class MediaPickerHelper {
       );
 
       if (photos.isEmpty) return <File>[];
-      return photos.map((item) => File(item.path)).toList();
+      return await Future.wait(photos.map((item) async {
+        final original = File(item.path);
+        return await compressImage(original) ?? original;
+      }));
     } catch (e) {
       return <File>[];
     }
@@ -129,8 +133,15 @@ class MediaPickerHelper {
       final bytes = await file.readAsBytes();
       final stamped = await compute(_stampTimestampBytes, bytes);
       if (stamped == null) return file;
-      await file.writeAsBytes(stamped, flush: true);
-      return file;
+      // The stamped bytes are always JPEG. Write them to a real .jpg file
+      // instead of overwriting a camera file that may still be named .heic;
+      // multipart servers commonly validate the filename extension.
+      final dir = await getTemporaryDirectory();
+      final stampedFile = File(
+        '${dir.path}/mcs_evidence_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      );
+      await stampedFile.writeAsBytes(stamped, flush: true);
+      return stampedFile;
     } catch (e) {
       return file;
     }

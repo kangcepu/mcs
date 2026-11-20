@@ -1,4 +1,5 @@
 import { getAssetAttachmentRows } from '../lib/asset-attachments.js';
+import { getAssetAudit, recordAssetAudit } from '../lib/asset-audit.js';
 import { buildAssetWoHistory } from '../lib/asset-history.js';
 import { getAssetLocationHistory, recordAssetHierarchyHistory } from '../lib/asset-location-history.js';
 import { normalizeAssetLookup } from '../lib/asset-lookup.js';
@@ -8,7 +9,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authenticate, requirePermission } from '../auth.js';
 import { config } from '../config.js';
-import { execute, one, rows, tableExists, transaction } from '../db.js';
+import { execute, hasColumn, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { buildAssetImportTemplate, importAssetRows, readWorkbookRows } from '../lib/asset-import.js';
 import { parseChildAssetWorkbook } from '../lib/child-asset-import.js';
@@ -32,7 +33,7 @@ export const assetRouter = Router();
 const assetFields = [
   'AssetCode', 'AssetName', 'AliasName', 'brand', 'CompanyName', 'CategoryAsset',
   'LocationAsset', 'Keterangan', 'active', 'status', 'Remarks', 'id_location_asset', 'mtc_area_key',
-  'it_ownership_status',
+  'it_ownership_status', 'pic_user_id', 'pic_name',
 ];
 
 function bodyFields(body: Record<string, unknown>, allowed: string[]): Record<string, unknown> {
@@ -52,7 +53,18 @@ const ASSET_FIELD_ALIASES: Record<string, string> = {
   alias_name: 'AliasName',
   serial_number: 'Remarks',
   keterangan: 'Keterangan',
+  pic_id: 'pic_user_id',
 };
+
+async function resolveAssetPic(value: unknown): Promise<{ pic_user_id: number; pic_name: string }> {
+  const id = Number(value ?? 0);
+  if (!Number.isInteger(id) || id < 1) throw new HttpError(422, 'PIC utama aset wajib dipilih.');
+  const user = await one<{ id_user: number; fullname: string }>(
+    'SELECT id_user, fullname FROM tb_user WHERE id_user=? AND active=1 LIMIT 1', [id],
+  );
+  if (!user) throw new HttpError(422, 'PIC yang dipilih tidak ditemukan atau sudah nonaktif.');
+  return { pic_user_id: Number(user.id_user), pic_name: String(user.fullname).trim() };
+}
 
 function normalizeAssetBody(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...body };
@@ -178,6 +190,41 @@ assetRouter.get('/assets/options', authenticate, asyncHandler(async (_req, res) 
   });
 }));
 
+assetRouter.get('/assets/pic-options', authenticate, asyncHandler(async (_req, res) => {
+  const picReady = await hasColumn('asset', 'pic_user_id');
+  const data = await rows(
+    `SELECT u.id_user AS value,u.fullname AS label,u.username,d.division_name AS division,
+            ${picReady ? 'COUNT(a.AssetID)' : '0'} AS asset_count
+     FROM tb_user u
+     LEFT JOIN tb_division d ON d.id_division=u.id_division
+     ${picReady ? 'LEFT JOIN asset a ON a.pic_user_id=u.id_user' : ''}
+     WHERE u.active=1
+     GROUP BY u.id_user,u.fullname,u.username,d.division_name
+     ORDER BY u.fullname`,
+  );
+  ok(res, data);
+}));
+
+assetRouter.get('/assets/pic-summary', authenticate, asyncHandler(async (_req, res) => {
+  if (!await hasColumn('asset', 'pic_user_id')) return ok(res, { rows: [], missing_pic: 0, migration_required: true });
+  const data = await rows(
+    `SELECT a.pic_user_id,u.fullname AS pic_name,u.username,d.division_name AS division,
+            COUNT(*) AS total_assets,
+            SUM(a.active='active') AS active_assets,
+            SUM(a.active='inactive') AS disabled_assets,
+            SUM(a.it_ownership_status='inventory') AS inventory_it_assets
+     FROM asset a
+     JOIN tb_user u ON u.id_user=a.pic_user_id
+     LEFT JOIN tb_division d ON d.id_division=u.id_division
+     GROUP BY a.pic_user_id,u.fullname,u.username,d.division_name
+     ORDER BY u.fullname`,
+  );
+  const missing = await one<{ total: number }>(
+    "SELECT COUNT(*) total FROM asset WHERE active='active' AND pic_user_id IS NULL",
+  );
+  ok(res, { rows: data, missing_pic: Number(missing?.total ?? 0) });
+}));
+
 assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page ?? 1));
   // Halaman Assets Manage kirim `per_page` (bukan `limit`) dan meta
@@ -188,8 +235,9 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
 
   const where: string[] = [];
   const params: unknown[] = [];
+  const picReady = await hasColumn('asset', 'pic_user_id');
   if (q) {
-    const searchFields = ['AssetID', 'AssetCode', 'AssetName', 'AliasName', 'brand', 'Keterangan', 'CompanyName', 'LocationAsset', 'CategoryAsset'];
+    const searchFields = ['AssetID', 'AssetCode', 'AssetName', 'AliasName', 'brand', 'Keterangan', 'CompanyName', 'LocationAsset', 'CategoryAsset', ...(picReady ? ['pic_name'] : [])];
     where.push(`(${searchFields.map((f) => `${f} LIKE ?`).join(' OR ')})`);
     params.push(...searchFields.map(() => `%${q}%`));
   }
@@ -202,6 +250,15 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
   const isActive = String(req.query.is_active ?? '').trim();
   if (isActive === '1') { where.push("active = 'active'"); }
   else if (isActive === '0') { where.push("active = 'inactive'"); }
+  const scope = String(req.query.scope ?? '').trim().toLowerCase();
+  if (scope === 'inventory_it') where.push("it_ownership_status = 'inventory'");
+  else if (scope === 'disabled') where.push("active = 'inactive'");
+  else if (scope === 'missing_pic') where.push(picReady ? 'pic_user_id IS NULL' : '1=0');
+  const picUserId = Number(req.query.pic_user_id ?? 0);
+  if (Number.isInteger(picUserId) && picUserId > 0) {
+    if (!picReady) where.push('1=0');
+    else { where.push('pic_user_id = ?'); params.push(picUserId); }
+  }
   const unlinkedOnly = ['1', 'true', 'yes', 'on'].includes(String(req.query.unlinked_only ?? '').toLowerCase());
   if (unlinkedOnly) where.push('parent_asset_id IS NULL');
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -213,8 +270,10 @@ assetRouter.get('/assets', authenticate, asyncHandler(async (req, res) => {
 }));
 
 assetRouter.post('/assets', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  if (!await hasColumn('asset', 'pic_user_id')) throw new HttpError(503, 'Migration PIC aset belum dijalankan.');
   const fields = bodyFields(normalizeAssetBody(req.body), assetFields);
   if (!fields.AssetCode || !fields.AssetName) throw new HttpError(400, 'AssetCode and AssetName are required');
+  Object.assign(fields, await resolveAssetPic(fields.pic_user_id));
 
   const keys = Object.keys(fields);
   const user = (req as AuthRequest).user!;
@@ -244,12 +303,16 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
   const hasImportedDetailPhotos = await tableExists('asset_child_import_detail_photo');
   const hasEnergyProfile = await tableExists('energy_asset_profile');
   const hasFleetProfile = await tableExists('fleet_vehicle_profile');
-  const [details, attachments, parts, history, locationHistory, parent, children, importedGroups, energyProfile, fleetProfile] = await Promise.all([
+  const [details, attachments, parts, history, locationHistory, picHistory, auditTimeline, parent, children, importedGroups, energyProfile, fleetProfile] = await Promise.all([
     rows('SELECT * FROM asset_custom_details WHERE asset_code = ? ORDER BY row_order, id', [code]),
     getAssetAttachmentRows(code),
     rows('SELECT * FROM tb_parts_bom WHERE AssetCode = ? AND deleted_at IS NULL ORDER BY no_urut, id', [code]),
     assetId ? buildAssetWoHistory(assetId) : Promise.resolve([]),
     assetId ? getAssetLocationHistory(assetId) : Promise.resolve([]),
+    assetId && await tableExists('asset_pic_history')
+      ? rows(`SELECT * FROM asset_pic_history WHERE asset_id=? ORDER BY changed_at DESC,id DESC`, [assetId])
+      : Promise.resolve([]),
+    assetId ? getAssetAudit(assetId) : Promise.resolve([]),
     parentId ? one('SELECT AssetCode, AssetName FROM asset WHERE AssetID = ?', [parentId]) : Promise.resolve(null),
     assetId
       ? rows('SELECT AssetID, AssetCode, AssetName, CategoryAsset, LocationAsset, active FROM asset WHERE parent_asset_id = ? ORDER BY AssetName', [assetId])
@@ -341,6 +404,8 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
     parts,
     history,
     location_history: locationHistory,
+    pic_history: picHistory,
+    audit_timeline: auditTimeline,
     parent_asset_code: parentRow?.AssetCode ?? null,
     parent_asset_name: parentRow?.AssetName ?? null,
     children,
@@ -351,6 +416,7 @@ assetRouter.get('/assets/detail', authenticate, asyncHandler(async (req, res) =>
 }));
 
 assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
+  if (!await hasColumn('asset', 'pic_user_id')) throw new HttpError(503, 'Migration PIC aset belum dijalankan.');
   // Web mengirim `asset`/`asset_code` di body + query (lihat lib/api/assets.ts
   // updateAsset) — sebelumnya gak pernah dicek, jadi endpoint ini SELALU
   // gagal "Asset ID is required" buat siapapun yang nyimpen edit aset.
@@ -358,6 +424,7 @@ assetRouter.patch('/assets/detail', authenticate, requirePermission('privilage_a
   if (!id) throw new HttpError(400, 'Asset ID is required');
 
   const fields = bodyFields(normalizeAssetBody(req.body), assetFields);
+  Object.assign(fields, await resolveAssetPic(fields.pic_user_id));
   const keys = Object.keys(fields);
   if (!keys.length) throw new HttpError(400, 'No changes provided');
 
@@ -1036,11 +1103,15 @@ assetRouter.post('/assets/custom-details', authenticate, requirePermission('priv
     'INSERT INTO asset_custom_details (asset_code,row_order,bagian,bagian_mesin,part_mesin,kondisi,durasi_pengecekan,pic,part_diperlukan,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
     [code, Number(b.row_order ?? next?.next ?? 1), b.bagian ?? null, b.bagian_mesin ?? null, b.part_mesin ?? null, b.kondisi ?? null, b.durasi_pengecekan ?? null, b.pic ?? null, b.part_diperlukan ?? null, who, who],
   );
+  await recordAssetAudit(code, 'CUSTOM_DETAIL_CREATED', 'CUSTOM_DETAIL', 'Custom detail aset ditambahkan', who, {
+    after: { id: result.insertId, part_mesin: b.part_mesin ?? null, bagian_mesin: b.bagian_mesin ?? null },
+    referenceType: 'CUSTOM_DETAIL', referenceId: result.insertId,
+  });
   created(res, { id: result.insertId, custom_details: await customDetailRowsWithImages(code) }, 'Custom Detail dibuat');
 }));
 
 assetRouter.patch('/assets/custom-details/:id', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const existing = await one<{ id: number; asset_code: string }>('SELECT id, asset_code FROM asset_custom_details WHERE id=?', [req.params.id]);
+  const existing = await one<Record<string, unknown> & { id: number; asset_code: string }>('SELECT * FROM asset_custom_details WHERE id=?', [req.params.id]);
   if (!existing) throw new HttpError(404, 'Custom Detail tidak ditemukan.');
 
   const b = bodyFields(req.body, ['row_order', 'bagian', 'bagian_mesin', 'part_mesin', 'kondisi', 'durasi_pengecekan', 'pic', 'part_diperlukan']);
@@ -1051,11 +1122,14 @@ assetRouter.patch('/assets/custom-details/:id', authenticate, requirePermission(
     `UPDATE asset_custom_details SET ${keys.map((k) => `\`${k}\`=?`).join(', ')}, updated_by=? WHERE id=?`,
     [...Object.values(b), (req as AuthRequest).user!.fullname, req.params.id],
   );
+  await recordAssetAudit(existing.asset_code, 'CUSTOM_DETAIL_UPDATED', 'CUSTOM_DETAIL', 'Custom detail aset diperbarui', (req as AuthRequest).user!.fullname, {
+    before: existing, after: b, referenceType: 'CUSTOM_DETAIL', referenceId: existing.id,
+  });
   ok(res, { id: existing.id, custom_details: await customDetailRowsWithImages(existing.asset_code) }, 'Custom Detail diperbarui');
 }));
 
 assetRouter.delete('/assets/custom-details/:id', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const existing = await one<{ id: number; asset_code: string }>('SELECT id, asset_code FROM asset_custom_details WHERE id=?', [req.params.id]);
+  const existing = await one<Record<string, unknown> & { id: number; asset_code: string }>('SELECT * FROM asset_custom_details WHERE id=?', [req.params.id]);
   if (!existing) throw new HttpError(404, 'Custom Detail tidak ditemukan.');
 
   const imgs = await rows<{ image_path: string }>('SELECT image_path FROM asset_custom_detail_images WHERE custom_detail_id=?', [existing.id]);
@@ -1063,6 +1137,9 @@ assetRouter.delete('/assets/custom-details/:id', authenticate, requirePermission
 
   await execute('DELETE FROM asset_custom_detail_images WHERE custom_detail_id=?', [existing.id]);
   await execute('DELETE FROM asset_custom_details WHERE id = ?', [existing.id]);
+  await recordAssetAudit(existing.asset_code, 'CUSTOM_DETAIL_DELETED', 'CUSTOM_DETAIL', 'Custom detail aset dihapus', (req as AuthRequest).user!.fullname, {
+    before: existing, referenceType: 'CUSTOM_DETAIL', referenceId: existing.id,
+  });
   ok(res, { id: existing.id, custom_details: await customDetailRowsWithImages(existing.asset_code) }, 'Custom Detail dihapus');
 }));
 
@@ -1088,6 +1165,10 @@ assetRouter.post(
       'INSERT INTO asset_custom_detail_images (custom_detail_id,image_type,image_name,image_path,image_order,file_size,mime_type,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,NOW())',
       [detail.id, type, path.basename(relPath), relPath, next?.next ?? 1, req.file.size, req.file.mimetype, (req as AuthRequest).user!.fullname],
     );
+    await recordAssetAudit(detail.asset_code, 'CUSTOM_DETAIL_IMAGE_UPLOADED', 'ATTACHMENT', 'Gambar custom detail diunggah', (req as AuthRequest).user!.fullname, {
+      after: { id: result.insertId, image_type: type, file_name: req.file.originalname },
+      referenceType: 'CUSTOM_DETAIL_IMAGE', referenceId: result.insertId,
+    });
     created(res, { id: result.insertId, url: `/uploads/${relPath}`, custom_details: await customDetailRowsWithImages(detail.asset_code) }, 'Gambar diunggah');
   }),
 );
@@ -1103,6 +1184,9 @@ assetRouter.delete('/assets/custom-detail-images/:id', authenticate, requirePerm
   await execute('DELETE FROM asset_custom_detail_images WHERE id=?', [img.id]);
 
   const detail = await one<{ asset_code: string }>('SELECT asset_code FROM asset_custom_details WHERE id=?', [img.custom_detail_id]);
+  if (detail) await recordAssetAudit(detail.asset_code, 'CUSTOM_DETAIL_IMAGE_DELETED', 'ATTACHMENT', 'Gambar custom detail dihapus', (req as AuthRequest).user!.fullname, {
+    before: { id: img.id, image_path: img.image_path }, referenceType: 'CUSTOM_DETAIL_IMAGE', referenceId: img.id,
+  });
   ok(res, { id: img.id, custom_details: detail ? await customDetailRowsWithImages(detail.asset_code) : [] }, 'Gambar dihapus');
 }));
 
@@ -1207,6 +1291,9 @@ assetRouter.post(
       throw err;
     }
 
+    await recordAssetAudit(code, 'CUSTOM_DETAIL_IMPORTED', 'CUSTOM_DETAIL', `Custom detail diimpor (${summary.created} baris, mode ${mode})`, who, {
+      after: summary, referenceType: 'CUSTOM_DETAIL_IMPORT', referenceId: file.originalname,
+    });
     ok(res, { summary, rows: preview, custom_details: await customDetailRowsWithImages(code) }, 'Impor Custom Detail selesai');
   }),
 );
@@ -1241,14 +1328,21 @@ assetRouter.post('/assets/attachments', authenticate, requirePermission('privila
     'INSERT INTO tb_attachment_asset (AssetCode, filename, original_filename, mime, sort_order, id_attachment_asset_category, created_by, created_at) VALUES (?,?,?,?,?,?,?,NOW())',
     [code, relativePath, file.originalname, file.mimetype, next?.next ?? 1, categoryId, (req as AuthRequest).user!.fullname],
   );
+  await recordAssetAudit(code, 'ATTACHMENT_UPLOADED', 'ATTACHMENT', `Lampiran ${file.originalname} diunggah`, (req as AuthRequest).user!.fullname, {
+    after: { id: result.insertId, file_name: file.originalname, mime: file.mimetype, category_id: categoryId },
+    referenceType: 'ATTACHMENT', referenceId: result.insertId,
+  });
   created(res, { id: result.insertId, filename: file.originalname }, 'Attachment uploaded');
 }));
 
 assetRouter.delete('/assets/attachments/:id', authenticate, requirePermission('privilage_asset'), asyncHandler(async (req, res) => {
-  const row = await one<{ filename: string }>('SELECT filename FROM tb_attachment_asset WHERE id=?', [req.params.id]);
+  const row = await one<{ id: number; AssetCode: string; filename: string; original_filename: string | null }>('SELECT id,AssetCode,filename,original_filename FROM tb_attachment_asset WHERE id=?', [req.params.id]);
   if (!row) throw new HttpError(404, 'Attachment not found');
 
   await execute('DELETE FROM tb_attachment_asset WHERE id=?', [req.params.id]);
+  await recordAssetAudit(row.AssetCode, 'ATTACHMENT_DELETED', 'ATTACHMENT', `Lampiran ${row.original_filename ?? row.filename} dihapus`, (req as AuthRequest).user!.fullname, {
+    before: row, referenceType: 'ATTACHMENT', referenceId: row.id,
+  });
   ok(res, null, 'Attachment deleted');
 }));
 
@@ -1265,6 +1359,9 @@ assetRouter.post('/assets/attachments/reorder', authenticate, requirePermission(
       await connection.execute('UPDATE tb_attachment_asset SET sort_order=? WHERE id=? AND AssetCode=?', [pos, id, code]);
       pos++;
     }
+  });
+  await recordAssetAudit(code, 'ATTACHMENT_REORDERED', 'ATTACHMENT', 'Urutan lampiran aset diperbarui', (req as AuthRequest).user!.fullname, {
+    after: { order }, referenceType: 'ATTACHMENT_ORDER', referenceId: code,
   });
   ok(res, { attachments: await rows('SELECT * FROM tb_attachment_asset WHERE AssetCode=? AND part_id IS NULL ORDER BY sort_order,id', [code]) }, 'Urutan lampiran disimpan');
 }));

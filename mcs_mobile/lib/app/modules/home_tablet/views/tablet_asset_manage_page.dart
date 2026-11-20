@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/utils/wo_status.dart';
 import '../../../data/providers/api_service.dart';
 import 'tablet_asset_detail_page.dart';
+import 'tablet_asset_pic_summary_page.dart';
 
 /// Padanan tablet untuk `mcs_web/src/app/(app)/assets/page.tsx` ("Asset
 /// Manage", href `/assets` — BUKAN halaman "Report Assets" yang terpisah).
@@ -18,7 +19,12 @@ class TabletAssetManagePage extends StatefulWidget {
 
 const List<Map<String, String>> _kActiveOptions = [
   {'code': '1', 'label': 'Aktif'},
-  {'code': '0', 'label': 'Nonaktif'},
+  {'code': '0', 'label': 'Disabled'},
+];
+const List<Map<String, String>> _kScopeOptions = [
+  {'code': 'inventory_it', 'label': 'Inventory IT'},
+  {'code': 'disabled', 'label': 'Disabled'},
+  {'code': 'missing_pic', 'label': 'Belum punya PIC'},
 ];
 const List<int> _kPerPageOptions = [10, 20, 50];
 
@@ -28,6 +34,8 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
   String _location = '';
   String _category = '';
   String _isActive = '';
+  String _scope = '';
+  String _picUserId = '';
   int _page = 1;
   int _perPage = 20;
 
@@ -43,8 +51,10 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
   List<Map<String, String>> _companies = [];
   List<Map<String, String>> _locations = [];
   List<Map<String, String>> _categories = [];
+  List<Map<String, String>> _picOptions = [];
   String? _selectedAssetCode;
   Map<String, dynamic> _selectedAssetRow = {};
+  bool _showPicSummary = false;
 
   @override
   void initState() {
@@ -62,8 +72,11 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
 
   Future<void> _loadOptions() async {
     try {
-      final res = await ApiService().get('/v2/assets/options');
-      final data = res.data;
+      final responses = await Future.wait([
+        ApiService().get('/v2/assets/options'),
+        ApiService().get('/v2/assets/pic-options'),
+      ]);
+      final data = responses[0].data;
       if (data['success'] == true && mounted) {
         final opt = data['data'] as Map?;
         List<Map<String, String>> toList(dynamic v) => ((v as List?) ?? [])
@@ -73,6 +86,14 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
           _companies = toList(opt?['companies']);
           _locations = toList(opt?['locations']);
           _categories = toList(opt?['categories']);
+          final picBody = responses[1].data;
+          final picRows = picBody is Map ? picBody['data'] as List? : null;
+          _picOptions = (picRows ?? [])
+              .map((e) => {
+                    'code': '${e['value']}',
+                    'label': '${e['label']} (${e['asset_count'] ?? 0})',
+                  })
+              .toList();
         });
       }
     } catch (_) {
@@ -95,6 +116,8 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         if (_location.isNotEmpty) 'location': _location,
         if (_category.isNotEmpty) 'category': _category,
         if (_isActive.isNotEmpty) 'is_active': _isActive,
+        if (_scope.isNotEmpty) 'scope': _scope,
+        if (_picUserId.isNotEmpty) 'pic_user_id': _picUserId,
       };
       final res = await ApiService().get('/v2/assets', queryParameters: params);
       final data = res.data;
@@ -145,7 +168,9 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
       _company.isNotEmpty ||
       _location.isNotEmpty ||
       _category.isNotEmpty ||
-      _isActive.isNotEmpty;
+      _isActive.isNotEmpty ||
+      _scope.isNotEmpty ||
+      _picUserId.isNotEmpty;
 
   void _resetFilters() {
     _searchCtrl.clear();
@@ -155,6 +180,8 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
       _location = '';
       _category = '';
       _isActive = '';
+      _scope = '';
+      _picUserId = '';
     });
   }
 
@@ -188,6 +215,30 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
           _selectedAssetRow = {};
         }),
         onOpenAsset: _openDetailByCode,
+      );
+    }
+    if (_showPicSummary) {
+      return TabletAssetPicSummaryPage(
+        onBack: () => setState(() => _showPicSummary = false),
+        onSelectPic: (row) {
+          setState(() {
+            _showPicSummary = false;
+            _scope = '';
+            _picUserId = '${row['pic_user_id'] ?? ''}';
+            _page = 1;
+          });
+          _load();
+        },
+        onSelectMissing: () {
+          setState(() {
+            _showPicSummary = false;
+            _picUserId = '';
+            _scope = 'missing_pic';
+            _isActive = '';
+            _page = 1;
+          });
+          _load();
+        },
       );
     }
     return Padding(
@@ -232,6 +283,18 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
             ),
             const SizedBox(width: 8),
             _dropdown(
+                'Seluruh aset',
+                _scope,
+                [
+                  for (final a in _kScopeOptions)
+                    MapEntry(a['code']!, a['label']!)
+                ],
+                (v) => _setFilter(() {
+                      _scope = v;
+                      if (v.isNotEmpty) _isActive = '';
+                    })),
+            const SizedBox(width: 8),
+            _dropdown(
                 'Semua company',
                 _company,
                 [for (final c in _companies) MapEntry(c['code']!, c['label']!)],
@@ -258,8 +321,25 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
                   for (final a in _kActiveOptions)
                     MapEntry(a['code']!, a['label']!)
                 ],
-                (v) => _setFilter(() => _isActive = v)),
+                (v) => _setFilter(() {
+                      _isActive = v;
+                      if (v.isNotEmpty) _scope = '';
+                    })),
+            const SizedBox(width: 8),
+            _dropdown(
+                'Semua PIC',
+                _picUserId,
+                [
+                  for (final p in _picOptions) MapEntry(p['code']!, p['label']!)
+                ],
+                (v) => _setFilter(() => _picUserId = v)),
             const SizedBox(width: 10),
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _showPicSummary = true),
+              icon: const Icon(Icons.people_outline, size: 17),
+              label: const Text('Aset per PIC'),
+            ),
+            const SizedBox(width: 8),
             IconButton(
               tooltip: 'Muat ulang',
               onPressed: _load,
@@ -399,6 +479,7 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
     140,
     140,
     160,
+    180,
     120
   ];
   static double get _kTableWidth => _kColWidthValues.reduce((a, b) => a + b);
@@ -452,6 +533,7 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         h('LOKASI'),
         h('KATEGORI'),
         h('AREA MAINTENANCE'),
+        h('PIC UTAMA'),
         h('STATUS', align: TextAlign.center),
       ],
     );
@@ -467,6 +549,7 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
     final category =
         (r['CategoryAsset'] ?? r['category_name'] ?? '-').toString();
     final area = r['mtc_area_key']?.toString();
+    final pic = (r['pic_name'] ?? '').toString().trim();
     final inactive =
         (r['active']?.toString().toLowerCase() ?? '') == 'inactive';
     final status = woStatusInfo(inactive ? 'inactive' : 'active');
@@ -516,6 +599,10 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
         text(location),
         text(category),
         text(_areaLabel(area)),
+        text(pic.isEmpty ? 'Belum ditentukan' : pic,
+            color: pic.isEmpty
+                ? const Color(0xFFB45309)
+                : const Color(0xFF475569)),
         cell(Align(
           alignment: Alignment.center,
           child: Container(

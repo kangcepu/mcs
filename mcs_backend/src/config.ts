@@ -34,6 +34,7 @@ export const config = {
   // manual (POST /preventive-schedules/run-cron) buat jaga-jaga kalau butuh
   // nyusul sebelum jam 00:01 berikutnya.
   scheduleCronExpr: process.env.SCHEDULE_CRON_EXPR ?? '1 0 * * *',
+  stockOpnameScheduleCronExpr: process.env.STOCK_OPNAME_SCHEDULE_CRON_EXPR ?? '5 0 * * *',
   preventiveAlarmCronExpr: process.env.PREVENTIVE_ALARM_CRON_EXPR ?? '30 15 * * *',
   // Sinkron daftar report Laravel. Report baru tetap INACTIVE sampai admin
   // memilih permission dan mengaktifkannya dari Master Data.

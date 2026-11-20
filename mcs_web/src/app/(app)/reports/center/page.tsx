@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Download, Eye, FileBarChart2, RefreshCw, SlidersHorizontal } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, Download, Eye, FileBarChart2, QrCode, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { Button, Card, Input, Label, Select } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/modal";
@@ -18,6 +20,12 @@ import {
 
 const emptyFilters = { q: "", company: "", location: "", category: "", status: "", date_from: "", date_to: "", type_wo: "", priority: "", shift: "", id_division: "", job_executor: "" };
 const PAGE_SIZE = 12;
+type ReportGroup = "main" | "ncr" | "master";
+const REPORT_GROUPS: Record<ReportGroup, { title: string; description: string }> = {
+  main: { title: "Main Report", description: "Report operasional utama dari seluruh modul MCS." },
+  ncr: { title: "NCR Report", description: "Kumpulan report NCR dan ketidaksesuaian yang sudah tersedia." },
+  master: { title: "Master Report", description: "Report master data, katalog, mapping, dan referensi lokasi." },
+};
 const REPORT_TONES = [
   { icon: "bg-blue-50 text-blue-600", accent: "bg-blue-500", badge: "bg-blue-50 text-blue-700" },
   { icon: "bg-violet-50 text-violet-600", accent: "bg-violet-500", badge: "bg-violet-50 text-violet-700" },
@@ -30,6 +38,13 @@ const REPORT_TONES = [
 function reportTone(category: string) {
   const hash = [...category].reduce((total, char) => total + char.charCodeAt(0), 0);
   return REPORT_TONES[hash % REPORT_TONES.length] ?? REPORT_TONES[0]!;
+}
+
+function reportGroup(report: ExternalReport): ReportGroup {
+  const text = `${report.report_type ?? ""} ${report.title} ${report.category}`.toLowerCase();
+  if (/\bncr\b|non[ -]?conform|ketidaksesuaian/.test(text)) return "ncr";
+  if (/\bmaster\b|\bcatalog(?:ue)?\b|\bkatalog\b|\bmapping\b|\bcategories\b|\bkategori\b|\blocations\b|\blokasi\b|warehouse|rack\s*\/\s*bin/.test(text)) return "master";
+  return "main";
 }
 
 function DynamicReportFilters({ report, value, onChange }: {
@@ -66,6 +81,10 @@ function DynamicReportFilters({ report, value, onChange }: {
 }
 
 export default function ReportCenterPage() {
+  const searchParams = useSearchParams();
+  const requestedGroup = searchParams.get("group");
+  const group: ReportGroup = requestedGroup === "ncr" || requestedGroup === "master" ? requestedGroup : "main";
+  const groupMeta = REPORT_GROUPS[group];
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -79,18 +98,20 @@ export default function ReportCenterPage() {
   const query = useQuery({ queryKey: ["external-report-center"], queryFn: ({ signal }) => getExternalReportCatalog(signal) });
   const responseReports = query.data?.data.reports;
   const allReports = useMemo(() => responseReports ?? [], [responseReports]);
-  const categories = useMemo(() => [...new Set(allReports.map((item) => item.category))].sort(), [allReports]);
+  const groupedReports = useMemo(() => allReports.filter((item) => reportGroup(item) === group), [allReports, group]);
+  const categories = useMemo(() => [...new Set(groupedReports.map((item) => item.category))].sort(), [groupedReports]);
   const reports = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return allReports.filter((item) => {
+    return groupedReports.filter((item) => {
       const text = `${item.title} ${item.description ?? ""} ${item.category} ${item.endpoint_name}`.toLowerCase();
       return (!category || item.category === category) && (!term || text.includes(term));
     });
-  }, [allReports, category, search]);
+  }, [groupedReports, category, search]);
   const totalPages = Math.max(1, Math.ceil(reports.length / PAGE_SIZE));
   const pageReports = reports.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [category, search]);
+  useEffect(() => { setPage(1); }, [category, search, group]);
+  useEffect(() => { setCategory(""); setSearch(""); }, [group]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   useEffect(() => () => { if(preview)URL.revokeObjectURL(preview.url); }, [preview]);
 
@@ -120,15 +141,19 @@ export default function ReportCenterPage() {
     setSelected(null);
   };
 
-  return <PageContainer title="Report Center" description="Pilih report, atur filter, lalu buat dokumen dari layanan reporting." actions={<Button variant="secondary" onClick={() => query.refetch()}><RefreshCw className="h-4 w-4" /> Refresh</Button>}>
+  return <PageContainer title={groupMeta.title} description={groupMeta.description} actions={<Button variant="secondary" onClick={() => query.refetch()}><RefreshCw className="h-4 w-4" /> Refresh</Button>}>
     {query.isLoading ? <LoadingSkeleton rows={6} /> : query.error ? <ErrorState error={query.error} onRetry={() => query.refetch()} /> : <>
+      {group === "main" ? <Card className="flex flex-col gap-3 border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3"><span className="rounded-xl bg-blue-600 p-2.5 text-white"><QrCode className="h-5 w-5" /></span><div><p className="font-semibold text-slate-900">Cetak QR Asset & BOM / Part</p><p className="text-sm text-slate-500">Buat label QR untuk asset maupun alat dan part berukuran kecil.</p></div></div>
+        <Link href="/reports/qr" className="btn-primary shrink-0"><QrCode className="h-4 w-4" /> Buka Cetak QR</Link>
+      </Card> : null}
       <div className="flex flex-col gap-3 sm:flex-row">
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kategori, atau deskripsi report…" className="sm:max-w-xl" />
         <Select value={category} onChange={(event) => setCategory(event.target.value)} className="sm:max-w-64"><option value="">Semua kategori</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</Select>
       </div>
-      <div className="flex items-center justify-between gap-3 text-xs text-slate-500"><span>{reports.length} report ditemukan</span><span>{categories.length} kategori · {allReports.length} report aktif</span></div>
+      <div className="flex items-center justify-between gap-3 text-xs text-slate-500"><span>{reports.length} report ditemukan</span><span>{categories.length} kategori · {groupedReports.length} report dalam kelompok ini</span></div>
       {query.data?.data.errors.map((error) => <Card key={error.endpoint_id} className="border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error.endpoint_name}: {error.message}</Card>)}
-      {!reports.length ? <EmptyState title={allReports.length ? "Report tidak ditemukan" : "Belum ada report dari endpoint"} description={allReports.length ? "Ubah kata pencarian atau kategori report." : "Aktifkan report melalui Master Data → Endpoint Report Center."} /> : <>
+      {!reports.length ? <EmptyState title={groupedReports.length ? "Report tidak ditemukan" : `Belum ada ${groupMeta.title}`} description={groupedReports.length ? "Ubah kata pencarian atau kategori report." : "Report akan muncul otomatis ketika katalog reporting menyediakan report yang sesuai dan report tersebut diaktifkan."} /> : <>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{pageReports.map((report) => { const tone = reportTone(report.category); return <Card key={`${report.endpoint_id}:${report.id}`} className="group relative flex min-h-52 flex-col overflow-hidden p-0 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
           <div className={`absolute inset-x-0 top-0 h-1 ${tone.accent}`} />
           <div className="flex flex-1 flex-col p-4">

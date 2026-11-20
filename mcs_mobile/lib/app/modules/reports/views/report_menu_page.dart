@@ -27,33 +27,41 @@ class ReportMenuPage extends StatelessWidget {
                             fontSize: 20, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 5),
                     const Text(
-                      'Report baru dan report lama dipisahkan agar lebih mudah dicari.',
+                      'Report dikelompokkan berdasarkan fungsi agar lebih mudah dicari.',
                       style: TextStyle(color: Color(0xFF64748B)),
                     ),
                     const SizedBox(height: 20),
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: wide ? 2 : 1,
+                      crossAxisCount: wide ? 3 : 1,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
                       childAspectRatio: wide ? 2.15 : 2.35,
                       children: [
                         _ReportMenuCard(
-                          title: 'Report Center',
+                          title: 'Main Report',
                           description:
-                              'Report baru dari layanan reporting dengan filter dan preview PDF.',
+                              'Report operasional utama serta akses cepat Cetak QR.',
                           icon: Icons.dashboard_customize_outlined,
                           color: const Color(0xFF2563EB),
-                          onTap: () => Get.toNamed(AppRoutes.reportCenter),
+                          onTap: () => Get.toNamed(AppRoutes.reportMain),
                         ),
                         _ReportMenuCard(
-                          title: 'Report Legacy',
+                          title: 'NCR Report',
                           description:
-                              'Report operasional lama dengan format dan alur yang sudah digunakan sebelumnya.',
-                          icon: Icons.history_outlined,
+                              'Report NCR dan ketidaksesuaian yang sudah tersedia.',
+                          icon: Icons.report_problem_outlined,
+                          color: const Color(0xFFDC2626),
+                          onTap: () => Get.toNamed(AppRoutes.reportNcr),
+                        ),
+                        _ReportMenuCard(
+                          title: 'Master Report',
+                          description:
+                              'Report master data, katalog, mapping, dan lokasi.',
+                          icon: Icons.storage_outlined,
                           color: const Color(0xFF7C3AED),
-                          onTap: () => Get.toNamed(AppRoutes.reportLegacy),
+                          onTap: () => Get.toNamed(AppRoutes.reportMaster),
                         ),
                       ],
                     ),

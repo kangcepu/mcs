@@ -10,7 +10,6 @@ import 'tablet_dashboard_page.dart';
 import 'tablet_my_work_page.dart';
 import 'tablet_work_orders_page.dart';
 import 'tablet_asset_manage_page.dart';
-import 'tablet_approval_center_page.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/notification_repository.dart';
@@ -340,9 +339,6 @@ class _TabletShellPageState extends State<TabletShellPage> {
     }
     if (_selectedKey == 'asset_manage') {
       return const TabletAssetManagePage();
-    }
-    if (_selectedKey == 'approval_center') {
-      return const TabletApprovalCenterPage();
     }
     return Center(
       child: Column(

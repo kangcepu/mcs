@@ -3,8 +3,10 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/stock_opname_model.dart';
 import '../../core/constants/api_constants.dart';
+import '../providers/api_service.dart';
 
 class StockOpnameRepository {
+  final ApiService _mcsApi = ApiService();
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token');
@@ -45,6 +47,23 @@ class StockOpnameRepository {
       }
     } catch (e) {
       return {'status': false, 'message': 'Failed to connect to the server'};
+    }
+  }
+
+  Future<List<StockOpnameScheduleAssignment>> getMySchedules() async {
+    try {
+      final response = await _mcsApi.get('/v2/stock-opname-schedules/my');
+      final body = response.data;
+      final data = body is Map ? body['data'] : null;
+      if (data is! List) return const [];
+      return data
+          .whereType<Map>()
+          .map((item) => StockOpnameScheduleAssignment.fromJson(
+              Map<String, dynamic>.from(item)))
+          .toList();
+    } catch (_) {
+      // Migration scheduler bisa belum dijalankan saat mobile lebih dulu rilis.
+      return const [];
     }
   }
 

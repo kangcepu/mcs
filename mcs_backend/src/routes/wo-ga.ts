@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
@@ -190,7 +191,7 @@ gaRouter.use('/ga', authenticate, (req, res, next) => {
 // Samakan sama daftar exclude di maintenance/meso/is — sebelumnya cuma
 // exclude 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list
 // "aktif". `DECLINE` gak pernah beneran kesimpen, status tolak asli 'REJECT'.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 gaRouter.get('/ga/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
@@ -455,6 +456,7 @@ gaRouter.post('/ga/approve', asyncHandler(async (req, res) => {
   const comment = String(req.body.comment ?? '');
 
   await approveTransition(woNumber, person, position, callerIsHrga, comment);
+  await processPreventiveCompletion({ moduleCode: 'GA', woNumber, actor: user.fullname });
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
 }));
 
@@ -534,6 +536,7 @@ gaRouter.post('/ga/add_job_explanation', servicePhotoUpload.array('service_photo
     } else {
       await approveTransition(finalWoNumber, person, position, callerIsHrga, jobExplanation);
     }
+    await processPreventiveCompletion({ moduleCode: 'GA', woNumber: finalWoNumber, actor: user.fullname });
   } else if (status === 'IN_PROGRESS') {
     await approveWithoutStatus(finalWoNumber, person, jobExplanation);
   } else {
@@ -578,7 +581,7 @@ gaRouter.post('/ga/add_labor', asyncHandler(async (req, res) => {
   legacyOk(res, { inserted: trades.length }, 'Labor added', 201);
 }));
 
-const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+const FINAL_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
 
 gaRouter.post('/ga/update_executor', asyncHandler(async (req, res) => {
   const b = req.body;
@@ -725,6 +728,8 @@ gaRouter.post('/ga/closed', asyncHandler(async (req, res) => {
       [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
     await connection.execute("UPDATE tb_wo_ga SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
   });
+
+  await processPreventiveCompletion({ moduleCode: 'GA', woNumber, actor: user.fullname });
 
   legacyOk(res, { wo_number: woNumber, status: 'CLOSED' }, 'WO closed');
 }));

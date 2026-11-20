@@ -445,7 +445,7 @@ export async function isFinalWorkOrder(moduleKey: string, woNumber: string): Pro
   if (!cfg) return false;
   const row = await one<{ status: string }>(`SELECT status FROM ${cfg.table} WHERE wo_number=? LIMIT 1`, [woNumber]);
   if (!row) return true;
-  return ['CLOSED', 'VOID', 'REJECT', 'REJECTED', 'DECLINE', 'DECLINED'].includes(String(row.status ?? '').toUpperCase().trim());
+  return ['CLOSED', 'AUTO_CLOSED', 'VOID', 'REJECT', 'REJECTED', 'DECLINE', 'DECLINED'].includes(String(row.status ?? '').toUpperCase().trim());
 }
 
 export const MODULE_MAP: Record<string, { table: string; approvalTable: string }> = {

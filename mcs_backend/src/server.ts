@@ -14,6 +14,7 @@ import { approvalCenterRouter } from './routes/approval-center.js';
 import { myWorkRouter } from './routes/my-work.js';
 import { closeErpPools } from './lib/erp.js';
 import { runScheduledGeneration } from './lib/preventive-schedule.js';
+import { runDueStockOpnameSchedules } from './lib/stock-opname-schedule.js';
 import { runPreventiveAlarmCron } from './lib/preventive-alarm.js';
 import { syncAllUsersEmployeeStatus } from './auth.js';
 import { asyncHandler, errorHandler, HttpError } from './http.js';
@@ -29,6 +30,7 @@ import { dailyControlRouter } from './routes/daily-control.js';
 import { materialRouter } from './routes/materials.js';
 import { equipmentRouter } from './routes/equipment.js';
 import { scheduleRouter } from './routes/schedules.js';
+import { stockOpnameScheduleRouter } from './routes/stock-opname-schedules.js';
 import { miscRouter } from './routes/misc.js';
 import { gaRouter } from './routes/wo-ga.js';
 import { dbBackupRouter } from './routes/db-backup.js';
@@ -58,6 +60,7 @@ import { sparepartWoRouter } from './routes/sparepart-wo.js';
 import { sparepartInventoryRouter } from './routes/sparepart-inventory.js';
 import { sparepartGovernanceRouter } from './routes/sparepart-governance.js';
 import { reportCenterRouter } from './routes/report-center.js';
+import { preventiveNcrRouter } from './routes/preventive-ncr.js';
 import { syncAllReportCatalogs } from './lib/report-catalog-sync.js';
 import { systemAuditMiddleware } from './system-audit.js';
 
@@ -135,7 +138,7 @@ app.get('/uploads/*splat', asyncHandler(async (req, res) => {
 app.use(express.static(path.resolve('public')));
 
 const v2 = express.Router();
-v2.use(healthRouter); v2.use(authRouter); v2.use(dashboardRouter); v2.use(masterRouter); v2.use(assetRouter); v2.use(assetMutationRouter); v2.use(workOrderRouter); v2.use(dailyControlRouter); v2.use(materialRouter); v2.use(equipmentRouter); v2.use(scheduleRouter); v2.use(miscRouter); v2.use(mesoRouter); v2.use(maintenanceRouter); v2.use(isRouter); v2.use(productionRouter); v2.use(gaRouter);
+v2.use(healthRouter); v2.use(authRouter); v2.use(dashboardRouter); v2.use(masterRouter); v2.use(assetRouter); v2.use(assetMutationRouter); v2.use(workOrderRouter); v2.use(dailyControlRouter); v2.use(materialRouter); v2.use(equipmentRouter); v2.use(scheduleRouter); v2.use(stockOpnameScheduleRouter); v2.use(miscRouter); v2.use(mesoRouter); v2.use(maintenanceRouter); v2.use(isRouter); v2.use(productionRouter); v2.use(gaRouter);
 v2.use(reportAssetRouter); v2.use(reportAssetMutationRouter); v2.use(reportEquipmentRouter); v2.use(reportWoMtcRouter);
 v2.use(approvalCenterRouter); v2.use(myWorkRouter); v2.use(integrationsRouter); v2.use(realtimeRouter); v2.use(dbBackupRouter);
 v2.use(energyRouter); v2.use(energyOperationsRouter); v2.use(energyFuelMonitoringRouter); v2.use(energyUtilityOperationsRouter); v2.use(energyFuelOpnameRouter); v2.use(energyEfficiencyKpiRouter); v2.use(energyUtilityAllocationRouter); v2.use(energyMeterMasterRouter); v2.use(energyGovernanceRouter);
@@ -146,6 +149,7 @@ v2.use(sparepartWoRouter);
 v2.use(sparepartInventoryRouter);
 v2.use(sparepartGovernanceRouter);
 v2.use(reportCenterRouter);
+v2.use(preventiveNcrRouter);
 app.use('/api/v2', v2);
 app.use('/api', authRouter);
 app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));
@@ -163,6 +167,12 @@ const preventiveAlarmTask = cron.schedule(config.preventiveAlarmCronExpr, () => 
   runPreventiveAlarmCron()
     .then((result) => console.log('Preventive alarm cron:', result))
     .catch((error) => console.error('Preventive alarm cron failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
+const stockOpnameScheduleTask = cron.schedule(config.stockOpnameScheduleCronExpr, () => {
+  runDueStockOpnameSchedules()
+    .then((result) => { if (result.length) console.log('Stock Opname scheduler:', result); })
+    .catch((error) => console.error('Stock Opname scheduler failed:', error));
 }, { timezone: 'Asia/Jakarta' });
 
 const employeeSyncTask = cron.schedule(config.employeeSyncCronExpr, () => {
@@ -190,5 +200,5 @@ syncAllReportCatalogs()
   .then((result) => { if(result.length)console.log('Initial report catalog sync:',result); })
   .catch((error) => console.error('Initial report catalog sync failed:',error));
 
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); reportCatalogTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); stockOpnameScheduleTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); reportCatalogTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());

@@ -158,7 +158,7 @@ async function buildWhere(filters: WoListFilters, user: User, cfg: ModuleCfg, al
   }
 
   if (filters.exclude_final) {
-    clauses.push(`UPPER(COALESCE(${alias}.status, '')) NOT IN ('CLOSED','VOID','REJECT','REJECTED','DECLINE','DECLINED')`);
+    clauses.push(`UPPER(COALESCE(${alias}.status, '')) NOT IN ('CLOSED','AUTO_CLOSED','VOID','REJECT','REJECTED','DECLINE','DECLINED')`);
   }
 
   if (!isRecap && reqDiv !== '' && canSeeAllModule(user, cfg)) {

@@ -37,7 +37,51 @@ class StockOpname {
 
   bool get isLocked =>
       lockedDate != null &&
-          lockedDate!.isNotEmpty &&
-          lockedDate != '0000-00-00' &&
-          lockedDate != '-';
+      lockedDate!.isNotEmpty &&
+      lockedDate != '0000-00-00' &&
+      lockedDate != '-';
+}
+
+class StockOpnameScheduleAssignment {
+  final int id;
+  final String name;
+  final String recurrence;
+  final String nextRunDate;
+  final bool isBOM;
+  final List<String> companies;
+  final List<String> categories;
+  final List<String> locations;
+  final String? lastNoSO;
+  final String? lastRunStatus;
+
+  const StockOpnameScheduleAssignment({
+    required this.id,
+    required this.name,
+    required this.recurrence,
+    required this.nextRunDate,
+    required this.isBOM,
+    required this.companies,
+    required this.categories,
+    required this.locations,
+    this.lastNoSO,
+    this.lastRunStatus,
+  });
+
+  factory StockOpnameScheduleAssignment.fromJson(Map<String, dynamic> json) =>
+      StockOpnameScheduleAssignment(
+        id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+        name: '${json['schedule_name'] ?? 'Jadwal Stock Opname'}',
+        recurrence: '${json['recurrence_type'] ?? ''}',
+        nextRunDate: '${json['next_run_date'] ?? ''}'.split('T').first,
+        isBOM: '${json['is_bom'] ?? 0}' == '1' || json['is_bom'] == true,
+        companies: _strings(json['company_ids']),
+        categories: _strings(json['category_ids']),
+        locations: _strings(json['location_ids']),
+        lastNoSO: json['last_no_so']?.toString(),
+        lastRunStatus: json['last_run_status']?.toString(),
+      );
+
+  static List<String> _strings(dynamic value) => value is List
+      ? value.map((item) => '$item').where((item) => item.isNotEmpty).toList()
+      : const [];
 }

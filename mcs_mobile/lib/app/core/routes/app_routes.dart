@@ -62,6 +62,7 @@ import '../../modules/reports/views/report_so_page.dart';
 import '../../modules/reports/views/report_so_detail_page.dart';
 import '../../modules/reports/views/report_asset_history_page.dart';
 import '../../modules/reports/views/report_qr_page.dart';
+import '../../modules/reports/views/preventive_ncr_page.dart';
 import '../../modules/approval/views/approval_page.dart';
 import '../../modules/daily_control/views/daily_control_page.dart';
 import '../../modules/wo_void/views/wo_void_page.dart';
@@ -104,6 +105,9 @@ class AppRoutes {
   static const String woScan = '/scanning';
   static const String reports = '/reports';
   static const String reportCenter = '/reports/center';
+  static const String reportMain = '/reports/main';
+  static const String reportNcr = '/reports/ncr';
+  static const String reportMaster = '/reports/master';
   static const String reportLegacy = '/reports/legacy';
   static const String reportAsset = '/reports/asset';
   static const String reportAssetDetail = '/reports/asset/detail';
@@ -117,6 +121,7 @@ class AppRoutes {
   static const String reportSoDetail = '/reports/so/detail';
   static const String reportAssetHistory = '/reports/asset_history';
   static const String reportQr = '/reports/qr';
+  static const String preventiveNcr = '/governance/preventive-ncr';
   static const String dailyControl = '/daily_control';
   static const String approval = '/approval';
   static const String woVoid = '/wo_void';
@@ -320,7 +325,23 @@ class AppRoutes {
     ),
     GetPage(
       name: reportCenter,
-      page: () => const ReportsPage(),
+      page: () => const ReportsPage(group: 'main'),
+    ),
+    GetPage(
+      name: reportMain,
+      page: () => const ReportsPage(group: 'main'),
+    ),
+    GetPage(
+      name: reportNcr,
+      page: () => const ReportsPage(group: 'ncr'),
+    ),
+    GetPage(
+      name: reportMaster,
+      page: () => const ReportsPage(group: 'master'),
+    ),
+    GetPage(
+      name: preventiveNcr,
+      page: () => const PreventiveNcrPage(),
     ),
     GetPage(
       name: reportLegacy,

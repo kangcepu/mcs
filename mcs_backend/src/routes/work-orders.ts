@@ -41,14 +41,14 @@ const attachmentUpload = multer({
     cb(null, ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'pdf', 'mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext));
   },
 });
-const terminal = new Set(['CLOSED', 'VOID', 'REJECT', 'DECLINE']);
+const terminal = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'REJECT', 'DECLINE']);
 // Sama kayak LIST_EXCLUDED_STATUSES di wo-meso/is/ga/maintenance/production.ts —
 // dipakai buat naro WO yang udah kelar di bawah daftar gabungan ini, bukan
 // nyampur rata sama WO aktif cuma berdasar tanggal.
 // COMPLETE_EXECUTOR/NEED_CLOSED belum final: WO masih wajib terlihat sampai
 // pemohon menutupnya. Hanya status terminal yang disembunyikan dari list
 // default dan ditempatkan di bagian riwayat.
-const FINISHED_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT']);
+const FINISHED_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT']);
 const READY_TO_CLOSE_STATUSES = ['COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED'];
 // COMPLETE_EXECUTOR/NEED_CLOSED belum boleh disembunyikan karena masih harus
 // ditutup oleh creator/divisi pemohon. Namun secara prioritas tampilan mereka

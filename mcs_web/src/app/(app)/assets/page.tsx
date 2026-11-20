@@ -4,7 +4,7 @@ import { mtcAreaLabel } from "@/lib/mtc-area";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileSpreadsheet, Plus } from "lucide-react";
+import { FileSpreadsheet, Plus, Users } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -12,7 +12,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/primitives";
 import { useCan } from "@/components/ui/permission-guard";
-import { useAssets, useAssetOptions } from "@/hooks/use-assets";
+import { useAssets, useAssetOptions, useAssetPicOptions } from "@/hooks/use-assets";
 import { useQueryParams } from "@/hooks/use-query-params";
 import { DEFAULT_PER_PAGE } from "@/types/api";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -39,6 +39,8 @@ const DEFAULTS = {
   location: "",
   category: "",
   is_active: "",
+  scope: "",
+  pic_user_id: "",
   page: 1,
   per_page: DEFAULT_PER_PAGE,
 };
@@ -53,6 +55,7 @@ export default function AssetsPage() {
   const { values, setValues, reset, hasActiveFilters } = useQueryParams(DEFAULTS);
   const { data, isLoading, isFetching, error, refetch } = useAssets(values);
   const options = useAssetOptions();
+  const picOptions = useAssetPicOptions();
   const opt = options.data?.data;
 
   const rows = data?.data ?? [];
@@ -103,6 +106,11 @@ export default function AssetsPage() {
       cell: (r) => mtcAreaLabel(pick(r, ["mtc_area_key"])),
     },
     {
+      key: "pic",
+      header: "PIC Utama",
+      cell: (r) => pick(r, ["pic_name"]) || <span className="text-amber-700">Belum ditentukan</span>,
+    },
+    {
       key: "active",
       header: "Status",
       align: "center",
@@ -123,8 +131,13 @@ export default function AssetsPage() {
       title="Manajemen Aset"
       description="Daftar aset beserta lokasi, kategori, dan statusnya."
       actions={
-        canWrite ? (
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => router.push("/assets/pic")}>
+            <Users className="h-4 w-4" />
+            Aset per PIC
+          </Button>
+          {canWrite ? (
+            <>
             <Button variant="secondary" onClick={() => setImportOpen(true)}>
               <FileSpreadsheet className="h-4 w-4" />
               Impor Excel
@@ -133,8 +146,9 @@ export default function AssetsPage() {
               <Plus className="h-4 w-4" />
               Tambah Aset
             </Button>
-          </div>
-        ) : null
+            </>
+          ) : null}
+        </div>
       }
     >
       <FilterBar
@@ -146,6 +160,7 @@ export default function AssetsPage() {
         onReset={reset}
         hasActiveFilters={hasActiveFilters}
       >
+        <FilterSelect value={values.scope} onChange={(v) => setValues({ scope: v, is_active: "" }, { resetPage: true })} options={[{ value: "inventory_it", label: "Inventory IT" }, { value: "disabled", label: "Disabled" }, { value: "missing_pic", label: "Belum punya PIC" }]} placeholder="Seluruh aset" />
         <FilterSelect
           value={values.company}
           onChange={(v) => setValues({ company: v }, { resetPage: true })}
@@ -166,13 +181,14 @@ export default function AssetsPage() {
         />
         <FilterSelect
           value={values.is_active}
-          onChange={(v) => setValues({ is_active: v }, { resetPage: true })}
+          onChange={(v) => setValues({ is_active: v, scope: "" }, { resetPage: true })}
           options={[
             { value: "1", label: "Aktif" },
-            { value: "0", label: "Nonaktif" },
+            { value: "0", label: "Disabled" },
           ]}
           placeholder="Semua status"
         />
+        <FilterSelect value={values.pic_user_id} onChange={(v) => setValues({ pic_user_id: v }, { resetPage: true })} options={(picOptions.data?.data ?? []).map((p) => ({ value: String(p.value), label: `${p.label} (${p.asset_count ?? 0})` }))} placeholder="Semua PIC" />
       </FilterBar>
 
       <DataTable

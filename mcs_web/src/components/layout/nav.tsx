@@ -6,8 +6,6 @@ import {
   Boxes,
   ArrowLeftRight,
   PackageSearch,
-  BadgeCheck,
-  Ban,
   CalendarRange,
   Database,
   FileBarChart2,
@@ -16,7 +14,6 @@ import {
   History,
   Contact,
   Factory,
-  FileText,
   Gauge,
   Landmark,
   MapPin,
@@ -86,6 +83,12 @@ export const NAV_SECTIONS: NavSection[] = [
         area: "myWork",
       },
       {
+        label: "Scheduler",
+        href: "/scheduler",
+        icon: Timer,
+        area: "scheduler",
+      },
+      {
         label: "Dashboards",
         href: "/dashboard",
         icon: LayoutDashboard,
@@ -95,31 +98,20 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Governance",
         href: "/governance",
         icon: Landmark,
-        area: "energy",
+        children: [
+          { label: "Energy Governance", href: "/governance", icon: Zap, area: "energy" },
+          { label: "Preventive NCR", href: "/preventive-ncr", icon: ShieldCheck, area: "reports" },
+        ],
       },
       {
         label: "Reports",
-        href: "/reports/assets",
+        href: "/reports/center?group=main",
         icon: FileBarChart2,
         match: "/reports",
         children: [
-          { label: "Report Center", href: "/reports/center", icon: FileBarChart2, area: "reports" },
-          { label: "Report Assets", href: "/reports/assets", icon: FileText, area: "reports" },
-          { label: "Asset History", href: "/reports/assets-history", icon: ClipboardList, area: "reports" },
-          { label: "Cetak QR", href: "/reports/qr", icon: FileBarChart2, area: "reports" },
-          {
-            label: "Report Stock Opname",
-            href: "/reports/stock-opname",
-            icon: PackageSearch,
-            area: "reports",
-          },
-          { label: "List Of Asset", href: "/reports/list-of-assets", icon: Boxes, area: "reports" },
-          {
-            label: "Recap Work Order",
-            href: "/reports/recap-work-orders",
-            icon: ClipboardCheck,
-            area: "reportsRecapWo",
-          },
+          { label: "Main Report", href: "/reports/center?group=main", icon: FileBarChart2, area: "reports" },
+          { label: "NCR Report", href: "/reports/center?group=ncr", icon: ClipboardCheck, area: "reports" },
+          { label: "Master Report", href: "/reports/center?group=master", icon: Boxes, area: "reports" },
         ],
       },
       {
@@ -142,8 +134,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "B. Operasional",
+    title: "B. Operations",
     items: [
+      {
+        label: "Daily Control",
+        href: "/daily-control",
+        icon: CalendarCheck2,
+        area: "dailyControl",
+      },
       {
         label: "Work Order",
         href: "/work-orders",
@@ -159,33 +157,6 @@ export const NAV_SECTIONS: NavSection[] = [
         ],
       },
       {
-        label: "Daily Control",
-        href: "/daily-control",
-        icon: CalendarCheck2,
-        area: "dailyControl",
-      },
-      {
-        label: "Preventive Schedule",
-        href: "/preventive-schedules",
-        icon: CalendarRange,
-        area: "preventiveSchedules",
-        match: "/preventive-schedules",
-      },
-      {
-        label: "Asset Manage",
-        href: "/assets",
-        icon: Boxes,
-        area: "assets",
-        match: "/assets",
-      },
-      {
-        label: "Mutasi Aset",
-        href: "/asset-mutations",
-        icon: ArrowLeftRight,
-        area: "assetMutations",
-        match: "/asset-mutations",
-      },
-      {
         label: "Sparepart Management",
         href: "/spareparts",
         icon: PackagePlus,
@@ -198,7 +169,6 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: PackageSearch,
         area: "materialUsage",
       },
-      ...ENERGY_NAV_ITEMS,
       {
         label: "Fleet & Vehicle",
         href: "/fleet",
@@ -206,27 +176,32 @@ export const NAV_SECTIONS: NavSection[] = [
         area: "fleet",
         match: "/fleet",
       },
+      ...ENERGY_NAV_ITEMS,
+      {
+        label: "Asset Management",
+        href: "/assets",
+        icon: Boxes,
+        area: "assets",
+        match: "/assets",
+      },
+      {
+        label: "Preventive Schedule",
+        href: "/preventive-schedules",
+        icon: CalendarRange,
+        area: "preventiveSchedules",
+        match: "/preventive-schedules",
+      },
+      {
+        label: "Asset Mutation",
+        href: "/asset-mutations",
+        icon: ArrowLeftRight,
+        area: "assetMutations",
+        match: "/asset-mutations",
+      },
     ],
   },
   {
-    title: "C. Kontrol",
-    items: [
-      {
-        label: "Approval Center",
-        href: "/approval-center",
-        icon: BadgeCheck,
-        area: "approvalCenter",
-      },
-      {
-        label: "Void Center",
-        href: "/void-center",
-        icon: Ban,
-        area: "voidCenter",
-      },
-    ],
-  },
-  {
-    title: "D. Administrasi",
+    title: "C. Administration",
     items: [
       {
         label: "Master Data",
@@ -253,7 +228,7 @@ export const NAV_SECTIONS: NavSection[] = [
             area: "masterAssetLocation",
           },
           {
-            label: "Kategori Lampiran Aset",
+            label: "Asset Attachment Category",
             href: "/master-data/attachment-categories",
             icon: Paperclip,
             area: "masterAttachmentCategory",
@@ -288,12 +263,6 @@ export const NAV_SECTIONS: NavSection[] = [
             href: "/master-data/activity-log",
             icon: History,
             area: "masterUser",
-          },
-          {
-            label: "Jadwal Preventive (Cron)",
-            href: "/master-data/scheduler",
-            icon: Timer,
-            area: "masterScheduler",
           },
           {
             label: "Backup Database",

@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { scheduleTypeToDisplayLabel } from '../lib/preventive-schedule.js';
@@ -33,7 +34,21 @@ function extensionFilter(allowed: string[]) {
 
 const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'pdf']) });
 const partExecutionMediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
-const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 10 }, fileFilter: extensionFilter(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'mp4', 'mov', 'avi', 'mkv', 'webm']) });
+// Validate service evidence after multer has read the multipart file.  Filtering
+// only by filename extension used to silently discard valid camera files (for
+// example HEIC, or a JPEG whose temporary filename has no extension), making
+// the completion request look as if no evidence had been uploaded.
+const servicePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 10 } });
+const SERVICE_EVIDENCE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'webp', 'bmp', 'heic', 'heif',
+  'mp4', 'mov', 'avi', 'mkv', 'webm', '3gp',
+]);
+const SERVICE_EVIDENCE_MIME = /^(image\/(jpeg|png|webp|bmp|heic|heif)|video\/(mp4|quicktime|x-msvideo|x-matroska|webm|3gpp))$/i;
+
+function isSupportedServiceEvidence(file: Express.Multer.File): boolean {
+  const ext = path.extname(file.originalname).slice(1).toLowerCase();
+  return SERVICE_EVIDENCE_EXTENSIONS.has(ext) || SERVICE_EVIDENCE_MIME.test(String(file.mimetype ?? ''));
+}
 
 function randomCode(length = 10): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
@@ -137,7 +152,7 @@ async function getHeader(woNumber: string): Promise<Record<string, unknown> | nu
   return one<Record<string, unknown>>('SELECT * FROM tb_wo_mtc_operational WHERE wo_number=?', [woNumber]);
 }
 
-const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'FORWARD_TO_MESO']);
+const FINAL_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT', 'FORWARD_TO_MESO']);
 function isFinalWoStatus(status: unknown): boolean {
   return FINAL_STATUSES.has(String(status ?? '').toUpperCase().trim());
 }
@@ -465,7 +480,7 @@ const VOID_SOURCE_TABLES: VoidSourceConfig[] = [
   { table: 'tb_wo_preventive', approvalTable: 'tb_approval', approvalColumns: 'standard' },
 ];
 
-const VOID_TERMINAL_STATUSES = ['VOID', 'CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE'];
+const VOID_TERMINAL_STATUSES = ['VOID', 'CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE'];
 
 async function getVoidEligibleFromTable(config: VoidSourceConfig, woNumber?: string): Promise<Record<string, unknown>[]> {
   let sql = `SELECT wo.wo_number, wo.job_title, wo.finished_planner, wo.created_at, wo.status, wo.job_executor,
@@ -564,7 +579,7 @@ maintenanceRouter.use('/maintenance', authenticate, (req, res, next) => {
 // `DECLINE` gak pernah beneran kesimpen di kolom status manapun — status
 // tolak yang asli adalah `REJECT` (dicek langsung ke data). Tetap disertain
 // `DECLINE` buat jaga-jaga tanpa menghapusnya.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 async function buildListQuery(user: User, mtcDivisionId: string, params0: { creatorOnly?: string; status?: string; search?: string; typeWo?: string; dateFrom?: string; dateTo?: string; company?: string; applyCategoryScope?: boolean }) {
   const scope = params0.creatorOnly ? { sql: 'w.creator = ?', params: [params0.creatorOnly] } : visibilityScope(user, 'w', mtcDivisionId);
@@ -834,7 +849,7 @@ maintenanceRouter.post('/maintenance/update', asyncHandler(async (req, res) => {
   if (b.id_equipment !== undefined && String(b.id_equipment).trim() !== '') fields.id_equipment = String(b.id_equipment).split('|')[0].trim() || null;
   if (newAttachments.length) fields.attachment = [...existingAttachments, ...newAttachments].join(',');
 
-  const protectedStatuses = new Set(['CLOSED', 'VOID', 'WAITING_PARTS', 'PARTS_RECEIVED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+  const protectedStatuses = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'WAITING_PARTS', 'PARTS_RECEIVED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
   if (!protectedStatuses.has(String(header.status).toUpperCase())) fields.status = 'IN_PROGRESS_EXECUTOR';
 
   const keys = Object.keys(fields);
@@ -960,6 +975,8 @@ maintenanceRouter.post('/maintenance/close', asyncHandler(async (req, res) => {
     await connection.execute("UPDATE tb_wo_mtc_operational SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
   });
 
+  await processPreventiveCompletion({ moduleCode: 'MAINTENANCE', woNumber, actor: user.fullname });
+
   legacyOk(res, { wo_number: woNumber, status: 'CLOSED' }, 'WO closed successfully');
 }));
 
@@ -1061,6 +1078,10 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
 
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, 'At least one service photo is required');
+  const unsupportedFile = files.find((file) => !isSupportedServiceEvidence(file));
+  if (unsupportedFile) {
+    throw new HttpError(422, `Format evidence ${unsupportedFile.originalname || 'yang dipilih'} tidak didukung. Gunakan JPG, PNG, WEBP, BMP, HEIC, atau video.`);
+  }
 
   const uploaded = await Promise.all(files.map(async (file) => ({
     file, relativePath: await saveUploadedFile(file.buffer, 'wo_operational', file.originalname, file.mimetype),
@@ -1141,6 +1162,10 @@ maintenanceRouter.post('/maintenance/add_job_explanation', servicePhotoUpload.ar
 
   const allowedUsernames = await getAllowedLaborUsernames(user.id_division);
   const laborSaved = await saveLaborFromJobUpdate(woNumber, String(executor.job_executor), b, allowedUsernames);
+
+  if (status === 'COMPLETE') {
+    await processPreventiveCompletion({ moduleCode: 'MAINTENANCE', woNumber, actor: user.fullname });
+  }
 
   legacyOk(res, { wo_number: woNumber, labor_saved: laborSaved }, 'Job explanation added successfully');
 }));

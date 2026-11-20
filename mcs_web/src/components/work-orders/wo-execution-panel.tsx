@@ -22,7 +22,7 @@ import { PicPicker } from "@/components/work-orders/pic-picker";
 import { ApiError } from "@/types/api";
 import { pick } from "@/lib/display";
 
-const FINAL = ["CLOSED", "VOID", "REJECT", "DECLINE", "NEED_CLOSED"];
+const FINAL = ["CLOSED", "AUTO_CLOSED", "VOID", "REJECT", "DECLINE", "NEED_CLOSED"];
 const EXECUTION_READY = [
   "WAIT_EXECUTOR_ADMIN",
   "IN_PROGRESS",

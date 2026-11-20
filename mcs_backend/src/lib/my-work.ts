@@ -1,4 +1,4 @@
-import { rows } from '../db.js';
+import { hasColumn, rows, tableExists } from '../db.js';
 import { getStockOpnameReport } from './stock-opname-proxy.js';
 import type { User } from '../types.js';
 
@@ -13,7 +13,7 @@ const MODULE_LABELS: Record<string, string> = {
   meso: 'MESO', maintenance: 'Maintenance', is: 'IS', ga: 'GA', production: 'Production',
 };
 // WO yang sudah final — jangan ikut nongol di "belum dikerjakan".
-const FINAL_WO_STATUSES = new Set(['CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT']);
+const FINAL_WO_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'COMPLETE EXECUTOR', 'NEED_CLOSED', 'VOID', 'DECLINE', 'REJECT']);
 // Status "menunggu approval" per modul (sama kayak approvalJobs() di
 // approval-center.ts) — ini sudah kecover di kategori "Approve WO", jangan
 // dobel tampil di "belum dikerjakan".
@@ -86,6 +86,43 @@ export interface UnlockedSoRow {
   no_so: string;
   type: string;
   tanggal: string;
+}
+
+export interface MissingAssetPicRow {
+  asset_id: number;
+  asset_code: string;
+  asset_name: string;
+  company: string;
+  location: string;
+  category: string;
+  status: string;
+  found_at: string | null;
+}
+
+export async function getAssignedStockOpnameSchedules(user: User): Promise<Record<string, unknown>[]> {
+  if (!(await tableExists('stock_opname_schedule')) || !(await tableExists('stock_opname_schedule_assignee'))) return [];
+  return rows<Record<string, unknown>>(
+    `SELECT s.id schedule_id,s.schedule_name,s.next_run_date,s.is_bom,s.company_ids,s.category_ids,s.location_ids,
+       (SELECT r.no_so FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id ORDER BY r.due_date DESC,r.id DESC LIMIT 1) no_so,
+       (SELECT r.status FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id ORDER BY r.due_date DESC,r.id DESC LIMIT 1) run_status
+     FROM stock_opname_schedule s JOIN stock_opname_schedule_assignee a ON a.schedule_id=s.id
+     WHERE a.user_id=? AND s.status='ACTIVE' AND (s.end_date IS NULL OR s.end_date>=CURDATE())
+     ORDER BY s.next_run_date,s.schedule_name`, [user.id_user],
+  );
+}
+
+export async function getMissingAssetPics(user: User): Promise<MissingAssetPicRow[]> {
+  if (String(user.username ?? '').toUpperCase() !== 'SUPERUSER' && Number(user.privilage_asset ?? 0) !== 1) return [];
+  if (!await hasColumn('asset', 'pic_user_id')) return [];
+  const data = await rows<Record<string, unknown>>(
+    `SELECT AssetID asset_id,AssetCode asset_code,AssetName asset_name,
+            CompanyName company,LocationAsset location,CategoryAsset category,
+            'OPEN' status,COALESCE(updated_at,created_at) found_at
+     FROM asset
+     WHERE active='active' AND pic_user_id IS NULL
+     ORDER BY CompanyName,LocationAsset,AssetName`,
+  );
+  return data as unknown as MissingAssetPicRow[];
 }
 
 /**

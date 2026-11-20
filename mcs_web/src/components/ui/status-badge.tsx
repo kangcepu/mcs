@@ -40,6 +40,7 @@ const STATUS_MAP: Record<string, { tone: Tone; label?: string }> = {
   done: { tone: "green", label: "Selesai" },
   completed: { tone: "green", label: "Selesai" },
   closed: { tone: "green", label: "Ditutup" },
+  auto_closed: { tone: "slate", label: "Auto Closed" },
   close: { tone: "green", label: "Ditutup" },
   cancelled: { tone: "slate", label: "Dibatalkan" },
   canceled: { tone: "slate", label: "Dibatalkan" },

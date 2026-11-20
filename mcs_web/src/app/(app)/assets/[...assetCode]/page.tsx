@@ -18,7 +18,7 @@ import { useAssetDetail, useAssetMutations } from "@/hooks/use-assets";
 import { useToast } from "@/components/ui/toast";
 import { PERMISSIONS } from "@/lib/permissions";
 import { ApiError } from "@/types/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { dash, isAssetInactive, pick } from "@/lib/display";
 import { ENERGY_MODULE_ENABLED } from "@/lib/env";
 import type { EnergyAssetProfile } from "@/types/energy";
@@ -42,6 +42,29 @@ const BASE_TABS = [
   { key: "gallery", label: "Attachment / Gallery" },
   { key: "history", label: "History" },
 ];
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  name: "Nama", alias: "Alias", brand: "Merek", company: "Company", location: "Lokasi",
+  category: "Kategori", description: "Keterangan", active: "Status aktif", status: "Status",
+  remarks: "Remarks", maintenance_area: "Area maintenance", inventory_it: "Status Inventory IT",
+  pic_name: "PIC utama", parent_asset_id: "Aset induk", qty_on_hand: "Stok",
+};
+
+function auditChanges(row: Record<string, unknown>): string {
+  const parse = (value: unknown): Record<string, unknown> => {
+    if (!value) return {};
+    if (typeof value === "object") return value as Record<string, unknown>;
+    try { return JSON.parse(String(value)) as Record<string, unknown>; } catch { return {}; }
+  };
+  const before = parse(row.before_data);
+  const after = parse(row.after_data);
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((key) => String(before[key] ?? "") !== String(after[key] ?? ""));
+  return keys.slice(0, 6).map((key) => {
+    const label = AUDIT_FIELD_LABELS[key] ?? key.replaceAll("_", " ");
+    return `${label}: ${dash(before[key])} → ${dash(after[key])}`;
+  }).join(" · ");
+}
 
 export default function AssetDetailPage({
   params,
@@ -71,6 +94,8 @@ export default function AssetDetailPage({
     | (Record<string, unknown> & {
         history?: Array<Record<string, unknown>>;
         location_history?: Array<Record<string, unknown>>;
+        pic_history?: Array<Record<string, unknown>>;
+        audit_timeline?: Array<Record<string, unknown>>;
       })
     | undefined;
   const asset = detail;
@@ -78,6 +103,8 @@ export default function AssetDetailPage({
 
   const history = detail?.history ?? [];
   const locationHistory = detail?.location_history ?? [];
+  const picHistory = detail?.pic_history ?? [];
+  const auditTimeline = detail?.audit_timeline ?? [];
   const energyProfile = ENERGY_MODULE_ENABLED
     ? (detail?.energy_profile as EnergyAssetProfile | null | undefined)
     : null;
@@ -176,6 +203,15 @@ export default function AssetDetailPage({
                   { label: "Company", value: pick(asset, ["CompanyName", "company_name"]) },
                   { label: "Lokasi", value: pick(asset, ["LocationAsset", "location_name"]) },
                   { label: "Kategori", value: pick(asset, ["CategoryAsset", "category_name"]) },
+                  { label: "PIC Utama", value: dash(pick(asset, ["pic_name"])) },
+                  {
+                    label: "Status Inventory IT",
+                    value: pick(asset, ["it_ownership_status"]) === "inventory"
+                      ? "Inventory IT"
+                      : pick(asset, ["it_ownership_status"]) === "in_use"
+                        ? "Sedang digunakan"
+                        : "Bukan aset IT",
+                  },
                   { label: "Merek", value: dash(asset.brand) },
                   {
                     label: "No. Seri / Remarks",
@@ -268,6 +304,34 @@ export default function AssetDetailPage({
 
           {tab === "history" && (
             <div className="space-y-4">
+              <section className="card p-5">
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold text-slate-800">Audit Timeline Aset</h2>
+                  <p className="mt-1 text-xs text-slate-500">Perubahan data, status, custom detail, BOM/stok part, dan lampiran.</p>
+                </div>
+                <Timeline entries={auditTimeline.map((h) => ({
+                  title: String(h.event_summary ?? h.event_type ?? "Aktivitas aset"),
+                  meta: `${formatDateTime(h.event_at as string)}${h.actor_name ? ` · ${String(h.actor_name)}` : ""}`,
+                  body: <span className="text-xs text-slate-500">{[
+                    h.event_category ? String(h.event_category).replaceAll("_", " ") : "",
+                    auditChanges(h),
+                    h.reference_type && h.reference_id ? `Ref: ${String(h.reference_type)} ${String(h.reference_id)}` : "",
+                  ].filter(Boolean).join(" · ")}</span>,
+                }))} />
+              </section>
+              <section className="card p-5">
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold text-slate-800">Riwayat PIC Utama</h2>
+                  <p className="mt-1 text-xs text-slate-500">Jejak penetapan dan perpindahan penanggung jawab aset.</p>
+                </div>
+                <Timeline
+                  entries={picHistory.map((h) => ({
+                    title: `${dash(pick(h, ["pic_name_from"]))} → ${dash(pick(h, ["pic_name_to"]))}`,
+                    meta: `${formatDate(h.changed_at as string)}${h.changed_by ? ` · ${String(h.changed_by)}` : ""}`,
+                    body: h.note ? <span className="text-xs text-slate-500">{String(h.note)}</span> : null,
+                  }))}
+                />
+              </section>
               <section className="card p-5">
                 <div className="mb-4">
                   <h2 className="text-sm font-semibold text-slate-800">Riwayat Lokasi</h2>

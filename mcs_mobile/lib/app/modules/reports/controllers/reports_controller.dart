@@ -124,16 +124,34 @@ class ReportsController extends GetxController {
   final RxInt generationProgress = 0.obs;
   final RxString generationStatus = ''.obs;
 
-  List<String> get externalCategories {
-    final values =
-        externalReports.map((item) => item.category).toSet().toList();
+  String externalReportGroup(ExternalReportItem report) {
+    final text =
+        '${report.reportType} ${report.title} ${report.category}'.toLowerCase();
+    if (RegExp(r'\bncr\b|non[ -]?conform|ketidaksesuaian').hasMatch(text)) {
+      return 'ncr';
+    }
+    if (RegExp(
+            r'\bmaster\b|\bcatalog(?:ue)?\b|\bkatalog\b|\bmapping\b|\bcategories\b|\bkategori\b|\blocations\b|\blokasi\b|warehouse|rack\s*/\s*bin')
+        .hasMatch(text)) {
+      return 'master';
+    }
+    return 'main';
+  }
+
+  List<String> externalCategoriesFor(String group) {
+    final values = externalReports
+        .where((item) => externalReportGroup(item) == group)
+        .map((item) => item.category)
+        .toSet()
+        .toList();
     values.sort();
     return values;
   }
 
-  List<ExternalReportItem> get filteredExternalReports {
+  List<ExternalReportItem> filteredExternalReportsFor(String group) {
     final query = reportSearch.value.trim().toLowerCase();
     return externalReports.where((item) {
+      if (externalReportGroup(item) != group) return false;
       final matchesCategory =
           reportCategory.value.isEmpty || item.category == reportCategory.value;
       final text =

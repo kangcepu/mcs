@@ -41,54 +41,68 @@ class TabletNavSection {
 
 const String kTabletDashboardKey = 'dashboard';
 
-final List<TabletNavSection> tabletNavSections = [
+const List<TabletNavSection> tabletNavSections = [
   TabletNavSection(
     title: 'A. Workspace & Analytics',
     items: [
-      const TabletNavItem(
+      TabletNavItem(
         key: 'my_work',
         title: 'My Work',
         icon: Icons.checklist_outlined, // ListTodo
       ),
-      const TabletNavItem(
+      TabletNavItem(
+        key: 'scheduler',
+        title: 'Scheduler',
+        icon: Icons.schedule_outlined,
+      ),
+      TabletNavItem(
         key: kTabletDashboardKey,
         title: 'Dashboards',
         icon: Icons.dashboard_outlined, // LayoutDashboard
       ),
-      const TabletNavItem(
+      TabletNavItem(
         key: 'governance',
         title: 'Governance',
         icon: Icons.account_balance_outlined, // Landmark
-        comingSoon: true,
+        children: [
+          TabletNavChild(
+              title: 'Preventive NCR',
+              icon: Icons.report_problem_outlined,
+              route: AppRoutes.preventiveNcr),
+        ],
       ),
       TabletNavItem(
         key: 'report',
         title: 'Reports',
         icon: Icons.bar_chart_outlined, // FileBarChart2
-        children: const [
+        children: [
           TabletNavChild(
-              title: 'Report Center',
+              title: 'Main Report',
               icon: Icons.dashboard_customize_outlined,
-              route: AppRoutes.reportCenter),
+              route: AppRoutes.reportMain),
           TabletNavChild(
-              title: 'Report Legacy',
-              icon: Icons.history_outlined,
-              route: AppRoutes.reportLegacy),
+              title: 'NCR Report',
+              icon: Icons.report_problem_outlined,
+              route: AppRoutes.reportNcr),
+          TabletNavChild(
+              title: 'Master Report',
+              icon: Icons.storage_outlined,
+              route: AppRoutes.reportMaster),
         ],
       ),
-      const TabletNavItem(
+      TabletNavItem(
         key: 'kpi_ratio',
         title: 'KPI & Ratio',
         icon: Icons.speed_outlined, // Gauge
         comingSoon: true,
       ),
-      const TabletNavItem(
+      TabletNavItem(
         key: 'manual',
         title: 'Manual',
         icon: Icons.menu_book_outlined, // BookOpen
         comingSoon: true,
       ),
-      const TabletNavItem(
+      TabletNavItem(
         key: 'mcs_mobile',
         title: 'Mobile & Tablet',
         icon: Icons.smartphone_outlined, // Smartphone
@@ -96,8 +110,14 @@ final List<TabletNavSection> tabletNavSections = [
     ],
   ),
   TabletNavSection(
-    title: 'B. Operasional',
+    title: 'B. Operations',
     items: [
+      TabletNavItem(
+        key: 'daily_control',
+        title: 'Daily Control',
+        icon: Icons.event_available_outlined, // CalendarCheck2
+        route: AppRoutes.dailyControl,
+      ),
       TabletNavItem(
         key: 'work_order',
         title: 'Work Order',
@@ -106,7 +126,7 @@ final List<TabletNavSection> tabletNavSections = [
         // `?module=` di SATU halaman `/work-orders` yang sama. `route: null`
         // di sini supaya tap-nya inline (ganti tab modul di TabletWorkOrdersPage),
         // bukan Get.toNamed ke layar list gaya HP yang terpisah.
-        children: const [
+        children: [
           TabletNavChild(
               title: 'MESO', icon: Icons.fact_check_outlined), // ClipboardCheck
           TabletNavChild(
@@ -119,75 +139,56 @@ final List<TabletNavSection> tabletNavSections = [
               title: 'GA', icon: Icons.apartment_outlined), // Building2
         ],
       ),
-      const TabletNavItem(
-        key: 'daily_control',
-        title: 'Daily Control',
-        icon: Icons.event_available_outlined, // CalendarCheck2
-        route: AppRoutes.dailyControl,
+      TabletNavItem(
+        key: 'sparepart_management',
+        title: 'Sparepart Management',
+        icon: Icons.inventory_2_outlined,
       ),
-      // Operasional SO tetap memakai flow yang sama dengan mobile supaya
-      // create, BOM/non-BOM, scan, non-asset/non-part, lock, dan submit
-      // tidak terpecah menjadi implementasi tablet yang berbeda.
-      const TabletNavItem(
-        key: 'stock_opname',
-        title: 'Stock Opname',
-        icon: Icons.inventory_outlined,
-        route: AppRoutes.stockOpnameList,
+      TabletNavItem(
+        key: 'material_usage',
+        title: 'Material Usage',
+        icon: Icons.inventory_outlined, // PackageSearch
       ),
-      const TabletNavItem(
-        key: 'preventive_schedule',
-        title: 'Preventive Schedule',
-        icon: Icons.event_repeat_outlined, // CalendarRange
+      TabletNavItem(
+        key: 'fleet_vehicle',
+        title: 'Fleet & Vehicle',
+        icon: Icons.local_shipping_outlined,
+      ),
+      TabletNavItem(
+        key: 'energy_utility',
+        title: 'Energy & Utility',
+        icon: Icons.bolt_outlined,
       ),
       // route: null — "Asset Manage" (href web `/assets`) dirender inline
       // native (TabletAssetManagePage), BUKAN layar "Report Assets"
       // (`AppRoutes.reportAsset`, halaman web yang beda: `/reports/assets`)
       // yang kepakai di sini sebelumnya.
-      const TabletNavItem(
+      TabletNavItem(
         key: 'asset_manage',
-        title: 'Asset Manage',
+        title: 'Asset Management',
         icon: Icons.inventory_2_outlined, // Boxes
       ),
-      const TabletNavItem(
+      TabletNavItem(
+        key: 'preventive_schedule',
+        title: 'Preventive Schedule',
+        icon: Icons.event_repeat_outlined, // CalendarRange
+      ),
+      TabletNavItem(
         key: 'asset_mutation',
-        title: 'Mutasi Aset',
+        title: 'Asset Mutation',
         icon: Icons.compare_arrows_outlined, // ArrowLeftRight
         route: AppRoutes.reportAssetMutation,
       ),
-      const TabletNavItem(
-        key: 'material_usage',
-        title: 'Material Usage',
-        icon: Icons.inventory_outlined, // PackageSearch
-      ),
     ],
   ),
   TabletNavSection(
-    title: 'C. Kontrol',
-    items: [
-      // route: null — dirender inline native (TabletApprovalCenterPage),
-      // bukan layar approval gaya HP (AppRoutes.approval) yang kepakai
-      // sebelumnya.
-      const TabletNavItem(
-        key: 'approval_center',
-        title: 'Approval Center',
-        icon: Icons.verified_outlined, // BadgeCheck
-      ),
-      const TabletNavItem(
-        key: 'void_center',
-        title: 'Void Center',
-        icon: Icons.block_outlined, // Ban
-        route: AppRoutes.woVoid,
-      ),
-    ],
-  ),
-  TabletNavSection(
-    title: 'D. Administrasi',
+    title: 'C. Administration',
     items: [
       TabletNavItem(
         key: 'master_data',
         title: 'Master Data',
         icon: Icons.storage_outlined, // Database
-        children: const [
+        children: [
           TabletNavChild(
               title: 'Company Structure',
               icon: Icons.apartment_outlined), // Building2
@@ -197,7 +198,7 @@ final List<TabletNavSection> tabletNavSections = [
               title: 'Asset Location',
               icon: Icons.location_on_outlined), // MapPin
           TabletNavChild(
-              title: 'Kategori Lampiran Aset',
+              title: 'Asset Attachment Category',
               icon: Icons.attach_file_outlined), // Paperclip
           TabletNavChild(
               title: 'Permission Group',
@@ -210,9 +211,6 @@ final List<TabletNavSection> tabletNavSections = [
               icon: Icons.palette_outlined), // Palette
           TabletNavChild(
               title: 'Log Event', icon: Icons.history_outlined), // History
-          TabletNavChild(
-              title: 'Jadwal Preventive (Cron)',
-              icon: Icons.timer_outlined), // Timer
           TabletNavChild(
               title: 'Backup Database',
               icon: Icons.backup_outlined), // Database

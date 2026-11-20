@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
@@ -205,7 +206,7 @@ productionRouter.use('/production', authenticate, (req, res, next) => {
 // Samakan sama daftar exclude di maintenance/meso/is/ga — sebelumnya cuma
 // exclude 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list
 // "aktif". `DECLINE` gak pernah beneran kesimpen, status tolak asli 'REJECT'.
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 productionRouter.get('/production/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
@@ -387,7 +388,7 @@ async function updateHandler(req: AuthRequest, res: import('express').Response):
 
   if (!Object.keys(fields).length) throw new HttpError(400, 'No data to update');
 
-  const protectedStatuses = new Set(['CLOSED', 'VOID', 'WAITING_PARTS', 'PARTS_RECEIVED']);
+  const protectedStatuses = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'WAITING_PARTS', 'PARTS_RECEIVED']);
   if (!protectedStatuses.has(String(header.status).toUpperCase())) fields.status = 'IN_PROGRESS_EXECUTOR';
 
   const keys = Object.keys(fields);
@@ -526,6 +527,10 @@ productionRouter.post('/production/add_job_explanation', servicePhotoUpload.arra
     }
   }
 
+  if (status === 'COMPLETE') {
+    await processPreventiveCompletion({ moduleCode: 'PRODUCTION', woNumber, actor: user.fullname });
+  }
+
   legacyOk(res, { wo_number: woNumber }, 'Job explanation updated');
 }));
 
@@ -561,7 +566,7 @@ productionRouter.post('/production/add_labor', asyncHandler(async (req, res) => 
   legacyOk(res, { inserted: trades.length }, 'Labor added', 201);
 }));
 
-const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+const FINAL_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
 
 productionRouter.post('/production/update_executor', asyncHandler(async (req, res) => {
   const b = req.body;
@@ -708,6 +713,8 @@ productionRouter.post('/production/closed', asyncHandler(async (req, res) => {
       [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
     await connection.execute("UPDATE tb_wo_preventive SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
   });
+
+  await processPreventiveCompletion({ moduleCode: 'PRODUCTION', woNumber, actor: user.fullname });
 
   legacyOk(res, { wo_number: woNumber, status: 'CLOSED' }, 'WO closed');
 }));

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -121,6 +124,40 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
     }
   }
 
+  Future<void> _editPrimaryPic() async {
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => const _TabletAssetPicDialog(),
+    );
+    if (selected == null || !mounted) return;
+    try {
+      final response = await ApiService().patch(
+        '/v2/assets/detail',
+        queryParameters: {'asset': widget.assetCode},
+        data: {
+          'asset': widget.assetCode,
+          'pic_user_id': selected['id_user'],
+        },
+      );
+      final body = response.data;
+      if (body is! Map || (body['success'] != true && body['status'] != true)) {
+        throw Exception(body is Map ? body['message'] : 'Gagal menyimpan PIC.');
+      }
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('PIC utama ditetapkan ke ${selected['fullname']}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   List<_AssetTab> get _tabs {
     final tabs = <_AssetTab>[_baseTabs.first];
     if (_asset['energy_profile'] is Map) {
@@ -231,6 +268,16 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
               ],
             ),
           ),
+          if (_canWriteAsset) ...[
+            OutlinedButton.icon(
+              onPressed: _fetching ? null : _editPrimaryPic,
+              icon: const Icon(Icons.person_outline, size: 17),
+              label: Text(_value(_asset['pic_name'], fallback: '') == ''
+                  ? 'Tetapkan PIC'
+                  : 'Ubah PIC'),
+            ),
+            const SizedBox(width: 8),
+          ],
           IconButton.outlined(
             tooltip: 'Muat ulang detail',
             onPressed: _fetching ? null : _load,
@@ -335,6 +382,15 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
       MapEntry(
         'Kategori',
         _value(_asset['CategoryAsset'] ?? _asset['category_name']),
+      ),
+      MapEntry('PIC Utama', _value(_asset['pic_name'])),
+      MapEntry(
+        'Status Inventory IT',
+        switch ('${_asset['it_ownership_status'] ?? ''}') {
+          'inventory' => 'Inventory IT',
+          'in_use' => 'Sedang digunakan',
+          _ => 'Bukan aset IT',
+        },
       ),
       MapEntry('Merek', _value(_asset['brand'])),
       MapEntry(
@@ -731,10 +787,58 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
   }
 
   Widget _buildHistory() {
+    final audit = _maps(_asset['audit_timeline']);
+    final pics = _maps(_asset['pic_history']);
     final locations = _maps(_asset['location_history']);
     final workOrders = _maps(_asset['history']);
     return Column(
       children: [
+        _panel(
+          child: _section(
+            'Audit Timeline Aset',
+            'Perubahan data, status, custom detail, BOM/stok part, dan lampiran.',
+            audit.isEmpty
+                ? const Text('Belum ada audit aktivitas aset.',
+                    style: TextStyle(fontSize: 12, color: _muted))
+                : Column(
+                    children: audit
+                        .map((row) => _timelineItem(
+                              _value(row['event_summary']),
+                              '${_dateTime(row['event_at'])}${row['actor_name'] == null ? '' : ' · ${row['actor_name']}'}',
+                              [
+                                _value(row['event_category'], fallback: '')
+                                    .replaceAll('_', ' '),
+                                _auditChanges(row),
+                                row['reference_type'] == null ||
+                                        row['reference_id'] == null
+                                    ? ''
+                                    : 'Ref: ${row['reference_type']} ${row['reference_id']}',
+                              ].where((value) => value.isNotEmpty).join(' · '),
+                            ))
+                        .toList(),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _panel(
+          child: _section(
+            'Riwayat PIC Utama',
+            'Jejak penetapan dan perpindahan penanggung jawab aset.',
+            pics.isEmpty
+                ? const Text('Belum ada riwayat PIC.',
+                    style: TextStyle(fontSize: 12, color: _muted))
+                : Column(
+                    children: pics
+                        .map((row) => _timelineItem(
+                              '${_value(row['pic_name_from'])} → ${_value(row['pic_name_to'])}',
+                              '${_date(row['changed_at'])}${row['changed_by'] == null ? '' : ' · ${row['changed_by']}'}',
+                              _value(row['note'], fallback: ''),
+                            ))
+                        .toList(),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 14),
         _panel(
           child: _section(
             'Riwayat Lokasi',
@@ -780,6 +884,46 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
         ),
       ],
     );
+  }
+
+  String _auditChanges(Map<String, dynamic> row) {
+    Map<String, dynamic> parse(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      if (value == null || '$value'.isEmpty) return {};
+      try {
+        final decoded = jsonDecode('$value');
+        return decoded is Map ? Map<String, dynamic>.from(decoded) : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    const labels = <String, String>{
+      'name': 'Nama',
+      'alias': 'Alias',
+      'brand': 'Merek',
+      'company': 'Company',
+      'location': 'Lokasi',
+      'category': 'Kategori',
+      'description': 'Keterangan',
+      'active': 'Status aktif',
+      'status': 'Status',
+      'remarks': 'Remarks',
+      'maintenance_area': 'Area maintenance',
+      'inventory_it': 'Status Inventory IT',
+      'pic_name': 'PIC utama',
+      'parent_asset_id': 'Aset induk',
+      'qty_on_hand': 'Stok',
+    };
+    final before = parse(row['before_data']);
+    final after = parse(row['after_data']);
+    final keys = {...before.keys, ...after.keys}
+        .where((key) => '${before[key] ?? ''}' != '${after[key] ?? ''}')
+        .take(6);
+    return keys
+        .map((key) => '${labels[key] ?? key.replaceAll('_', ' ')}: '
+            '${_value(before[key])} → ${_value(after[key])}')
+        .join(' · ');
   }
 
   Widget _timelineItem(String title, String meta, String body) => Row(
@@ -959,5 +1103,124 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
     if (raw.isEmpty) return '-';
     final parsed = DateTime.tryParse(raw);
     return parsed == null ? raw : DateFormat('dd MMM yyyy').format(parsed);
+  }
+
+  static String _dateTime(dynamic value) {
+    final raw = '${value ?? ''}'.trim();
+    if (raw.isEmpty) return '-';
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null
+        ? raw
+        : DateFormat('dd MMM yyyy, HH:mm').format(parsed);
+  }
+}
+
+class _TabletAssetPicDialog extends StatefulWidget {
+  const _TabletAssetPicDialog();
+
+  @override
+  State<_TabletAssetPicDialog> createState() => _TabletAssetPicDialogState();
+}
+
+class _TabletAssetPicDialogState extends State<_TabletAssetPicDialog> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  bool _loading = false;
+  List<Map<String, dynamic>> _rows = [];
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _changed(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () => _search(value));
+  }
+
+  Future<void> _search(String raw) async {
+    final q = raw.trim();
+    if (q.length < 2) {
+      if (mounted) setState(() => _rows = []);
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final response = await ApiService().get(
+        '/v2/users/lookup',
+        queryParameters: {'q': q, 'limit': 20},
+      );
+      final body = response.data;
+      final data = body is Map ? body['data'] : null;
+      if (!mounted) return;
+      setState(() {
+        _rows = data is List
+            ? data
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList()
+            : [];
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Tetapkan PIC Utama Aset'),
+      content: SizedBox(
+        width: 480,
+        height: 360,
+        child: Column(
+          children: [
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              onChanged: _changed,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Cari nama atau username (min. 2 karakter)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_loading) const LinearProgressIndicator(),
+            Expanded(
+              child: _rows.isEmpty
+                  ? Center(
+                      child: Text(_controller.text.trim().length < 2
+                          ? 'Ketik nama PIC untuk mencari.'
+                          : 'User aktif tidak ditemukan.'))
+                  : ListView.separated(
+                      itemCount: _rows.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, index) {
+                        final row = _rows[index];
+                        return ListTile(
+                          leading: const CircleAvatar(
+                              child: Icon(Icons.person_outline)),
+                          title: Text('${row['fullname'] ?? '-'}'),
+                          subtitle: Text([row['username'], row['division']]
+                              .where((value) =>
+                                  value != null && '$value'.isNotEmpty)
+                              .join(' · ')),
+                          onTap: () => Navigator.pop(context, row),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('Batal'))
+      ],
+    );
   }
 }

@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { execute, one, rows, transaction, withNamedLock } from '../db.js';
 import { asyncHandler, HttpError, legacyOk } from '../http.js';
 import { syncDailyControlForWoUpdate } from '../lib/daily-control.js';
+import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
@@ -79,7 +80,7 @@ async function getHeader(woNumber: string): Promise<Record<string, unknown> | nu
   return one<Record<string, unknown>>('SELECT * FROM tb_wo_it WHERE wo_number=?', [woNumber]);
 }
 
-const FINAL_STATUSES = new Set(['CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
+const FINAL_STATUSES = new Set(['CLOSED', 'AUTO_CLOSED', 'VOID', 'COMPLETE', 'DONE', 'COMPLETE_EXECUTOR', 'NEED_CLOSED', 'DECLINE', 'REJECT']);
 function isFinalWoStatus(status: unknown): boolean {
   return FINAL_STATUSES.has(String(status ?? '').toUpperCase().trim());
 }
@@ -194,7 +195,7 @@ isRouter.use('/is', authenticate, (req, res, next) => {
 
 // Samakan sama daftar exclude di maintenance/meso — sebelumnya cuma exclude
 // 'CLOSED', jadi WO VOID/REJECT/COMPLETE_EXECUTOR nyampah di list "aktif".
-const LIST_EXCLUDED_STATUSES = ['CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
+const LIST_EXCLUDED_STATUSES = ['CLOSED', 'AUTO_CLOSED', 'COMPLETE', 'DONE', 'VOID', 'DECLINE', 'REJECT'];
 
 isRouter.get('/is/list', asyncHandler(async (req, res) => {
   const user = (req as AuthRequest).user!;
@@ -467,6 +468,7 @@ isRouter.post('/is/approve', asyncHandler(async (req, res) => {
   const comment = String(req.body.comment ?? '');
 
   await approveTransition(woNumber, person, position, callerIsIts, comment);
+  await processPreventiveCompletion({ moduleCode: 'IS', woNumber, actor: user.fullname });
   legacyOk(res, { wo_number: woNumber }, 'WO approved successfully');
 }));
 
@@ -546,6 +548,7 @@ isRouter.post('/is/add_job_explanation', servicePhotoUpload.array('service_photo
     } else {
       await approveTransition(finalWoNumber, person, position, callerIsIts, jobExplanation);
     }
+    await processPreventiveCompletion({ moduleCode: 'IS', woNumber: finalWoNumber, actor: user.fullname });
   } else if (status === 'IN_PROGRESS') {
     await approveWithoutStatus(finalWoNumber, person, jobExplanation);
   } else {
@@ -735,6 +738,8 @@ isRouter.post('/is/closed', asyncHandler(async (req, res) => {
       [woNumber, person.fullname, person.avatar, person.id_division, person.id_position, comment]);
     await connection.execute("UPDATE tb_wo_it SET status='CLOSED', closedDate=NOW(), pic='-', updated_at=NOW() WHERE wo_number=?", [woNumber]);
   });
+
+  await processPreventiveCompletion({ moduleCode: 'IS', woNumber, actor: user.fullname });
 
   legacyOk(res, { wo_number: woNumber, status: 'CLOSED' }, 'WO closed');
 }));

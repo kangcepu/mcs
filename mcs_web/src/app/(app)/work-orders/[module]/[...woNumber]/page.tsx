@@ -215,7 +215,7 @@ export default function WorkOrderDetailPage({
 
   const woStatus = String(wo?.status ?? "").toUpperCase();
   const isCloseable = ["NEED_CLOSED", "COMPLETE", "COMPLETE_EXECUTOR"].includes(woStatus);
-  const isFinal = ["CLOSED", "VOID", "REJECT", "DECLINE"].includes(woStatus);
+  const isFinal = ["CLOSED", "AUTO_CLOSED", "VOID", "REJECT", "DECLINE"].includes(woStatus);
   // Gunakan action flag dari API: status WAIT juga dipakai untuk executor dan
   // part, sehingga bukan berarti user aktif masih boleh menyetujui WO ini.
   const showApprove = canAct && Boolean(wo?.actions?.can_approve);
