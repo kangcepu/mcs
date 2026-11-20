@@ -59,7 +59,8 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
                 backgroundColor: _primary,
               ),
         body: _buildBody(),
-        floatingActionButton: controller.selectedItems.isNotEmpty
+        floatingActionButton: controller.selectedItems.isNotEmpty ||
+                !controller.canManageStockOpname.value
             ? null
             : FloatingActionButton(
                 backgroundColor: _primary,
@@ -121,8 +122,9 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
                         ? 0
                         : 12),
                 child: GestureDetector(
-                  onLongPress: () =>
-                      controller.toggleSelection(stockOpname.noSO),
+                  onLongPress: controller.canManageStockOpname.value
+                      ? () => controller.toggleSelection(stockOpname.noSO)
+                      : null,
                   onTap: () {
                     if (controller.selectedItems.isNotEmpty) {
                       controller.toggleSelection(stockOpname.noSO);
@@ -263,7 +265,7 @@ class StockOpnameListPage extends GetView<StockOpnameController> {
                           style: const TextStyle(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 3),
                       Text(
-                          'Berikutnya ${_formatDateId(schedule.nextRunDate)} · ${schedule.isBOM ? 'BOM / Part' : 'Asset'} · ${schedule.companies.join(', ')}',
+                          'Berikutnya ${_formatDateId(schedule.nextRunDate)} · ${schedule.isBOM ? 'BOM / Part' : 'Asset'} · Lokasi ${schedule.locations.join(', ')}',
                           style: const TextStyle(
                               fontSize: 12, color: Color(0xFF64748B))),
                       if ((schedule.lastNoSO ?? '').isNotEmpty)

@@ -4,19 +4,26 @@ import { config } from '../config.js';
 import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, created, HttpError, ok } from '../http.js';
 import { parseScheduleIds, runDueStockOpnameSchedules } from '../lib/stock-opname-schedule.js';
+import { getStockOpnameAssetDetail, getStockOpnameHeaders, stockOpnameHeaderNo } from '../lib/stock-opname-proxy.js';
 import type { AuthRequest } from '../types.js';
 
 export const stockOpnameScheduleRouter = Router();
 const canManage = requirePermission('schedule');
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
-async function ensureTables(): Promise<void> {
-  if (!(await tableExists('stock_opname_schedule')) || !(await tableExists('stock_opname_schedule_assignee'))) {
-    throw new HttpError(503, 'Scheduler Stock Opname belum tersedia. Jalankan migration 20261118_stock_opname_scheduler.sql.');
+async function ensureTables() {
+  if (!(await tableExists('stock_opname_schedule')) || !(await tableExists('stock_opname_schedule_location_assignment'))) {
+    throw new HttpError(503, 'Scheduler SO belum lengkap. Jalankan migration 20261118 lalu 20261120_stock_opname_scheduler_assignment_flow.sql.');
   }
 }
-
-const actor = (req: AuthRequest): string => String(req.user?.fullname || req.user?.username || 'SYSTEM').trim();
+const actor = (req: AuthRequest) => String(req.user?.fullname || req.user?.username || 'SYSTEM').trim();
+const canManageAllSo = (req: AuthRequest) => {
+  const user = req.user!;
+  const position = String(user.id_position ?? '').toUpperCase();
+  return Number(user.schedule ?? 0) === 1 || Number(user.approval_all ?? 0) === 1
+    || position.includes('MANAGEMENT') || position.includes('DIVHEAD');
+};
+type AssignmentInput = { location_id: string; location_name: string | null; user_id: number };
 
 function input(body: any) {
   const name = String(body.schedule_name ?? '').trim();
@@ -26,65 +33,136 @@ function input(body: any) {
   const endDate = String(body.end_date ?? '').slice(0, 10) || null;
   const companies = parseScheduleIds(body.company_ids);
   const categories = parseScheduleIds(body.category_ids);
-  const locations = parseScheduleIds(body.location_ids);
-  const rawAssignees: unknown[] = Array.isArray(body.assignee_user_ids) ? body.assignee_user_ids : [];
-  const assignees: number[] = [...new Set(rawAssignees.map(Number).filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+  const assignments: AssignmentInput[] = (Array.isArray(body.location_assignments) ? body.location_assignments : []).map((item: any) => ({
+    location_id: String(item.location_id ?? '').trim().slice(0, 120),
+    location_name: String(item.location_name ?? '').trim().slice(0, 255) || null,
+    user_id: Number(item.user_id),
+  })).filter((item: AssignmentInput) => item.location_id && Number.isSafeInteger(item.user_id) && item.user_id > 0);
   if (!name) throw new HttpError(422, 'Nama jadwal wajib diisi.');
   if (!['DAILY', 'WEEKLY', 'MONTHLY'].includes(recurrence)) throw new HttpError(422, 'Periode jadwal tidak valid.');
   if (!datePattern.test(startDate) || (endDate && !datePattern.test(endDate))) throw new HttpError(422, 'Tanggal jadwal tidak valid.');
   if (endDate && endDate < startDate) throw new HttpError(422, 'Tanggal selesai tidak boleh sebelum tanggal mulai.');
-  if (!companies.length || !categories.length || !locations.length) throw new HttpError(422, 'Company, kategori, dan lokasi SO wajib dipilih.');
-  if (!assignees.length) throw new HttpError(422, 'Pilih minimal satu petugas Stock Opname.');
-  return { name, recurrence, interval, startDate, endDate, companies, categories, locations, assignees, isBom: body.is_bom ? 1 : 0, notes: String(body.notes ?? '').trim().slice(0, 500) || null };
+  if (!companies.length || !categories.length) throw new HttpError(422, 'Company dan kategori SO wajib dipilih.');
+  if (!assignments.length) throw new HttpError(422, 'Tambahkan minimal satu assignment petugas ke lokasi.');
+  const unique = new Set(assignments.map((item) => `${item.location_id}|${item.user_id}`));
+  if (unique.size !== assignments.length) throw new HttpError(422, 'Assignment lokasi dan petugas tidak boleh duplikat.');
+  const locationsByUser = new Map<number, Set<string>>();
+  for (const item of assignments) {
+    const set = locationsByUser.get(item.user_id) ?? new Set<string>(); set.add(item.location_id); locationsByUser.set(item.user_id, set);
+    if (set.size > 2) throw new HttpError(422, `Satu petugas maksimal mendapat dua lokasi, mengikuti aturan PPS.`);
+  }
+  return { name, recurrence, interval, startDate, endDate, companies, categories, assignments,
+    locations: [...new Set(assignments.map((item) => item.location_id))], isBom: body.is_bom ? 1 : 0,
+    notes: String(body.notes ?? '').trim().slice(0, 500) || null };
 }
 
 async function scheduleRows(where = '', params: unknown[] = []) {
-  const list = await rows<any>(
-    `SELECT s.*,
-       (SELECT COUNT(*) FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id) run_count,
-       (SELECT status FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id ORDER BY r.due_date DESC,r.id DESC LIMIT 1) last_run_status,
-       (SELECT no_so FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id ORDER BY r.due_date DESC,r.id DESC LIMIT 1) last_no_so
-     FROM stock_opname_schedule s ${where} ORDER BY s.status='ACTIVE' DESC,s.next_run_date,s.id`, params,
-  );
+  const list = await rows<any>(`SELECT s.*,
+    (SELECT COUNT(*) FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id) run_count,
+    (SELECT status FROM stock_opname_schedule_run r WHERE r.schedule_id=s.id ORDER BY r.due_date DESC,r.id DESC LIMIT 1) last_run_status,
+    (SELECT GROUP_CONCAT(rr.no_so ORDER BY rr.id SEPARATOR ', ') FROM stock_opname_schedule_run rr
+      WHERE rr.schedule_id=s.id AND rr.no_so IS NOT NULL AND rr.due_date=(SELECT MAX(rr2.due_date) FROM stock_opname_schedule_run rr2 WHERE rr2.schedule_id=s.id)) last_no_so
+    FROM stock_opname_schedule s ${where} ORDER BY s.status='ACTIVE' DESC,s.next_run_date,s.id`, params);
   if (!list.length) return [];
   const ids = list.map((item) => Number(item.id));
-  const assignees = await rows<any>(
-    `SELECT a.schedule_id,a.user_id,u.fullname,u.username,d.division_name
-     FROM stock_opname_schedule_assignee a JOIN tb_user u ON u.id_user=a.user_id
-     LEFT JOIN tb_division d ON d.id_division=u.id_division
-     WHERE a.schedule_id IN (${ids.map(() => '?').join(',')}) ORDER BY u.fullname`, ids,
-  );
-  return list.map((item) => ({
-    ...item,
-    company_ids: parseScheduleIds(item.company_ids),
-    category_ids: parseScheduleIds(item.category_ids),
-    location_ids: parseScheduleIds(item.location_ids),
-    assignees: assignees.filter((assignee) => Number(assignee.schedule_id) === Number(item.id)),
-  }));
+  const assignments = await rows<any>(`SELECT a.*,u.fullname,u.username FROM stock_opname_schedule_location_assignment a
+    JOIN tb_user u ON u.id_user=a.user_id WHERE a.schedule_id IN (${ids.map(() => '?').join(',')})
+    ORDER BY a.location_name,u.fullname`, ids);
+  return list.map((item) => ({ ...item, company_ids: parseScheduleIds(item.company_ids), category_ids: parseScheduleIds(item.category_ids),
+    location_ids: parseScheduleIds(item.location_ids), location_assignments: assignments.filter((a) => Number(a.schedule_id) === Number(item.id)) }));
 }
 
-stockOpnameScheduleRouter.get('/stock-opname-schedules', authenticate, canManage, asyncHandler(async (_req, res) => {
-  await ensureTables();
-  ok(res, await scheduleRows());
+stockOpnameScheduleRouter.get('/stock-opname-schedules', authenticate, canManage, asyncHandler(async (_req, res) => { await ensureTables(); ok(res, await scheduleRows()); }));
+stockOpnameScheduleRouter.get('/stock-opname-schedules/my', authenticate, asyncHandler(async (req, res) => {
+  await ensureTables(); const user = (req as AuthRequest).user!;
+  ok(res, await scheduleRows(`WHERE s.status='ACTIVE' AND (s.end_date IS NULL OR s.end_date>=CURDATE())
+    AND EXISTS (SELECT 1 FROM stock_opname_schedule_location_assignment mine WHERE mine.schedule_id=s.id AND mine.user_id=?)`, [user.id_user]));
 }));
 
-stockOpnameScheduleRouter.get('/stock-opname-schedules/my', authenticate, asyncHandler(async (req, res) => {
+stockOpnameScheduleRouter.get('/stock-opname-schedules/work-items', authenticate, asyncHandler(async (req, res) => {
   await ensureTables();
-  const user = (req as AuthRequest).user!;
-  const data = await scheduleRows(
-    `JOIN stock_opname_schedule_assignee mine ON mine.schedule_id=s.id AND mine.user_id=?
-     WHERE s.status='ACTIVE' AND (s.end_date IS NULL OR s.end_date>=CURDATE())`, [user.id_user],
+  const authReq = req as AuthRequest;
+  const user = authReq.user!;
+  const canManage = canManageAllSo(authReq);
+  const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  let headers: Record<string, unknown>[];
+  try { headers = await getStockOpnameHeaders(token); }
+  catch { throw new HttpError(502, 'Gagal mengambil daftar Stock Opname.', 'SO_SERVICE_UNREACHABLE'); }
+  if (canManage) {
+    ok(res, { can_manage: true, items: headers });
+    return;
+  }
+  const assignments = await rows<{ no_so: string; location_id: string; location_name: string | null }>(
+    `SELECT DISTINCT no_so,location_id,location_name FROM stock_opname_schedule_run_assignment
+     WHERE user_id=? AND status='ASSIGNED' ORDER BY assigned_at DESC`, [user.id_user],
   );
-  ok(res, data);
+  const byNoSo = new Map<string, typeof assignments>();
+  for (const item of assignments) byNoSo.set(item.no_so, [...(byNoSo.get(item.no_so) ?? []), item]);
+  const items = headers.filter((item) => byNoSo.has(stockOpnameHeaderNo(item))).map((item) => {
+    const noSo = stockOpnameHeaderNo(item);
+    const mine = byNoSo.get(noSo) ?? [];
+    return { ...item, locations: [...new Set(mine.map((entry) => entry.location_name || entry.location_id))], assigned_locations: mine };
+  });
+  ok(res, { can_manage: false, items });
+}));
+
+const norm = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+const locationMatches = (actual: string, id: string, name: string | null) => {
+  const a = norm(actual); const keys = [norm(id), norm(name)].filter((value) => value.length > 0);
+  return keys.some((key) => a === key || (key.length >= 4 && (a.includes(key) || key.includes(a))));
+};
+const isVariance = (status: string) => /(selisih|mismatch|tidak sesuai|rusak|hilang)/i.test(status);
+
+stockOpnameScheduleRouter.get('/stock-opname-schedules/monitoring', authenticate, canManage, asyncHandler(async (req, res) => {
+  await ensureTables();
+  const scheduleId = Number(req.query.schedule_id ?? 0);
+  const params: unknown[] = [];
+  let filter = '';
+  if (Number.isSafeInteger(scheduleId) && scheduleId > 0) { filter = 'AND r.schedule_id=?'; params.push(scheduleId); }
+  const assignments = await rows<any>(
+    `SELECT ra.id,ra.run_id,ra.no_so,ra.location_id,ra.location_name,ra.user_id,ra.status,
+       ra.assigned_at,ra.completed_at,u.username,u.fullname,r.schedule_id,r.category_id,r.due_date,
+       r.status run_status,s.schedule_name,s.is_bom
+     FROM stock_opname_schedule_run_assignment ra
+     JOIN stock_opname_schedule_run r ON r.id=ra.run_id
+     JOIN stock_opname_schedule s ON s.id=r.schedule_id
+     JOIN tb_user u ON u.id_user=ra.user_id
+     WHERE 1=1 ${filter} ORDER BY r.due_date DESC,ra.id DESC LIMIT 300`, params,
+  );
+  const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  const noSoList = [...new Set(assignments.map((item) => String(item.no_so)))];
+  const details = new Map<string, Awaited<ReturnType<typeof getStockOpnameAssetDetail>>>();
+  await Promise.all(noSoList.map(async (noSo) => {
+    try { details.set(noSo, await getStockOpnameAssetDetail(token, noSo)); } catch { /* tampilkan nol bila service SO sementara gagal */ }
+  }));
+  const data = assignments.map((item) => {
+    const detail = details.get(String(item.no_so));
+    const scoped = (detail?.rows ?? []).filter((row) => locationMatches(row.location, String(item.location_id), item.location_name));
+    const checkedRows = scoped.filter((row) => row.checked);
+    const byUser = checkedRows.filter((row) => norm(row.username) === norm(item.username));
+    const varianceRows = checkedRows.filter((row) => detail?.type === 'BOM'
+      ? Number(row.qty_found ?? 0) !== Number(row.parts_count ?? 0) : isVariance(row.status));
+    return { ...item, type: detail?.type ?? (Number(item.is_bom) === 1 ? 'BOM' : 'ASSET'),
+      total_snapshot: scoped.length, checked: checkedRows.length, unchecked: Math.max(0, scoped.length - checkedRows.length),
+      variance: varianceRows.length, checked_by_user: byUser.length,
+      progress_percent: scoped.length ? Math.round((checkedRows.length / scoped.length) * 100) : 0 };
+  });
+  const uniqueAssets = new Map<string, { checked: boolean; variance: boolean }>();
+  for (const [noSo, detail] of details) for (const row of detail.rows) {
+    const key = `${noSo}|${row.asset_code}|${row.parts_count ?? ''}`;
+    uniqueAssets.set(key, { checked: row.checked, variance: row.checked && (detail.type === 'BOM'
+      ? Number(row.qty_found ?? 0) !== Number(row.parts_count ?? 0) : isVariance(row.status)) });
+  }
+  const all = [...uniqueAssets.values()];
+  ok(res, { summary: { total_snapshot: all.length, checked: all.filter((item) => item.checked).length,
+    unchecked: all.filter((item) => !item.checked).length, variance: all.filter((item) => item.variance).length }, rows: data });
 }));
 
 stockOpnameScheduleRouter.get('/stock-opname-schedules/options', authenticate, canManage, asyncHandler(async (req, res) => {
-  await ensureTables();
-  const authorization = String(req.headers.authorization ?? '');
+  await ensureTables(); const authorization = String(req.headers.authorization ?? '');
   const [users, upstream] = await Promise.all([
-    rows(`SELECT u.id_user value,u.fullname label,u.username,d.division_name division
-          FROM tb_user u LEFT JOIN tb_division d ON d.id_division=u.id_division
-          WHERE u.active=1 ORDER BY u.fullname`),
+    rows(`SELECT u.id_user value,u.fullname label,u.username,d.division_name division FROM tb_user u
+      LEFT JOIN tb_division d ON d.id_division=u.id_division WHERE u.active=1 ORDER BY u.fullname`),
     fetch(`${config.soBaseUrl}/api/master-company`, { headers: { Authorization: authorization, Accept: 'application/json' } }),
   ]);
   const masters = await upstream.json().catch(() => null);
@@ -92,64 +170,53 @@ stockOpnameScheduleRouter.get('/stock-opname-schedules/options', authenticate, c
   ok(res, { users, masters: masters?.data ?? masters });
 }));
 
+async function saveAssignments(connection: any, scheduleId: number, assignments: AssignmentInput[], by: string) {
+  await connection.execute('DELETE FROM stock_opname_schedule_location_assignment WHERE schedule_id=?', [scheduleId]);
+  await connection.execute('DELETE FROM stock_opname_schedule_assignee WHERE schedule_id=?', [scheduleId]);
+  const users = [...new Set(assignments.map((item) => item.user_id))];
+  for (const userId of users) await connection.execute('INSERT INTO stock_opname_schedule_assignee (schedule_id,user_id,assigned_by,assigned_at) VALUES (?,?,?,NOW())', [scheduleId, userId, by]);
+  for (const item of assignments) await connection.execute(`INSERT INTO stock_opname_schedule_location_assignment
+    (schedule_id,location_id,location_name,user_id,assigned_by,created_at) VALUES (?,?,?,?,?,NOW())`,
+  [scheduleId, item.location_id, item.location_name, item.user_id, by]);
+}
+
 stockOpnameScheduleRouter.post('/stock-opname-schedules', authenticate, canManage, asyncHandler(async (req, res) => {
-  await ensureTables();
-  const values = input(req.body);
-  const user = (req as AuthRequest).user!;
-  const validUsers = await rows<{ id_user: number }>(`SELECT id_user FROM tb_user WHERE active=1 AND id_user IN (${values.assignees.map(() => '?').join(',')})`, values.assignees);
-  if (validUsers.length !== values.assignees.length) throw new HttpError(422, 'Salah satu petugas SO tidak aktif atau tidak ditemukan.');
+  await ensureTables(); const values = input(req.body); const user = (req as AuthRequest).user!;
+  const validUsers = await rows<any>(`SELECT id_user FROM tb_user WHERE active=1 AND id_user IN (${[...new Set(values.assignments.map((a) => a.user_id))].map(() => '?').join(',')})`, [...new Set(values.assignments.map((a) => a.user_id))]);
+  if (validUsers.length !== new Set(values.assignments.map((a) => a.user_id)).size) throw new HttpError(422, 'Salah satu petugas tidak aktif atau tidak ditemukan.');
   const id = await transaction(async (connection) => {
     const code = `SOS-${Date.now().toString(36).toUpperCase()}`;
-    const [inserted] = await connection.execute<any>(
-      `INSERT INTO stock_opname_schedule
-       (schedule_code,schedule_name,recurrence_type,interval_value,start_date,end_date,next_run_date,is_bom,company_ids,category_ids,location_ids,status,notes,created_by_user_id,created_by,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,NOW())`,
-      [code, values.name, values.recurrence, values.interval, values.startDate, values.endDate, values.startDate, values.isBom,
-        JSON.stringify(values.companies), JSON.stringify(values.categories), JSON.stringify(values.locations), values.notes, user.id_user, actor(req as AuthRequest)],
-    );
-    for (const userId of values.assignees) await connection.execute(
-      'INSERT INTO stock_opname_schedule_assignee (schedule_id,user_id,assigned_by,assigned_at) VALUES (?,?,?,NOW())',
-      [inserted.insertId, userId, actor(req as AuthRequest)],
-    );
-    return Number(inserted.insertId);
+    const [inserted] = await connection.execute<any>(`INSERT INTO stock_opname_schedule
+      (schedule_code,schedule_name,recurrence_type,interval_value,start_date,end_date,next_run_date,is_bom,company_ids,category_ids,location_ids,status,notes,created_by_user_id,created_by,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,NOW())`, [code, values.name, values.recurrence, values.interval, values.startDate, values.endDate, values.startDate,
+      values.isBom, JSON.stringify(values.companies), JSON.stringify(values.categories), JSON.stringify(values.locations), values.notes, user.id_user, actor(req as AuthRequest)]);
+    await saveAssignments(connection, Number(inserted.insertId), values.assignments, actor(req as AuthRequest)); return Number(inserted.insertId);
   });
   created(res, { id }, 'Jadwal Stock Opname dibuat.');
 }));
 
 stockOpnameScheduleRouter.patch('/stock-opname-schedules/:id', authenticate, canManage, asyncHandler(async (req, res) => {
-  await ensureTables();
-  const id = Number(req.params.id);
+  await ensureTables(); const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 1 || !(await one('SELECT id FROM stock_opname_schedule WHERE id=?', [id]))) throw new HttpError(404, 'Jadwal Stock Opname tidak ditemukan.');
   const values = input(req.body);
-  const validUsers = await rows<{ id_user: number }>(`SELECT id_user FROM tb_user WHERE active=1 AND id_user IN (${values.assignees.map(() => '?').join(',')})`, values.assignees);
-  if (validUsers.length !== values.assignees.length) throw new HttpError(422, 'Salah satu petugas SO tidak aktif atau tidak ditemukan.');
   await transaction(async (connection) => {
-    await connection.execute(
-      `UPDATE stock_opname_schedule SET schedule_name=?,recurrence_type=?,interval_value=?,start_date=?,end_date=?,
-       next_run_date=CASE WHEN last_run_date IS NULL THEN ? ELSE next_run_date END,is_bom=?,company_ids=?,category_ids=?,location_ids=?,notes=?,updated_by=?,updated_at=NOW() WHERE id=?`,
-      [values.name, values.recurrence, values.interval, values.startDate, values.endDate, values.startDate, values.isBom,
-        JSON.stringify(values.companies), JSON.stringify(values.categories), JSON.stringify(values.locations), values.notes, actor(req as AuthRequest), id],
-    );
-    await connection.execute('DELETE FROM stock_opname_schedule_assignee WHERE schedule_id=?', [id]);
-    for (const userId of values.assignees) await connection.execute(
-      'INSERT INTO stock_opname_schedule_assignee (schedule_id,user_id,assigned_by,assigned_at) VALUES (?,?,?,NOW())', [id, userId, actor(req as AuthRequest)],
-    );
-  });
-  ok(res, { id }, 'Jadwal Stock Opname diperbarui.');
+    await connection.execute(`UPDATE stock_opname_schedule SET schedule_name=?,recurrence_type=?,interval_value=?,start_date=?,end_date=?,
+      next_run_date=CASE WHEN last_run_date IS NULL THEN ? ELSE next_run_date END,is_bom=?,company_ids=?,category_ids=?,location_ids=?,notes=?,updated_by=?,updated_at=NOW() WHERE id=?`,
+    [values.name, values.recurrence, values.interval, values.startDate, values.endDate, values.startDate, values.isBom,
+      JSON.stringify(values.companies), JSON.stringify(values.categories), JSON.stringify(values.locations), values.notes, actor(req as AuthRequest), id]);
+    await saveAssignments(connection, id, values.assignments, actor(req as AuthRequest));
+  }); ok(res, { id }, 'Jadwal Stock Opname diperbarui.');
 }));
 
 stockOpnameScheduleRouter.patch('/stock-opname-schedules/:id/status', authenticate, canManage, asyncHandler(async (req, res) => {
-  await ensureTables();
-  const id = Number(req.params.id);
-  const status = String(req.body.status ?? '').toUpperCase();
+  await ensureTables(); const id = Number(req.params.id); const status = String(req.body.status ?? '').toUpperCase();
   if (!['ACTIVE', 'PAUSED'].includes(status)) throw new HttpError(422, 'Status jadwal tidak valid.');
   const result = await execute('UPDATE stock_opname_schedule SET status=?,updated_by=?,updated_at=NOW() WHERE id=?', [status, actor(req as AuthRequest), id]);
-  if (!result.affectedRows) throw new HttpError(404, 'Jadwal Stock Opname tidak ditemukan.');
-  ok(res, { id, status }, status === 'ACTIVE' ? 'Jadwal diaktifkan.' : 'Jadwal dijeda.');
+  if (!result.affectedRows) throw new HttpError(404, 'Jadwal Stock Opname tidak ditemukan.'); ok(res, { id, status });
 }));
 
 stockOpnameScheduleRouter.post('/stock-opname-schedules/run-cron', authenticate, canManage, asyncHandler(async (_req, res) => {
-  await ensureTables();
-  const result = await runDueStockOpnameSchedules();
-  ok(res, { processed: result.length, created: result.filter((item) => item.status === 'CREATED').length, failed: result.filter((item) => item.status === 'FAILED').length, runs: result }, result.length ? 'Scheduler Stock Opname selesai diproses.' : 'Tidak ada jadwal Stock Opname yang jatuh tempo.');
+  await ensureTables(); const result = await runDueStockOpnameSchedules();
+  ok(res, { processed: result.length, created: result.filter((x) => x.status === 'CREATED').length,
+    partial: result.filter((x) => x.status === 'PARTIAL').length, failed: result.filter((x) => x.status === 'FAILED').length, runs: result });
 }));

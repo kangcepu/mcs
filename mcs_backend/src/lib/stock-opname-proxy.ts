@@ -56,6 +56,16 @@ function extractList(body: unknown): Record<string, unknown>[] {
   return [];
 }
 
+export async function getStockOpnameHeaders(token: string): Promise<Record<string, unknown>[]> {
+  const result = await soGet('/api/no-stock-opname', token);
+  if (!result.ok) throw new Error('SO_SERVICE_UNREACHABLE');
+  return extractList(result.body);
+}
+
+export function stockOpnameHeaderNo(row: Record<string, unknown>): string {
+  return readValue(row, ['NoSO', 'no_so', 'noso']);
+}
+
 function readValue(row: Record<string, unknown>, keys: string[]): string {
   const lower = new Map<string, unknown>();
   for (const [k, v] of Object.entries(row)) lower.set(k.toLowerCase(), v);
@@ -296,6 +306,7 @@ export interface StockOpnameAssetDetailRow {
   username: string;
   parts_count: number | null;
   qty_found: number | null;
+  checked: boolean;
 }
 
 export interface StockOpnameAssetDetail {
@@ -332,6 +343,7 @@ export async function getStockOpnameAssetDetail(token: string, noSo: string): Pr
         username: readValue(row, ['username', 'Username']),
         parts_count: toInt(readValue(row, ['partsCount', 'parts_count'])),
         qty_found: toInt(readValue(row, ['qtyFound', 'qty_found'])),
+        checked: readValue(row, ['qtyFound', 'qty_found']) !== '' || readValue(row, ['username', 'Username']) !== '',
       })),
     };
   }
@@ -353,10 +365,11 @@ export async function getStockOpnameAssetDetail(token: string, noSo: string): Pr
       company: readValue(row, ['CompanyName', 'company_name']),
       category: readValue(row, ['CategoryAsset', 'category_asset']),
       location: readValue(row, ['LocationAsset', 'location_asset']),
-      status: 'CHECKED',
+      status: readValue(row, ['status', 'Status']) || 'CHECKED',
       username: readValue(row, ['username', 'Username']),
       parts_count: null,
       qty_found: null,
+      checked: true,
     });
   }
   for (const row of pending) {
@@ -374,6 +387,7 @@ export async function getStockOpnameAssetDetail(token: string, noSo: string): Pr
       username: readValue(row, ['username', 'Username']) || existing?.username || '',
       parts_count: null,
       qty_found: null,
+      checked: existing?.checked ?? false,
     });
   }
 

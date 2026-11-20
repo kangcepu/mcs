@@ -76,7 +76,14 @@ class StockOpnameScheduleAssignment {
         isBOM: '${json['is_bom'] ?? 0}' == '1' || json['is_bom'] == true,
         companies: _strings(json['company_ids']),
         categories: _strings(json['category_ids']),
-        locations: _strings(json['location_ids']),
+        locations: json['location_assignments'] is List
+            ? (json['location_assignments'] as List)
+                .map((item) => item is Map
+                    ? '${item['location_name'] ?? item['location_id'] ?? ''}'
+                    : '')
+                .where((item) => item.isNotEmpty)
+                .toList()
+            : const [],
         lastNoSO: json['last_no_so']?.toString(),
         lastRunStatus: json['last_run_status']?.toString(),
       );

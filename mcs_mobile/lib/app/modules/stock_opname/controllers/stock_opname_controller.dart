@@ -10,6 +10,7 @@ class StockOpnameController extends GetxController {
   final RxList<StockOpnameScheduleAssignment> mySchedules =
       <StockOpnameScheduleAssignment>[].obs;
   final RxBool isLoading = false.obs;
+  final RxBool canManageStockOpname = false.obs;
   final RxString errorMessage = ''.obs;
   final RxList<String> selectedItems = <String>[].obs;
 
@@ -32,8 +33,10 @@ class StockOpnameController extends GetxController {
       mySchedules.assignAll(values[1] as List<StockOpnameScheduleAssignment>);
 
       if (result['status'] == true) {
+        canManageStockOpname.value = result['can_manage'] == true;
         stockOpnameList.value = result['data'];
       } else {
+        canManageStockOpname.value = false;
         errorMessage.value = result['message'];
         stockOpnameList.clear();
       }

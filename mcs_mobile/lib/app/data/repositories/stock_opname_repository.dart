@@ -22,31 +22,28 @@ class StockOpnameRepository {
 
   Future<Map<String, dynamic>> getStockOpnameList() async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse(ApiConstants.listNoSO),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        List<dynamic> data = json.decode(response.body);
-        final list = data.map((item) => StockOpname.fromJson(item)).toList();
-        return {'status': true, 'data': list};
-      } else if (response.statusCode == 401) {
-        return {
-          'status': false,
-          'message': 'Unauthorized: Token is invalid or expired'
-        };
-      } else {
-        final responseBody = json.decode(response.body);
-        return {
-          'status': false,
-          'message': responseBody['message'] ??
-              'Tidak ada Jadwal Stock Opname saat ini'
-        };
-      }
+      final response =
+          await _mcsApi.get('/v2/stock-opname-schedules/work-items');
+      final body = response.data;
+      final payload = body is Map ? body['data'] : null;
+      final items = payload is Map && payload['items'] is List
+          ? payload['items'] as List
+          : const [];
+      final list = items
+          .whereType<Map>()
+          .map((item) =>
+              StockOpname.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+      return {
+        'status': true,
+        'data': list,
+        'can_manage': payload is Map && payload['can_manage'] == true,
+      };
     } catch (e) {
-      return {'status': false, 'message': 'Failed to connect to the server'};
+      return {
+        'status': false,
+        'message': 'Gagal mengambil tugas Stock Opname'
+      };
     }
   }
 
