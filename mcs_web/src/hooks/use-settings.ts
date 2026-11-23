@@ -5,15 +5,21 @@ import {
   getBranding,
   getCompanyLogos,
   getFirebaseCredentials,
+  getOpenCodeLlmSettings,
   getStorageSettings,
   removeCompanyLogo,
   removeFirebaseCredentials,
+  removeOpenCodeApiKey,
   saveCompanyLogo,
   saveFirebaseCredentials,
+  saveOpenCodeLlmSettings,
   saveStorageSettings,
   testStorageConnection,
+  syncOpenCodeModels,
+  testOpenCodeConnection,
   updateBranding,
   type StorageSettingsInput,
+  type OpenCodeLlmSettingsInput,
 } from "@/lib/api/settings";
 
 export function useBranding() {
@@ -103,5 +109,43 @@ export function useRemoveFirebaseCredentials() {
   return useMutation({
     mutationFn: () => removeFirebaseCredentials(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["firebase-credentials"] }),
+  });
+}
+
+export function useOpenCodeLlmSettings() {
+  return useQuery({
+    queryKey: ["llm-settings", "opencode-go"],
+    queryFn: ({ signal }) => getOpenCodeLlmSettings(signal),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSaveOpenCodeLlmSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: OpenCodeLlmSettingsInput) => saveOpenCodeLlmSettings(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llm-settings", "opencode-go"] }),
+  });
+}
+
+export function useSyncOpenCodeModels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { base_url?: string; api_key?: string }) => syncOpenCodeModels(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llm-settings", "opencode-go"] }),
+  });
+}
+
+export function useTestOpenCodeConnection() {
+  return useMutation({
+    mutationFn: (body: { base_url?: string; api_key?: string }) => testOpenCodeConnection(body),
+  });
+}
+
+export function useRemoveOpenCodeApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => removeOpenCodeApiKey(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llm-settings", "opencode-go"] }),
   });
 }

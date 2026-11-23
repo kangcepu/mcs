@@ -238,6 +238,23 @@ export async function getObjectStream(key: string, range?: string): Promise<Obje
   }
 }
 
+export async function readStoredFile(key: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const root = path.resolve(config.uploadDir);
+  const localPath = path.resolve(root, key);
+  if (localPath.startsWith(`${root}${path.sep}`)) {
+    try {
+      return { buffer: await fs.readFile(localPath), contentType: guessMime(key) };
+    } catch {
+      // File mungkin tersimpan di object storage.
+    }
+  }
+  const object = await getObjectStream(key);
+  if (!object) return null;
+  const chunks: Buffer[] = [];
+  for await (const chunk of object.stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return { buffer: Buffer.concat(chunks), contentType: object.contentType };
+}
+
 function randomName(originalName: string): string {
   const ext = path.extname(originalName).toLowerCase();
   return `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;

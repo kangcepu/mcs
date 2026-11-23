@@ -247,7 +247,7 @@ equipmentRouter.delete('/equipment/parts/history', authenticate, canManage, asyn
       await connection.execute('UPDATE tb_parts_bom SET qty_on_hand=?, total_used=?, updated_at=NOW() WHERE id=?', [newStock, newTotalUsed, part.id]);
     }
   });
-  await recordAssetAudit(history.AssetCode, 'BOM_USAGE_REVERSED', 'BOM_STOCK', `Riwayat pemakaian part dibatalkan (${history.used_for})`, who, {
+  await recordAssetAudit(history.AssetCode, 'BOM_USAGE_REVERSED', 'BOM_STOCK', `History pemakaian part dibatalkan (${history.used_for})`, who, {
     before: history, referenceType: 'BOM_USAGE', referenceId: history.id,
   });
 

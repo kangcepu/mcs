@@ -61,6 +61,12 @@ import { sparepartInventoryRouter } from './routes/sparepart-inventory.js';
 import { sparepartGovernanceRouter } from './routes/sparepart-governance.js';
 import { reportCenterRouter } from './routes/report-center.js';
 import { preventiveNcrRouter } from './routes/preventive-ncr.js';
+import { validationRouter } from './routes/validation.js';
+import { aiImageAnalysisRouter } from './routes/ai-image-analysis.js';
+import { generalAffairRouter } from './routes/general-affair.js';
+import { runValidationAutomation } from './lib/validation-automation.js';
+import { drainAiImageAnalysisQueue } from './lib/ai-image-analysis-worker.js';
+import { runDueGeneralAffairSchedules } from './lib/general-affair-schedule.js';
 import { syncAllReportCatalogs } from './lib/report-catalog-sync.js';
 import { systemAuditMiddleware } from './system-audit.js';
 
@@ -150,6 +156,9 @@ v2.use(sparepartInventoryRouter);
 v2.use(sparepartGovernanceRouter);
 v2.use(reportCenterRouter);
 v2.use(preventiveNcrRouter);
+v2.use(validationRouter);
+v2.use(aiImageAnalysisRouter);
+v2.use(generalAffairRouter);
 app.use('/api/v2', v2);
 app.use('/api', authRouter);
 app.use((_req,_res,next)=>next(new HttpError(404,'Endpoint not found')));
@@ -195,10 +204,36 @@ const reportCatalogTask = cron.schedule(config.reportCatalogSyncCronExpr, () => 
     .catch((error) => console.error('Report catalog sync failed:',error));
 }, { timezone: 'Asia/Jakarta' });
 
+const validationAutomationTask = cron.schedule('*/15 * * * *', () => {
+  runValidationAutomation()
+    .then((result) => { if (Object.values(result).some(Boolean)) console.log('Validation automation:', result); })
+    .catch((error) => console.error('Validation automation failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
+const aiImageAnalysisTask = cron.schedule('* * * * *', () => {
+  drainAiImageAnalysisQueue()
+    .then((processed) => { if (processed) console.log(`AI image analysis: processed ${processed} queued image(s)`); })
+    .catch((error) => console.error('AI image analysis cron failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
+const generalAffairScheduleTask = cron.schedule('5 0 * * *', () => {
+  runDueGeneralAffairSchedules()
+    .then((generated) => { if (generated.length) console.log('GA preventive scheduler:', generated); })
+    .catch((error) => console.error('GA preventive scheduler failed:', error));
+}, { timezone: 'Asia/Jakarta' });
+
 // Sinkron pertama saat service hidup agar tidak perlu menunggu tick cron.
 syncAllReportCatalogs()
   .then((result) => { if(result.length)console.log('Initial report catalog sync:',result); })
   .catch((error) => console.error('Initial report catalog sync failed:',error));
 
-const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); stockOpnameScheduleTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); reportCatalogTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
+drainAiImageAnalysisQueue()
+  .then((processed) => { if (processed) console.log(`Initial AI image analysis: processed ${processed} image(s)`); })
+  .catch((error) => console.error('Initial AI image analysis failed:', error));
+
+runDueGeneralAffairSchedules()
+  .then((generated) => { if (generated.length) console.log('Initial GA preventive scheduler:', generated); })
+  .catch((error) => console.error('Initial GA preventive scheduler failed:', error));
+
+const shutdown = async () => { scheduleGenerationTask.stop(); preventiveAlarmTask.stop(); stockOpnameScheduleTask.stop(); employeeSyncTask.stop(); dbBackupTask.stop(); energyGovernanceTask.stop(); reportCatalogTask.stop(); validationAutomationTask.stop(); aiImageAnalysisTask.stop(); generalAffairScheduleTask.stop(); server.close(); await pool.end(); await closeErpPools(); process.exit(0); };
 process.on('SIGINT', () => void shutdown()); process.on('SIGTERM', () => void shutdown());

@@ -1,0 +1,40 @@
+import { apiV2 } from "@/lib/api-client";
+
+export type GaTask = Record<string, unknown> & { id:number; task_number:string; module_code:string; title:string; company_code:string; location_name:string; planned_date:string; status:string; risk_level:string; evidence_count:number; open_ncr_count:number };
+export type GaCctvEvent = Record<string, unknown> & { id:number; event_number:string; camera_code:string; camera_name:string; location_name:string; offline_at:string; online_at:string|null; repeat_count:number; risk_level:string; status:string };
+export type GaWeighbridge = Record<string, unknown> & { id:number; reconciliation_number:string; ticket_number:string; vehicle_plate:string; ticket_entry_at:string; match_time:number|null; match_plate:number|null; match_cargo:number|null; status:string };
+export type GaNcr = Record<string, unknown> & { id:number; ncr_number:string; module_code:string; title:string; severity:string; status:string; due_at:string|null };
+export type GaPublication = Record<string, unknown> & { id:number; publication_number:string; company_code:string; period_start:string; period_end:string; report_variant:string; version_no:number; status:string };
+export type GaObject = Record<string, unknown> & { id:number; module_code:string; object_code:string; object_name:string; object_type:string; company_code:string; location_name:string; status:string };
+export type GaSubmoduleDashboard = {
+  module_code:string; module_name:string; period:{from:string;to:string};
+  filters:{company:string|null;site:string|null;companies:string[];sites:string[]};
+  freshness:{generated_at:string;timezone:string;source:string};
+  kpis:Array<{code:string;label:string;value:number|null;unit:string;numerator:number;denominator:number}>;
+  summary:{total:number;completed:number;open_count:number;pending_validation:number;overdue:number};
+  status_counts:Array<{status:string;count:number}>;
+  trend:Array<{date:string;planned:number;completed:number;overdue:number}>;
+  comparisons:Array<{label:string;total:number;completed:number;open_count:number}>;
+  queue:Array<{id:number;reference:string;title:string;location_name?:string;company_code?:string;owner?:string;due_at?:string;status:string;risk_level:string}>;
+  ncrs:Array<{id:number;reference:string;title:string;severity:string;status:string;due_at?:string;owner?:string}>;
+};
+
+export const getGaDashboard = (signal?:AbortSignal) => apiV2.get<Record<string, unknown>>("/general-affair/dashboard",{signal});
+export const getGaSubmoduleDashboard = (params:{module_code:string;company?:string;site?:string;date_from:string;date_to:string},signal?:AbortSignal) => apiV2.get<GaSubmoduleDashboard>("/general-affair/submodule-dashboard",{params,signal});
+export const getGaObjects = (params?:Record<string,string>,signal?:AbortSignal) => apiV2.get<GaObject[]>("/general-affair/objects",{params,signal});
+export const createGaObject = (body:Record<string,unknown>) => apiV2.post<{id:number}>("/general-affair/objects",body);
+export const getGaTasks = (params?:Record<string,string>,signal?:AbortSignal) => apiV2.get<GaTask[]>("/general-affair/tasks",{params,signal});
+export const createGaTask = (body:Record<string,unknown>) => apiV2.post<{id:number;task_number:string}>("/general-affair/tasks",body);
+export const transitionGaTask = (id:number,action:string,note="") => apiV2.post<{id:number;status:string}>(`/general-affair/tasks/${id}/transition`,{action,note});
+export const uploadGaTaskEvidence = (id:number,files:File[],evidenceType="SUPPORTING") => { const formData=new FormData(); files.forEach(file=>formData.append("files",file)); formData.append("evidence_type",evidenceType); return apiV2.post(`/general-affair/tasks/${id}/evidence`,undefined,{formData}); };
+export const getGaCctvEvents = (signal?:AbortSignal) => apiV2.get<GaCctvEvent[]>("/general-affair/cctv-events",{signal});
+export const createGaCctvEvent = (body:Record<string,unknown>) => apiV2.post<{id:number}>("/general-affair/cctv-events",body);
+export const restoreGaCctv = (id:number,body:Record<string,unknown>) => apiV2.post(`/general-affair/cctv-events/${id}/restore`,body);
+export const approveGaCctv = (id:number) => apiV2.post(`/general-affair/cctv-events/${id}/approve`,{});
+export const getGaWeighbridge = (signal?:AbortSignal) => apiV2.get<GaWeighbridge[]>("/general-affair/weighbridge",{signal});
+export const createGaWeighbridge = (body:Record<string,unknown>) => apiV2.post<{id:number}>("/general-affair/weighbridge",body);
+export const transitionGaWeighbridge = (id:number,action:string) => apiV2.post(`/general-affair/weighbridge/${id}/transition`,{action});
+export const getGaNcr = (signal?:AbortSignal) => apiV2.get<GaNcr[]>("/general-affair/ncr",{signal});
+export const getGaPublications = (signal?:AbortSignal) => apiV2.get<GaPublication[]>("/general-affair/publications",{signal});
+export const createGaPublication = (body:Record<string,unknown>) => apiV2.post<{id:number}>("/general-affair/publications",body);
+export const transitionGaPublication = (id:number,action:string,note="") => apiV2.post(`/general-affair/publications/${id}/transition`,{action,note});

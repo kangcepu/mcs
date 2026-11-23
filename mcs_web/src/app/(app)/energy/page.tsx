@@ -9,6 +9,7 @@ import { EnergyEfficiencyKpiPanel } from "@/components/energy/energy-efficiency-
 import { UtilityAllocationPanel } from "@/components/energy/utility-allocation";
 import { MeterMasterPanel } from "@/components/energy/meter-master";
 import { PageContainer } from "@/components/layout/page-container";
+import { SubmoduleMiniDashboard } from "@/components/dashboard/submodule-mini-dashboard";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
 import { Pagination } from "@/components/ui/pagination";
@@ -166,6 +167,7 @@ export default function EnergyPage() {
         </Button>
       ) : null}
     >
+      <SubmoduleMiniDashboard group="ENERGY" />
       <Tabs
         items={[
           { key: "profiles", label: "Asset Profile" },

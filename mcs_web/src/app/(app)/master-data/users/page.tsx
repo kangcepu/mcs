@@ -356,7 +356,7 @@ export default function MasterUsersPage() {
                   title: active ? "Nonaktifkan user?" : "Aktifkan user?",
                   description: active ? (
                     <>
-                      <b>{fullname}</b> tidak dapat login, tetapi data dan riwayatnya tetap
+                      <b>{fullname}</b> tidak dapat login, tetapi data dan History tetap
                       tersimpan.
                     </>
                   ) : (

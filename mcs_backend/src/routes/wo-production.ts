@@ -12,6 +12,7 @@ import { processPreventiveCompletion } from '../lib/preventive-compliance.js';
 import { companyFilterVariants } from '../lib/employee-api.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { assertWoExecutionReady } from '../lib/wo-execution-guard.js';
+import { requestPreventiveWoCloseValidation } from '../lib/validation-engine.js';
 import type { AuthRequest, User } from '../types.js';
 
 export const productionRouter = Router();
@@ -707,6 +708,12 @@ productionRouter.post('/production/closed', asyncHandler(async (req, res) => {
   if (!header) throw new HttpError(404, 'Work Order not found');
   if (String(header.status) !== 'NEED_CLOSED') throw new HttpError(409, 'Work Order belum siap untuk ditutup');
   const person = personPayload(user);
+
+  const validation = await requestPreventiveWoCloseValidation('wo_preventive', woNumber, user, comment);
+  if (validation) {
+    legacyOk(res, { wo_number: woNumber, status: 'PENDING_CLOSE_REVIEW', validation }, 'WO dikirim ke Close Review');
+    return;
+  }
 
   await transaction(async (connection) => {
     await connection.execute('INSERT INTO tb_approval_preventive (wo_number, fullname, avatar, id_division, id_position, comment, created_at) VALUES (?,?,?,?,?,?,NOW())',

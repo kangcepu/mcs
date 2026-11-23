@@ -333,7 +333,7 @@ fleetRouter.post('/fleet/services', canManage, asyncHandler(async (req: AuthRequ
     }
     return insert.insertId;
   });
-  created(res, { id }, 'Riwayat service berhasil disimpan.');
+  created(res, { id }, 'History service berhasil disimpan.');
 }));
 
 fleetRouter.post('/fleet/anomalies/:id/resolve', canManage, asyncHandler(async (req: AuthRequest, res) => {

@@ -99,7 +99,7 @@ export function AppSidebar({
           <button
             className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 lg:hidden"
             onClick={onClose}
-            aria-label="Tutup menu"
+            aria-label="Close menu"
           >
             <X className="h-5 w-5" />
           </button>
@@ -195,7 +195,7 @@ function SidebarLink({
                 collapsed && "lg:hidden",
               )}
             >
-              Segera
+              Soon
             </span>
           ) : null}
         </Link>
@@ -207,7 +207,7 @@ function SidebarLink({
               active ? "text-white/80" : "text-slate-500 hover:text-slate-300",
               collapsed && "lg:hidden",
             )}
-            aria-label={expanded ? "Tutup submenu" : "Buka submenu"}
+            aria-label={expanded ? "Collapse submenu" : "Expand submenu"}
           >
             <ChevronDown
               className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")}

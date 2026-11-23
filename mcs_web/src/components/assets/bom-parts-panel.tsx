@@ -187,7 +187,7 @@ export function BomPartsPanel({
                             <PlusCircle className="h-4 w-4" />
                           </IconBtn>
                           <IconBtn
-                            title="Riwayat pemakaian"
+                            title="History Pemakaian"
                             onClick={() => open("history", row)}
                           >
                             <History className="h-4 w-4" />
@@ -296,7 +296,7 @@ export function BomPartsPanel({
           onDelete={async (id) => {
             try {
               await m.deleteHistory.mutateAsync({ id, partId: active.id });
-              toast.success("Riwayat dihapus & stok dikembalikan");
+              toast.success("History dihapus & stok dikembalikan");
             } catch (e) {
               err(e);
             }
@@ -711,7 +711,7 @@ function HistoryModal({
       open
       onClose={onClose}
       size="xl"
-      title={`Riwayat Pemakaian — ${partLabel(part)}`}
+      title={`History Pemakaian — ${partLabel(part)}`}
       description="Nilai negatif = restock. Menghapus baris mengembalikan stok."
     >
       {isLoading ? (
@@ -719,7 +719,7 @@ function HistoryModal({
       ) : error ? (
         <ErrorState error={error} onRetry={() => refetch()} />
       ) : rows.length === 0 ? (
-        <EmptyState title="Belum ada riwayat" />
+        <EmptyState title="Belum ada History" />
       ) : (
         <div className="max-h-[60vh] overflow-auto rounded-lg border border-slate-200">
           <table className="w-full text-sm">
@@ -755,7 +755,7 @@ function HistoryModal({
                       onClick={() => onDelete(h.id)}
                       disabled={deleting}
                       className="grid h-8 w-8 place-items-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-                      aria-label="Hapus riwayat"
+                      aria-label="Hapus History"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

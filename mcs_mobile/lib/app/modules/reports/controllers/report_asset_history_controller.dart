@@ -7,8 +7,7 @@ import '../../../core/services/realtime_service.dart';
 import '../../../data/repositories/reports_repository.dart';
 import '../../../data/models/wo_constants.dart';
 
-class ReportAssetHistoryController extends GetxController
-    with RealtimeRefresh {
+class ReportAssetHistoryController extends GetxController with RealtimeRefresh {
   static const int _assetPerPage = 20;
   static const int _historyPerPage = 30;
   static const int minQueryLength = 2;
@@ -243,9 +242,7 @@ class ReportAssetHistoryController extends GetxController
   }
 
   Future<void> loadMoreHistory() async {
-    if (!_historyHasMore ||
-        historyLoading.value ||
-        historyLoadingMore.value) {
+    if (!_historyHasMore || historyLoading.value || historyLoadingMore.value) {
       return;
     }
     final token = _historyToken;
@@ -262,7 +259,7 @@ class ReportAssetHistoryController extends GetxController
       _historyPage = result.page;
       _historyHasMore = result.hasMore;
     } catch (e) {
-      if (token == _historyToken) _snack('Gagal memuat riwayat', _msg(e));
+      if (token == _historyToken) _snack('Gagal memuat History', _msg(e));
     } finally {
       historyLoadingMore.value = false;
     }
@@ -281,7 +278,8 @@ class ReportAssetHistoryController extends GetxController
         'assets-history',
         {'asset_code': code},
         format: format,
-        fileName: 'asset-history-${code.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}',
+        fileName:
+            'asset-history-${code.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}',
       );
     } catch (e) {
       _snack('Gagal ekspor', _msg(e));

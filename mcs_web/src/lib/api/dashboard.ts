@@ -111,6 +111,12 @@ export interface DashboardData {
   };
 }
 
+export type SubmoduleCatalogItem={module_code:string;module_group:string;module_name:string;rollout_order:number;rollout_status:string;default_risk_level:string;default_sla_hours:number;adapter_code:string|null;transaction_count:number;pending_count:number;overdue_count:number;last_activity_at:string|null};
+export type SubmoduleDashboard={module_code:string;module_name:string;module_group:string;rollout_status:string;adapter_code:string;data_notice?:string|null;period:{from:string;to:string};freshness:{generated_at:string;source:string};filters:{company:string|null;site:string|null;companies:string[];sites:string[]};kpis:Array<{code:string;label:string;value:number|null;unit:string;numerator:number;denominator:number}>;summary:{total:number;completed:number;open_count:number;pending_validation:number;overdue:number};status_counts:Array<{status:string;count:number}>;trend:Array<{date:string;planned:number;completed:number;overdue:number}>;comparisons:Array<{label:string;total:number;completed:number;open_count:number}>;queue:Array<{id:number;reference:string;title:string;location_name?:string;owner?:string;due_at?:string;status:string;risk_level:string}>;ncrs:Array<{id:number;reference:string;title:string;severity:string;status:string;due_at?:string;owner?:string}>};
+
+export function getSubmoduleCatalog(params:Record<string,string>,signal?:AbortSignal){return apiV2.get<SubmoduleCatalogItem[]>('/dashboard/submodules',{params,signal});}
+export function getSubmoduleDashboard(moduleCode:string,params:Record<string,string>,signal?:AbortSignal){return apiV2.get<SubmoduleDashboard>(`/dashboard/submodules/${moduleCode}`,{params,signal});}
+
 /** GET /v2/dashboard — semua agregat dalam satu panggilan. */
 export function getDashboard(
   params: { range?: number; company?: string; module?: string },

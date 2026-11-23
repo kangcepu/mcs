@@ -17,7 +17,7 @@ class WorkOrderDetailTabs extends StatelessWidget {
     (icon: Icons.description_outlined, label: 'Ringkasan'),
     (icon: Icons.verified_user_outlined, label: 'Preventive'),
     (icon: Icons.inventory_2_outlined, label: 'Resource'),
-    (icon: Icons.history, label: 'Riwayat'),
+    (icon: Icons.history, label: 'History'),
   ];
 
   @override

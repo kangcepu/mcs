@@ -79,7 +79,8 @@ class HomeController extends GetxController
   final dailyControlUnreadCount = 0.obs;
   final moduleCounts = <String, int>{}.obs;
   final isLoadingStats = false.obs;
-  final Rxn<Map<String, dynamic>> dashboardSummary = Rxn<Map<String, dynamic>>();
+  final Rxn<Map<String, dynamic>> dashboardSummary =
+      Rxn<Map<String, dynamic>>();
   final isLoadingDashboard = false.obs;
   StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
   Timer? _updateCheckDebounce;
@@ -164,7 +165,7 @@ class HomeController extends GetxController
       color: const Color(0xFF4facfe),
       route: '/stock_opname/list',
       enabled: true,
-      permissionKey: '',
+      permissionKey: 'stock_opname',
     ),
     MenuItem(
       title: 'Asset',
@@ -201,6 +202,15 @@ class HomeController extends GetxController
       route: '/reports',
       enabled: true,
       permissionKey: 'report_access',
+    ),
+    MenuItem(
+      title: 'Analisis Gambar',
+      subtitle: '',
+      icon: Icons.document_scanner_outlined,
+      color: const Color(0xFF7C3AED),
+      route: '/ai-image-analysis',
+      enabled: true,
+      permissionKey: 'ai_image_analysis',
     ),
   ].obs;
 
@@ -816,7 +826,22 @@ class HomeController extends GetxController
     final listOfAsset = prefs.getInt('list_of_asset') ?? 0;
     final recapWo = prefs.getInt('recap_wo') ?? 0;
     final reportCr = prefs.getInt('report_cr') ?? 0;
-    final reportSo = prefs.getInt('report_so') ?? 1;
+    final reportSo = prefs.getInt('report_so') ?? 0;
+    Map<String, dynamic> cachedPermissions = const {};
+    try {
+      final rawUser = prefs.getString('user_data');
+      final decoded = rawUser == null ? null : jsonDecode(rawUser);
+      final rawPermissions = decoded is Map ? decoded['permissions'] : null;
+      if (rawPermissions is Map) {
+        cachedPermissions = Map<String, dynamic>.from(rawPermissions);
+      }
+    } catch (_) {
+      // Cache lama/rusak: permission akan diperbarui dari profile API.
+    }
+    bool cachedHasAny(Iterable<String> fields) => fields.any((field) {
+          final value = cachedPermissions[field];
+          return value == 1 || value == '1' || value == true;
+        });
 
     for (var i = 0; i < menuItems.length; i++) {
       final item = menuItems[i];
@@ -826,10 +851,12 @@ class HomeController extends GetxController
 
       switch (item.permissionKey) {
         case 'wo_it':
-          hasPermission = woIt == 1 || woCrossAccess == 1 || woCrossAccessIs == 1;
+          hasPermission =
+              woIt == 1 || woCrossAccess == 1 || woCrossAccessIs == 1;
           break;
         case 'wo_ga':
-          hasPermission = woGa == 1 || woCrossAccess == 1 || woCrossAccessGa == 1;
+          hasPermission =
+              woGa == 1 || woCrossAccess == 1 || woCrossAccessGa == 1;
           break;
         case 'wo_mtc':
           hasPermission = woMtc == 1 ||
@@ -878,6 +905,17 @@ class HomeController extends GetxController
             reportCr: reportCr,
             reportSo: reportSo,
           );
+          break;
+        case 'stock_opname':
+          hasPermission = cachedHasAny(const ['stock_opname', 'schedule']);
+          break;
+        case 'ai_image_analysis':
+          hasPermission = cachedHasAny(const [
+            'ai_image_analysis_view',
+            'ai_image_analysis_create',
+            'ai_image_analysis_retry',
+            'ai_image_analysis_verify',
+          ]);
           break;
       }
 
@@ -955,6 +993,18 @@ class HomeController extends GetxController
             reportCr: permissions.reportCr,
             reportSo: permissions.reportSo,
           );
+          break;
+        case 'stock_opname':
+          hasPermission =
+              permissions.hasAny(const ['stock_opname', 'schedule']);
+          break;
+        case 'ai_image_analysis':
+          hasPermission = permissions.hasAny(const [
+            'ai_image_analysis_view',
+            'ai_image_analysis_create',
+            'ai_image_analysis_retry',
+            'ai_image_analysis_verify',
+          ]);
           break;
       }
 
@@ -1086,13 +1136,14 @@ class HomeController extends GetxController
           ),
           ElevatedButton(
             onPressed: () async {
-              if (Get.isRegistered<RealtimeService>()) RealtimeService.to.stop();
+              if (Get.isRegistered<RealtimeService>())
+                RealtimeService.to.stop();
               await PushNotificationService.instance.unregisterCurrentToken();
               await PushNotificationService.instance
                   .clearDailyControlBadgeCount();
               final prefs = await SharedPreferences.getInstance();
-              await PushNotificationService.clearPreferencesKeepingPermissionFlags(
-                  prefs);
+              await PushNotificationService
+                  .clearPreferencesKeepingPermissionFlags(prefs);
 
               Get.offAllNamed('/login');
             },

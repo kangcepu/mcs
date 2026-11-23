@@ -82,6 +82,19 @@ export const AREA_PERMISSIONS = {
     read: [PERMISSIONS.schedule],
     write: [PERMISSIONS.schedule],
   },
+  stockOpname: {
+    read: [PERMISSIONS.stockOpname, PERMISSIONS.schedule],
+    write: [PERMISSIONS.stockOpname, PERMISSIONS.schedule],
+  },
+  aiImageAnalysis: {
+    read: [
+      PERMISSIONS.aiImageAnalysisView,
+      PERMISSIONS.aiImageAnalysisCreate,
+      PERMISSIONS.aiImageAnalysisRetry,
+      PERMISSIONS.aiImageAnalysisVerify,
+    ],
+    write: [PERMISSIONS.aiImageAnalysisCreate],
+  },
   masterBackup: {
     read: [PERMISSIONS.userManagement],
     write: [PERMISSIONS.userManagement],

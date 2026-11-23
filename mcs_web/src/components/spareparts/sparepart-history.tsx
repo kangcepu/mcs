@@ -33,7 +33,7 @@ export function SparepartHistoryPanel() {
       <Card className="p-4"><p className="text-2xl font-semibold text-emerald-700">{formatNumber(Number(data?.summary.returned_qty||0))}</p><p className="text-xs text-slate-500">Qty dikembalikan</p></Card>
     </div>
     <div className="flex flex-col gap-2 sm:flex-row"><div className="relative sm:max-w-xl sm:flex-1"><History className="absolute left-3 top-3 h-4 w-4 text-slate-400"/><Input className="pl-9" value={q} onChange={e=>{setQ(e.target.value);setPage(1);}} placeholder="Cari Asset Code/nama, nomor WO, request, atau sparepart…"/></div><Button variant="secondary" onClick={()=>query.refetch()}><RefreshCw className="h-4 w-4"/>Refresh</Button></div>
-    <DataTable columns={columns} data={data?.items} rowKey={r=>r.line_id} isLoading={query.isLoading} error={query.error} onRetry={()=>query.refetch()} emptyTitle="Belum ada riwayat sparepart Asset/WO"/>
+    <DataTable columns={columns} data={data?.items} rowKey={r=>r.line_id} isLoading={query.isLoading} error={query.error} onRetry={()=>query.refetch()} emptyTitle="Belum ada History sparepart Asset/WO"/>
     {(meta?.total_pages??1)>1?<div className="flex items-center justify-end gap-2 text-sm"><span>Halaman {meta?.page} dari {meta?.total_pages}</span><Button variant="secondary" disabled={page<=1} onClick={()=>setPage(v=>v-1)}>Sebelumnya</Button><Button variant="secondary" disabled={page>=(meta?.total_pages??1)} onClick={()=>setPage(v=>v+1)}>Berikutnya</Button></div>:null}
   </div>;
 }

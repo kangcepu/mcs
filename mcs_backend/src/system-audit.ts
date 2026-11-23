@@ -10,6 +10,18 @@ const MODULE_RULES: [string, string][] = [
   ['mcs_mobile', 'MCS Mobile'],
   ['work-orders', 'Work Order'],
   ['wo_', 'Work Order'],
+  ['v2/maintenance/', 'Work Order'],
+  ['v2/meso/', 'Work Order'],
+  ['v2/production/', 'Work Order'],
+  ['v2/is/', 'Work Order'],
+  ['v2/ga/', 'Work Order'],
+  ['stock-opname', 'Stock Opname'],
+  ['validation', 'Validation'],
+  ['ai-image-analysis', 'AI Image Analysis'],
+  ['general-affair', 'General Affair'],
+  ['sparepart', 'Sparepart'],
+  ['governance', 'Governance'],
+  ['report', 'Report'],
   ['daily', 'Daily Control'],
   ['material', 'Material Usage'],
   ['asset-mutation', 'Asset Mutation'],
@@ -117,8 +129,33 @@ function actionFor(path: string, method: string): string {
   return `${method} ${label}`;
 }
 
-function referenceFor(body: Record<string, unknown>): string {
-  const value = body.wo_number ?? body.reference ?? body.doc_no ?? body.asset_code ?? body.username ?? body.id ?? '';
+function firstReference(source: Record<string, unknown> | null | undefined): unknown {
+  if (!source) return undefined;
+  const keys = [
+    'wo_number', 'woNumber', 'no_wo', 'noWo', 'NoWO', 'noWoMtc',
+    'no_so', 'NoSO', 'opname_number',
+    'ncr_number', 'analysis_number', 'reference', 'reference_number',
+    'doc_no', 'document_number', 'asset_code', 'schedule_code', 'username', 'id',
+  ];
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return undefined;
+}
+
+function referenceFor(
+  body: Record<string, unknown>,
+  query: Record<string, unknown>,
+  responseBody: unknown,
+): string {
+  const parsed = responseBody && typeof responseBody === 'object'
+    ? responseBody as Record<string, unknown>
+    : null;
+  const data = parsed?.data && typeof parsed.data === 'object'
+    ? parsed.data as Record<string, unknown>
+    : null;
+  const value = firstReference(body) ?? firstReference(query) ?? firstReference(data) ?? '';
   return String(value).slice(0, 255);
 }
 
@@ -155,7 +192,7 @@ async function record(req: Request, statusCode: number, responseBody: unknown): 
        (module, action, reference, route, method, outcome, http_status, actor_id, actor_username, actor_fullname, ip_address, user_agent, request_data, created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
       [
-        moduleFor(path), actionFor(path, method), referenceFor(body), path.slice(0, 255), method,
+        moduleFor(path), actionFor(path, method), referenceFor(body, req.query as Record<string, unknown>, responseBody), path.slice(0, 255), method,
         success ? 'success' : 'failed', statusCode, actor.id, actor.username.slice(0, 100), actor.fullname.slice(0, 255),
         clientIp(req).ip.slice(0, 64), String(req.header('user-agent') ?? '').slice(0, 500),
         JSON.stringify(body).slice(0, 30000),

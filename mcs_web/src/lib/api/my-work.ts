@@ -28,7 +28,7 @@ export interface MyWorkItem {
 }
 
 export interface MyWorkCategory {
-  key: "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "preventive_missing" | "asset_missing_pic" | "stock_opname_schedule" | "stock_opname_unlocked";
+  key: "validation_pending" | "validation_approval" | "validation_returned" | "validation_close_review" | "ncr_due" | "wo_approvals" | "wo_closings" | "materials" | "wo_todo" | "preventive_missing" | "asset_missing_pic" | "stock_opname_schedule" | "stock_opname_unlocked";
   label: string;
   count: number;
   items: MyWorkItem[];
@@ -37,6 +37,15 @@ export interface MyWorkCategory {
 export interface MyWorkSummary {
   categories: MyWorkCategory[];
   total: number;
+}
+
+export interface ValidationRequestDetail extends MyWorkItem {
+  id: number;
+  request_number: string;
+  state: string;
+  evidence?: Array<Record<string, unknown>>;
+  decisions?: Array<Record<string, unknown>>;
+  exceptions?: Array<Record<string, unknown>>;
 }
 
 /** GET /v2/my-work/summary — ringkasan + preview tiap kategori, buat tile KPI. */
@@ -53,4 +62,19 @@ export function getMyWorkList(
   signal?: AbortSignal,
 ): Promise<ApiResponse<MyWorkItem[]>> {
   return apiV2.get<MyWorkItem[]>("/my-work/list", { params: { ...params, category }, signal });
+}
+
+export function getValidationRequest(id: number, signal?: AbortSignal): Promise<ApiResponse<ValidationRequestDetail>> {
+  return apiV2.get<ValidationRequestDetail>(`/validation/requests/${id}`, { signal });
+}
+
+export function decideValidationRequest(id: number, input: { action: "APPROVE" | "RETURN" | "REJECT" | "RESUBMIT"; note?: string; reason_code?: string }) {
+  return apiV2.post<Record<string, unknown>>(`/validation/requests/${id}/decision`, input);
+}
+
+export function uploadValidationEvidence(id: number, files: File[], evidenceType = "SUPPORTING") {
+  const formData = new FormData();
+  formData.append("evidence_type", evidenceType);
+  files.forEach((file) => formData.append("files", file));
+  return apiV2.post<Array<Record<string, unknown>>>(`/validation/requests/${id}/evidence`, undefined, { formData });
 }

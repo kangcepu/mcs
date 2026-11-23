@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarClock, ClipboardCheck, Fuel, Gauge, Plus, Truck, Wrench } from "lucide-react";
 import { AssetPicker } from "@/components/assets/asset-picker";
 import { PageContainer } from "@/components/layout/page-container";
+import { SubmoduleMiniDashboard } from "@/components/dashboard/submodule-mini-dashboard";
 import { Modal } from "@/components/ui/modal";
 import { Button, Card, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -143,6 +144,7 @@ export default function FleetPage() {
   return (
     <PageContainer title="Fleet & Vehicle" description="Kendaraan, forklift, inspeksi, solar, meter, preventive, service, dan efficiency control."
       actions={canWrite ? <Button onClick={() => open("profile")}><Plus className="h-4 w-4" /> Tambah Fleet Asset</Button> : undefined}>
+      <SubmoduleMiniDashboard group="FLEET" />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {metric(data?.stats.total ?? 0, "Fleet asset aktif", <Truck className="h-5 w-5" />, "bg-brand-50 text-brand-700")}
         {metric(data?.stats.inspection_due ?? 0, "Inspection due", <ClipboardCheck className="h-5 w-5" />, "bg-amber-50 text-amber-700")}

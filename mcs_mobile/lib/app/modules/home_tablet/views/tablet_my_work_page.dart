@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart' as dio;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +15,14 @@ const _ink = Color(0xFF0F172A);
 const _muted = Color(0xFF64748B);
 const _line = Color(0xFFE2E8F0);
 const _danger = Color(0xFFE11D48);
+
+const _validationTabs = <String>{
+  'validation_pending',
+  'validation_approval',
+  'validation_returned',
+  'validation_close_review',
+  'ncr_due',
+};
 
 class _CategoryMeta {
   final String key;
@@ -29,6 +39,36 @@ class _CategoryMeta {
 }
 
 const _categories = <_CategoryMeta>[
+  _CategoryMeta(
+    key: 'validation_pending',
+    fallbackLabel: 'Menunggu Validasi',
+    emptyMessage: 'Tidak ada transaksi yang menunggu validasi Anda.',
+    icon: Icons.fact_check_outlined,
+  ),
+  _CategoryMeta(
+    key: 'validation_approval',
+    fallbackLabel: 'Menunggu Approval',
+    emptyMessage: 'Tidak ada hasil validasi yang menunggu approval Anda.',
+    icon: Icons.approval_outlined,
+  ),
+  _CategoryMeta(
+    key: 'validation_returned',
+    fallbackLabel: 'Dikembalikan ke Saya',
+    emptyMessage: 'Tidak ada pekerjaan yang dikembalikan kepada Anda.',
+    icon: Icons.replay_outlined,
+  ),
+  _CategoryMeta(
+    key: 'validation_close_review',
+    fallbackLabel: 'Menunggu Close Review',
+    emptyMessage: 'Tidak ada transaksi yang menunggu close review.',
+    icon: Icons.task_alt_outlined,
+  ),
+  _CategoryMeta(
+    key: 'ncr_due',
+    fallbackLabel: 'NCR Due',
+    emptyMessage: 'Tidak ada NCR aktif yang ditugaskan kepada Anda.',
+    icon: Icons.report_problem_outlined,
+  ),
   _CategoryMeta(
     key: 'wo_approvals',
     fallbackLabel: 'Approve WO',
@@ -65,6 +105,12 @@ const _categories = <_CategoryMeta>[
     fallbackLabel: 'Aset Belum Memiliki PIC',
     emptyMessage: 'Semua aset aktif sudah memiliki PIC utama.',
     icon: Icons.person_off_outlined,
+  ),
+  _CategoryMeta(
+    key: 'stock_opname_schedule',
+    fallbackLabel: 'Jadwal Stock Opname',
+    emptyMessage: 'Tidak ada jadwal Stock Opname untuk Anda.',
+    icon: Icons.event_note_outlined,
   ),
   _CategoryMeta(
     key: 'stock_opname_unlocked',
@@ -118,6 +164,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
   List<Map<String, dynamic>> _summaryCategories = [];
   List<Map<String, dynamic>> _rows = [];
   Map<String, dynamic>? _selected;
+  Map<String, dynamic>? _validationDetail;
 
   _CategoryMeta get _activeMeta =>
       _categories.firstWhere((category) => category.key == _tab);
@@ -198,9 +245,11 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
         _total = _asInt(meta['total'], fallback: rows.length);
         _totalPages = _asInt(meta['total_pages'], fallback: 1).clamp(1, 999999);
         _selected = rows.isEmpty ? null : rows.first;
+        _validationDetail = null;
         _loading = false;
         _fetching = false;
       });
+      if (_selectedValidationId != null) unawaited(_loadValidationDetail());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -221,6 +270,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
       _page = 1;
       _rows = [];
       _selected = null;
+      _validationDetail = null;
     });
     _loadList();
   }
@@ -237,9 +287,23 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
     });
   }
 
-  void _select(Map<String, dynamic> row) {
-    setState(() => _selected = row);
-    if (!_wideLayout) _showCompactDetail(row);
+  Future<void> _select(Map<String, dynamic> row) async {
+    setState(() { _selected = row; _validationDetail = null; });
+    if (_selectedValidationId != null) await _loadValidationDetail();
+    if (!_wideLayout && mounted) await _showCompactDetail(row);
+  }
+
+  Future<void> _loadValidationDetail() async {
+    final id = _selectedValidationId;
+    if (id == null) return;
+    try {
+      final response = await ApiService().get('/v2/validation/requests/$id');
+      final body = response.data;
+      if (!mounted || body is! Map || body['data'] is! Map || _selectedValidationId != id) return;
+      setState(() => _validationDetail = Map<String, dynamic>.from(body['data'] as Map));
+    } catch (_) {
+      // Antrean tetap dapat diproses; detail exception akan muncul setelah refresh.
+    }
   }
 
   Future<void> _showCompactDetail(Map<String, dynamic> row) async {
@@ -339,6 +403,18 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
       Get.toNamed(AppRoutes.stockOpnameList);
       return;
     }
+    if (_tab == 'stock_opname_schedule') {
+      Get.toNamed(AppRoutes.stockOpnameList);
+      return;
+    }
+    if (_validationTabs.contains(_tab)) {
+      Get.snackbar(
+        'Detail validasi',
+        'Antrean sudah tersedia. Aksi keputusan dan evidence akan tersedia pada tahap berikutnya.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
     if (_tab == 'materials') return;
 
     final module = '${row['module_key'] ?? row['module'] ?? ''}';
@@ -353,6 +429,130 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
       return;
     }
     Get.toNamed(route, arguments: {'wo_number': woNumber});
+  }
+
+  int? get _selectedValidationId {
+    final raw = _selected?['validation_id'];
+    if (raw is int && raw > 0) return raw;
+    return int.tryParse('${raw ?? ''}');
+  }
+
+  Future<void> _validationDecision(String action) async {
+    final id = _selectedValidationId;
+    if (id == null || _acting) return;
+    final controller = TextEditingController();
+    final needsReason = action == 'RETURN' || action == 'REJECT';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(switch (action) {
+          'APPROVE' => _tab == 'validation_approval'
+              ? 'Approve validasi?'
+              : 'Selesaikan validasi?',
+          'RESUBMIT' => 'Kirim ulang request?',
+          'RETURN' => 'Kembalikan ke maker?',
+          _ => 'Tolak request?',
+        }),
+        content: TextField(
+          controller: controller,
+          minLines: 3,
+          maxLines: 6,
+          decoration: InputDecoration(
+            labelText: needsReason ? 'Alasan (wajib)' : 'Catatan',
+            hintText: needsReason
+                ? 'Minimal 5 karakter'
+                : 'Catatan keputusan (opsional)',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Simpan')),
+        ],
+      ),
+    );
+    final note = controller.text.trim();
+    controller.dispose();
+    if (confirmed != true) return;
+    if (needsReason && note.length < 5) {
+      Get.snackbar(
+          'Alasan belum lengkap', 'Masukkan alasan minimal 5 karakter.',
+          snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+    setState(() => _acting = true);
+    try {
+      final response = await ApiService().post(
+          '/v2/validation/requests/$id/decision',
+          data: {'action': action, 'note': note});
+      final body = response.data;
+      if (body is! Map || body['success'] != true) {
+        throw Exception(
+            body is Map ? body['message'] : 'Keputusan gagal disimpan.');
+      }
+      Get.snackbar('Validation Engine',
+          '${body['message'] ?? 'Keputusan berhasil disimpan.'}',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF15803D),
+          colorText: Colors.white);
+      if (mounted) setState(() => _selected = null);
+      await _reloadAll();
+    } catch (error) {
+      Get.snackbar(
+          'Aksi gagal', error.toString().replaceFirst('Exception: ', ''),
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: _danger,
+          colorText: Colors.white);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _uploadValidationEvidence() async {
+    final id = _selectedValidationId;
+    if (id == null || _acting) return;
+    final picked = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'txt'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final files = <dio.MultipartFile>[];
+    for (final file in picked.files) {
+      if (file.path == null) continue;
+      files.add(
+          await dio.MultipartFile.fromFile(file.path!, filename: file.name));
+    }
+    if (files.isEmpty) return;
+    setState(() => _acting = true);
+    try {
+      final response = await ApiService().post(
+        '/v2/validation/requests/$id/evidence',
+        data: dio.FormData.fromMap(
+            {'evidence_type': 'SUPPORTING', 'files': files}),
+      );
+      final body = response.data;
+      if (body is! Map || body['success'] != true) {
+        throw Exception(
+            body is Map ? body['message'] : 'Upload evidence gagal.');
+      }
+      Get.snackbar('Validation Engine', 'Evidence berhasil diunggah.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF15803D),
+          colorText: Colors.white);
+    } catch (error) {
+      Get.snackbar(
+          'Upload gagal', error.toString().replaceFirst('Exception: ', ''),
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: _danger,
+          colorText: Colors.white);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
   }
 
   Future<void> _assignAssetPic() async {
@@ -436,11 +636,13 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
 
   Widget _buildCategoryGrid(double width) {
     final perRow = width >= 1040
-        ? 6
-        : width >= 650
-            ? 3
-            : 2;
-    const gap = 10.0;
+        ? 7
+        : width >= 800
+            ? 5
+            : width >= 650
+                ? 3
+                : 2;
+    const gap = 8.0;
     final cardWidth = (width - ((perRow - 1) * gap)) / perRow;
     return Wrap(
       spacing: gap,
@@ -454,61 +656,70 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
           width: cardWidth,
           child: Material(
             color: active ? const Color(0xFFEFF4FF) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(9),
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(9),
               onTap: () => _changeTab(meta.key),
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(9),
                   border: Border.all(color: active ? _brand : _line),
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 34,
-                      height: 34,
+                      width: 28,
+                      height: 28,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: count > 0
                             ? const Color(0xFFFFF7ED)
                             : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(9),
+                        borderRadius: BorderRadius.circular(7),
                       ),
                       child: Icon(
                         meta.icon,
-                        size: 18,
+                        size: 16,
                         color: count > 0
                             ? const Color(0xFFEA580C)
                             : const Color(0xFF94A3B8),
                       ),
                     ),
-                    const SizedBox(width: 9),
+                    const SizedBox(width: 7),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _summaryLoading ? '…' : '$count',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: _ink,
-                            ),
-                          ),
-                          Text(
                             label,
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 11,
+                              fontSize: 10.5,
                               height: 1.2,
                               fontWeight: FontWeight.w600,
                               color: _muted,
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    Container(
+                      constraints: const BoxConstraints(minWidth: 24),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: count > 0 ? const Color(0xFFFFEDD5) : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _summaryLoading ? '…' : '$count',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: count > 0 ? const Color(0xFFC2410C) : _muted,
+                        ),
                       ),
                     ),
                   ],
@@ -738,6 +949,33 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
             ),
           ),
         ),
+        if (_validationTabs.contains(_tab) && ((_validationDetail?['exceptions'] as List?)?.isNotEmpty ?? false)) ...[
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Exception wajib diperiksa (${(_validationDetail!['exceptions'] as List).length})',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF92400E))),
+                const SizedBox(height: 8),
+                ...(_validationDetail!['exceptions'] as List).whereType<Map>().map((item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Text(
+                    '• ${item['exception_type'] ?? 'EXCEPTION'} — ${item['exception_summary'] ?? item['description'] ?? '-'}',
+                    style: const TextStyle(fontSize: 11.5, height: 1.3, color: Color(0xFF78350F)),
+                  ),
+                )),
+              ],
+            ),
+          ),
+        ],
         const Divider(height: 24),
         Wrap(
           spacing: 8,
@@ -773,8 +1011,45 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
                 icon: const Icon(Icons.person_add_alt_1, size: 17),
                 label: const Text('Tetapkan PIC'),
               ),
+            ] else if (_validationTabs.contains(_tab) &&
+                _tab != 'ncr_due' &&
+                _selectedValidationId != null) ...[
+              OutlinedButton.icon(
+                onPressed: _acting ? null : _uploadValidationEvidence,
+                icon: const Icon(Icons.upload_file_outlined, size: 17),
+                label: const Text('Evidence'),
+              ),
+              if (_tab == 'validation_returned')
+                FilledButton.icon(
+                  onPressed:
+                      _acting ? null : () => _validationDecision('RESUBMIT'),
+                  icon: const Icon(Icons.replay_outlined, size: 17),
+                  label: const Text('Kirim Ulang'),
+                )
+              else ...[
+                FilledButton.icon(
+                  onPressed:
+                      _acting ? null : () => _validationDecision('APPROVE'),
+                  icon: const Icon(Icons.check, size: 17),
+                  label: Text(
+                      _tab == 'validation_approval' ? 'Approve' : 'Validasi'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      _acting ? null : () => _validationDecision('RETURN'),
+                  icon: const Icon(Icons.replay_outlined, size: 17),
+                  label: const Text('Kembalikan'),
+                ),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(foregroundColor: _danger),
+                  onPressed:
+                      _acting ? null : () => _validationDecision('REJECT'),
+                  icon: const Icon(Icons.close, size: 17),
+                  label: const Text('Tolak'),
+                ),
+              ],
             ],
-            if (_tab != 'materials')
+            if (_tab != 'materials' && !_validationTabs.contains(_tab))
               OutlinedButton.icon(
                 onPressed: _openSelected,
                 icon: const Icon(Icons.open_in_new, size: 16),
@@ -917,14 +1192,32 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
   }
 
   String _title(Map<String, dynamic> row) {
+    if (_validationTabs.contains(_tab)) {
+      return '${row['source_reference'] ?? row['request_number'] ?? row['title'] ?? '-'}';
+    }
     if (_tab == 'preventive_missing' || _tab == 'asset_missing_pic') {
       return '${row['asset_name'] ?? row['asset_code'] ?? '-'}';
     }
     if (_tab == 'stock_opname_unlocked') return '${row['no_so'] ?? '-'}';
+    if (_tab == 'stock_opname_schedule') {
+      return '${row['schedule_name'] ?? 'Jadwal Stock Opname'}';
+    }
     return '${row['wo_number'] ?? row['request_code'] ?? '-'}';
   }
 
   String _subtitle(Map<String, dynamic> row) {
+    if (_validationTabs.contains(_tab)) {
+      final values = [
+        row['title'],
+        row['module_code'],
+        row['company'],
+        row['maker_name'] == null ? null : 'maker ${row['maker_name']}',
+      ];
+      final text = values
+          .where((value) => value != null && '$value'.trim().isNotEmpty)
+          .join(' · ');
+      return text.isEmpty ? '-' : text;
+    }
     final values = switch (_tab) {
       'preventive_missing' => [
           row['asset_code'],
@@ -937,6 +1230,13 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
           row['location'],
         ],
       'stock_opname_unlocked' => [row['type'], _date(row['tanggal'])],
+      'stock_opname_schedule' => [
+          row['next_run_date'] == null
+              ? null
+              : 'Berikutnya ${_date(row['next_run_date'])}',
+          _asInt(row['is_bom']) == 1 ? 'BOM / Part' : 'Asset',
+          row['no_so'],
+        ],
       'materials' => [
           row['job_title'],
           row['requested_by_name'] == null
@@ -952,6 +1252,26 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
   }
 
   List<MapEntry<String, String>> _detailFields(Map<String, dynamic> row) {
+    if (_validationTabs.contains(_tab)) {
+      return [
+        MapEntry('Referensi', _value(row['source_reference'])),
+        MapEntry('Modul', _value(row['module_code'])),
+        MapEntry(
+          'Company / Site',
+          [row['company'], row['site_id']]
+              .where((value) => value != null && '$value'.trim().isNotEmpty)
+              .join(' · '),
+        ),
+        MapEntry('Asset', _value(row['asset_code'])),
+        MapEntry('Maker', _value(row['maker_name'])),
+        MapEntry('Risiko', _value(row['risk_level'])),
+        MapEntry('Status', _value(row['status'])),
+        MapEntry('Diajukan', _dateTime(row['submitted_at'])),
+        MapEntry('Batas waktu', _dateTime(row['due_at'])),
+        if ('${row['return_reason'] ?? ''}'.trim().isNotEmpty)
+          MapEntry('Alasan kembali', _value(row['return_reason'])),
+      ];
+    }
     if (_tab == 'preventive_missing') {
       return [
         MapEntry('Asset Code', _value(row['asset_code'])),
@@ -978,6 +1298,15 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
         const MapEntry('Status', 'Belum dikunci'),
       ];
     }
+    if (_tab == 'stock_opname_schedule') {
+      return [
+        MapEntry('Jadwal', _value(row['schedule_name'])),
+        MapEntry('No. SO terakhir', _value(row['no_so'])),
+        MapEntry('Jatuh tempo', _date(row['next_run_date'])),
+        MapEntry('Objek', _asInt(row['is_bom']) == 1 ? 'BOM / Part' : 'Asset'),
+        MapEntry('Status run', _value(row['run_status'])),
+      ];
+    }
     if (_tab == 'materials') {
       return [
         MapEntry('No. WO', _value(row['wo_number'])),
@@ -1001,6 +1330,7 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
         'preventive_missing' => 'Buka Detail Asset',
         'asset_missing_pic' => 'Buka Detail Asset',
         'stock_opname_unlocked' => 'Buka Stock Opname',
+        'stock_opname_schedule' => 'Buka Stock Opname',
         _ => 'Buka Detail WO',
       };
 
@@ -1019,6 +1349,15 @@ class _TabletMyWorkPageState extends State<TabletMyWorkPage> {
     if (raw.isEmpty) return '-';
     final parsed = DateTime.tryParse(raw);
     return parsed == null ? raw : DateFormat('dd MMM yyyy').format(parsed);
+  }
+
+  static String _dateTime(dynamic value) {
+    final raw = '${value ?? ''}'.trim();
+    if (raw.isEmpty) return '-';
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null
+        ? raw
+        : DateFormat('dd MMM yyyy HH:mm').format(parsed);
   }
 }
 

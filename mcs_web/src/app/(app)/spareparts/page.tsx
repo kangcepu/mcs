@@ -10,6 +10,7 @@ import { SparepartInventoryControlPanel } from "@/components/spareparts/sparepar
 import { SparepartErpCatalogPanel } from "@/components/spareparts/sparepart-erp-catalog";
 import { SparepartGovernancePanel } from "@/components/spareparts/sparepart-governance";
 import { SparepartHistoryPanel } from "@/components/spareparts/sparepart-history";
+import { SubmoduleMiniDashboard } from "@/components/dashboard/submodule-mini-dashboard";
 import { PageContainer } from "@/components/layout/page-container";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
@@ -106,13 +107,14 @@ export default function SparepartFoundationPage() {
   ];
 
   return <PageContainer title="Sparepart Management" description="Fondasi master sparepart, kompatibilitas asset, lokasi penyimpanan, dan referensi ERP.">
+    <SubmoduleMiniDashboard group="SPAREPART" />
     <div className="grid gap-3 sm:grid-cols-4">
       <Card className="p-4"><p className="text-2xl font-semibold">{data?.parts.length ?? 0}</p><p className="text-xs text-slate-500">Master sparepart</p></Card>
       <Card className="p-4"><p className="text-2xl font-semibold">{data?.compatibility.length ?? 0}</p><p className="text-xs text-slate-500">Relasi kompatibilitas</p></Card>
       <Card className="p-4"><p className="text-2xl font-semibold">{data?.warehouses.length ?? 0}</p><p className="text-xs text-slate-500">Warehouse</p></Card>
       <Card className="p-4"><p className="text-2xl font-semibold">{data?.erp_mappings.length ?? 0}</p><p className="text-xs text-slate-500">Referensi ERP</p></Card>
     </div>
-    <Tabs value={tab} onChange={setTab} items={[{key:"receiving",label:"Penerimaan & Stok"},{key:"inventory",label:"Transfer, SO & Control"},{key:"wo",label:"Request & Issue WO"},{key:"history",label:"Riwayat Asset / WO"},{key:"erp-catalog",label:"Katalog & Saldo ERP"},{key:"governance",label:"Governance"},{key:"master",label:"Master Sparepart",count:data?.parts.length},{key:"compatibility",label:"Kompatibilitas Asset",count:data?.compatibility.length},{key:"location",label:"Warehouse / Rack / Bin",count:data?.bins.length},{key:"erp",label:"Mapping ERP",count:data?.erp_mappings.length}]} />
+    <Tabs value={tab} onChange={setTab} items={[{key:"receiving",label:"Penerimaan & Stok"},{key:"inventory",label:"Transfer, SO & Control"},{key:"wo",label:"Request & Issue WO"},{key:"history",label:"History Asset / WO"},{key:"erp-catalog",label:"Katalog & Saldo ERP"},{key:"governance",label:"Governance"},{key:"master",label:"Master Sparepart",count:data?.parts.length},{key:"compatibility",label:"Kompatibilitas Asset",count:data?.compatibility.length},{key:"location",label:"Warehouse / Rack / Bin",count:data?.bins.length},{key:"erp",label:"Mapping ERP",count:data?.erp_mappings.length}]} />
     {tab === "receiving" ? <SparepartReceivingPanel /> : null}
     {tab === "inventory" ? <SparepartInventoryControlPanel /> : null}
     {tab === "wo" ? <SparepartWoFlowPanel /> : null}

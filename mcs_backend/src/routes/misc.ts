@@ -20,6 +20,7 @@ import { getObjectStream, getStorageConfig, getStorageStatus, isValidStorageUrl,
 import { checkSync, getSyncStatus, startSync, stepSync, stopSync } from '../lib/storage-sync.js';
 import { getWoUnifiedList } from '../lib/void-center.js';
 import { buildReportExport } from '../lib/report-export.js';
+import { clearOpenCodeApiKey, getOpenCodeLlmSettings, saveOpenCodeLlmSettings, syncOpenCodeModels, testOpenCodeConnection } from '../lib/opencode-llm.js';
 import { getLastMobileDisconnect, getOnlineUsers, getRealtimeServerStatus } from '../realtime.js';
 import type { AuthRequest } from '../types.js';
 
@@ -227,6 +228,48 @@ miscRouter.post('/settings/storage/test', authenticate, asyncHandler(async (req,
     throw new HttpError(422, 'Lengkapi endpoint, bucket, access key, dan secret key terlebih dahulu.', 'STORAGE_TEST_INPUT');
   }
   ok(res, await testStorageConnection({ endpoint, region, bucket, accessKey, secretKey, pathStyle }));
+}));
+
+miscRouter.get('/settings/llm/opencode-go', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement(req as AuthRequest);
+  ok(res, await getOpenCodeLlmSettings());
+}));
+
+miscRouter.put('/settings/llm/opencode-go', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement(req as AuthRequest);
+  const user = (req as AuthRequest).user!;
+  const enabled = req.body.enabled === true || req.body.enabled === 1 || req.body.enabled === '1' || req.body.enabled === 'true';
+  const data = await saveOpenCodeLlmSettings({
+    enabled,
+    baseUrl: String(req.body.base_url ?? ''),
+    apiKey: String(req.body.api_key ?? ''),
+    defaultModel: String(req.body.default_model ?? ''),
+    syncModels: req.body.sync_models === true || req.body.sync_models === 1 || req.body.sync_models === '1' || req.body.sync_models === 'true',
+    updatedBy: String(user.fullname || user.username || user.id_user),
+  });
+  ok(res, data, 'Konfigurasi LLM OpenCode disimpan');
+}));
+
+miscRouter.post('/settings/llm/opencode-go/sync-models', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement(req as AuthRequest);
+  ok(res, await syncOpenCodeModels({
+    apiKey: String(req.body.api_key ?? ''),
+    baseUrl: String(req.body.base_url ?? '') || undefined,
+  }), 'Katalog model OpenCode diperbarui');
+}));
+
+miscRouter.post('/settings/llm/opencode-go/test', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement(req as AuthRequest);
+  ok(res, await testOpenCodeConnection({
+    apiKey: String(req.body.api_key ?? ''),
+    baseUrl: String(req.body.base_url ?? '') || undefined,
+  }));
+}));
+
+miscRouter.delete('/settings/llm/opencode-go/api-key', authenticate, asyncHandler(async (req, res) => {
+  requireUserManagement(req as AuthRequest);
+  const user = (req as AuthRequest).user!;
+  ok(res, await clearOpenCodeApiKey(String(user.fullname || user.username || user.id_user)), 'API key OpenCode dihapus');
 }));
 
 miscRouter.get('/settings/storage/sync', authenticate, asyncHandler(async (req, res) => {

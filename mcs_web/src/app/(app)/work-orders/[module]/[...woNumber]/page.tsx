@@ -48,7 +48,7 @@ const BASE_TABS = [
   { key: "material", label: "Material" },
   { key: "approval", label: "Approval" },
   { key: "evidence", label: "Evidence" },
-  { key: "history", label: "Riwayat" },
+  { key: "history", label: "History" },
 ] as const;
 
 /** Fallback sementara untuk respons detail lama yang masih mengirim file_path. */

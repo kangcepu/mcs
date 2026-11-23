@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  ClipboardCheck,
   CalendarCheck2,
   CalendarX2,
   Check,
@@ -12,18 +13,21 @@ import {
   ListTodo,
   Package,
   UserRoundX,
+  RotateCcw,
+  ShieldAlert,
+  Upload,
   X,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Pagination } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/primitives";
+import { Button, Textarea } from "@/components/ui/primitives";
 import { DescriptionList } from "@/components/ui/detail";
 import { ConfirmDialog, useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingSkeleton } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
-import { useMyWorkSummary, useMyWorkList } from "@/hooks/use-my-work";
+import { useMyWorkSummary, useMyWorkList, useValidationActions, useValidationRequest } from "@/hooks/use-my-work";
 import { useWorkOrderDecision } from "@/hooks/use-approval-center";
 import { useWorkOrderDetail } from "@/hooks/use-work-orders";
 import { useQueryParams } from "@/hooks/use-query-params";
@@ -42,6 +46,11 @@ const CATEGORY_META: Record<
   MyWorkCategoryKey,
   { icon: React.ReactNode; empty: string }
 > = {
+  validation_pending: { icon: <ClipboardCheck className="h-4 w-4" />, empty: "Tidak ada transaksi yang menunggu validasi Anda." },
+  validation_approval: { icon: <BadgeCheck className="h-4 w-4" />, empty: "Tidak ada hasil validasi yang menunggu approval Anda." },
+  validation_returned: { icon: <RotateCcw className="h-4 w-4" />, empty: "Tidak ada pekerjaan yang dikembalikan kepada Anda." },
+  validation_close_review: { icon: <Check className="h-4 w-4" />, empty: "Tidak ada transaksi yang menunggu close review." },
+  ncr_due: { icon: <ShieldAlert className="h-4 w-4" />, empty: "Tidak ada NCR aktif yang ditugaskan kepada Anda." },
   wo_approvals: { icon: <BadgeCheck className="h-4 w-4" />, empty: "Tidak ada WO yang menunggu persetujuan Anda." },
   wo_closings: { icon: <Check className="h-4 w-4" />, empty: "Tidak ada WO yang menunggu ditutup." },
   materials: { icon: <Package className="h-4 w-4" />, empty: "Tidak ada request part yang menunggu." },
@@ -51,6 +60,10 @@ const CATEGORY_META: Record<
   stock_opname_schedule: { icon: <CalendarCheck2 className="h-4 w-4" />, empty: "Tidak ada jadwal Stock Opname untuk Anda." },
   stock_opname_unlocked: { icon: <Lock className="h-4 w-4" />, empty: "Semua Stock Opname sudah dikunci." },
 };
+
+const VALIDATION_TABS = new Set<MyWorkCategoryKey>([
+  "validation_pending", "validation_approval", "validation_returned", "validation_close_review", "ncr_due",
+]);
 
 /** WO module_key (`wo_mtc`, dst — Approval Center & Material Request) -> segmen route detail WO. */
 const APPROVAL_MODULE_TO_ROUTE: Record<string, string> = {
@@ -67,6 +80,7 @@ function moduleRouteOf(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string
 }
 
 function itemKey(categoryKey: MyWorkCategoryKey, item: MyWorkItem, i: number): string {
+  if (VALIDATION_TABS.has(categoryKey)) return String(item.validation_id ?? item.request_number ?? item.source_reference ?? i);
   if (categoryKey === "preventive_missing" || categoryKey === "asset_missing_pic") return String(item.asset_id ?? item.asset_code ?? i);
   if (categoryKey === "stock_opname_schedule") return String(item.schedule_id ?? i);
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? i);
@@ -75,6 +89,7 @@ function itemKey(categoryKey: MyWorkCategoryKey, item: MyWorkItem, i: number): s
 }
 
 function itemTitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
+  if (VALIDATION_TABS.has(categoryKey)) return String(item.source_reference ?? item.request_number ?? item.title ?? "-");
   if (categoryKey === "preventive_missing" || categoryKey === "asset_missing_pic") return String(item.asset_name ?? item.asset_code ?? "-");
   if (categoryKey === "stock_opname_schedule") return String(item.schedule_name ?? "Jadwal Stock Opname");
   if (categoryKey === "stock_opname_unlocked") return String(item.no_so ?? "-");
@@ -82,6 +97,7 @@ function itemTitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
 }
 
 function itemSubtitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string {
+  if (VALIDATION_TABS.has(categoryKey)) return [item.title, item.module_code, item.company, item.maker_name ? `maker ${item.maker_name}` : ""].filter(Boolean).join(" · ");
   if (categoryKey === "preventive_missing") return [item.asset_code, item.mtc_area_label, item.location].filter(Boolean).join(" · ");
   if (categoryKey === "asset_missing_pic") return [item.asset_code, item.company, item.location].filter(Boolean).join(" · ");
   if (categoryKey === "stock_opname_schedule") return [`Berikutnya ${formatDate(String(item.next_run_date ?? ""))}`, Number(item.is_bom) === 1 ? "BOM / Part" : "Asset", item.no_so].filter(Boolean).join(" · ");
@@ -96,7 +112,7 @@ function itemSubtitle(categoryKey: MyWorkCategoryKey, item: MyWorkItem): string 
   return [dash(pick(item, ["job_title"])), item.asset_name].filter(Boolean).join(" · ");
 }
 
-const DEFAULTS = { tab: "wo_approvals" as string, q: "", page: 1, per_page: DEFAULT_PER_PAGE };
+const DEFAULTS = { tab: "validation_pending" as string, q: "", page: 1, per_page: DEFAULT_PER_PAGE };
 
 export default function MyWorkPage() {
   const toast = useToast();
@@ -114,7 +130,14 @@ export default function MyWorkPage() {
   const rows = list.data?.data ?? [];
 
   const [selected, setSelected] = useState<MyWorkItem | null>(null);
+  const [validationNote, setValidationNote] = useState("");
   useEffect(() => setSelected(null), [tab]);
+  useEffect(() => setValidationNote(""), [selected]);
+
+  const validationId = VALIDATION_TABS.has(tab) && typeof selected?.validation_id === "number" ? selected.validation_id : undefined;
+  const validationDetailQ = useValidationRequest(validationId);
+  const validationDetail = validationDetailQ.data?.data;
+  const validationActions = useValidationActions();
 
   const selectedModuleRoute = selected ? moduleRouteOf(tab, selected) : "";
   const isWoTab = tab === "wo_approvals" || tab === "wo_closings" || tab === "wo_todo";
@@ -127,6 +150,32 @@ export default function MyWorkPage() {
   const detailValue = (keys: string[]) => pick(detail, keys) || pick(detailHeader, keys) || pick(selected ?? {}, keys);
 
   const decision = useWorkOrderDecision();
+
+  const runValidationDecision = async (action: "APPROVE" | "RETURN" | "REJECT" | "RESUBMIT") => {
+    if (!validationId) return;
+    if ((action === "RETURN" || action === "REJECT") && validationNote.trim().length < 5) {
+      toast.error("Alasan wajib diisi", "Masukkan alasan minimal 5 karakter.");
+      return;
+    }
+    try {
+      await validationActions.decide.mutateAsync({ id: validationId, action, note: validationNote.trim() });
+      toast.success(action === "APPROVE" ? "Keputusan validasi tersimpan" : action === "RESUBMIT" ? "Request dikirim ulang" : "Request diperbarui");
+      setValidationNote("");
+      setSelected(null);
+    } catch (error) {
+      toast.error("Aksi gagal", error instanceof ApiError ? error.message : undefined);
+    }
+  };
+
+  const uploadEvidence = async (files: FileList | null) => {
+    if (!validationId || !files?.length) return;
+    try {
+      await validationActions.upload.mutateAsync({ id: validationId, files: Array.from(files) });
+      toast.success("Evidence berhasil diunggah");
+    } catch (error) {
+      toast.error("Upload gagal", error instanceof ApiError ? error.message : undefined);
+    }
+  };
 
   const woHref = selected && selectedModuleRoute
     ? `/work-orders/${encodeURIComponent(selectedModuleRoute)}/${String(selected.wo_number ?? "")
@@ -167,6 +216,7 @@ export default function MyWorkPage() {
 
   const externalHref = useMemo(() => {
     if (!selected) return "";
+    if (VALIDATION_TABS.has(tab)) return String(selected.source_route ?? "");
     if (tab === "preventive_missing") {
       if (canManageSchedule) {
         const params = new URLSearchParams({
@@ -193,22 +243,22 @@ export default function MyWorkPage() {
       title="My Work"
       description="Daftar pekerjaan yang perlu perhatian Anda — berbeda untuk tiap user sesuai hak akses."
     >
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7">
         {(categories.length ? categories : (Object.keys(CATEGORY_META) as MyWorkCategoryKey[]).map((key) => ({ key, label: key, count: 0, items: [] }))).map((c) => (
           <button
             key={c.key}
             type="button"
             onClick={() => setValues({ tab: c.key, q: "" }, { resetPage: true })}
             className={cn(
-              "flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition",
+              "flex min-h-12 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
               tab === c.key ? "border-brand-300 bg-brand-50" : "border-slate-200 bg-white hover:border-brand-200 hover:bg-slate-50",
             )}
           >
-            <span className={cn("grid h-7 w-7 place-items-center rounded-md", c.count > 0 ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-400")}>
+            <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md", c.count > 0 ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-400")}>
               {CATEGORY_META[c.key as MyWorkCategoryKey]?.icon}
             </span>
-            <span className="text-lg font-bold text-slate-900">{summary.isLoading ? "…" : formatNumber(c.count)}</span>
-            <span className="text-xs font-medium leading-tight text-slate-500">{c.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-600" title={c.label}>{c.label}</span>
+            <span className={cn("min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-bold", c.count > 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500")}>{summary.isLoading ? "…" : formatNumber(c.count)}</span>
           </button>
         ))}
       </div>
@@ -328,6 +378,57 @@ export default function MyWorkPage() {
                   </div>
                 </div>
               )
+            ) : VALIDATION_TABS.has(tab) ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{String(selected.title ?? selected.source_reference ?? "-")}</p>
+                  <p className="mt-1 text-xs text-slate-500">{String(selected.description ?? "Antrean Validation Engine")}</p>
+                </div>
+                <DescriptionList
+                  columns={1}
+                  items={[
+                    { label: "Referensi", value: dash(selected.source_reference) },
+                    { label: "Modul", value: dash(selected.module_code) },
+                    { label: "Company / Site", value: [selected.company, selected.site_id].filter(Boolean).join(" · ") || "-" },
+                    { label: "Asset", value: [selected.asset_code, selected.asset_name].filter(Boolean).join(" — ") || "-" },
+                    { label: "Maker", value: dash(selected.maker_name) },
+                    { label: "Risiko", value: <StatusBadge status={String(selected.risk_level ?? "MEDIUM")} /> },
+                    { label: "Status", value: <StatusBadge status={String(selected.status ?? "")} /> },
+                    { label: "Diajukan", value: formatDateTime(selected.submitted_at ? String(selected.submitted_at) : null) },
+                    { label: "Batas waktu", value: formatDateTime(selected.due_at ? String(selected.due_at) : null) },
+                    ...(selected.return_reason ? [{ label: "Alasan dikembalikan", value: String(selected.return_reason) }] : []),
+                  ]}
+                />
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                  Keputusan mengikuti scope actor dan pemisahan maker–checker–approver. Semua aksi tersimpan pada audit trail.
+                </div>
+                {validationId && validationDetailQ.isLoading ? <p className="text-xs text-slate-500">Memuat evidence dan History keputusan…</p> : null}
+                {validationId ? (
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-slate-700">Evidence ({validationDetail?.evidence?.length ?? 0})</p>
+                      <label className="btn-secondary inline-flex cursor-pointer items-center gap-2">
+                        <Upload className="h-4 w-4" /> Unggah Evidence
+                        <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf,text/plain" className="hidden" onChange={(event) => { void uploadEvidence(event.target.files); event.currentTarget.value = ""; }} />
+                      </label>
+                    </div>
+                    {(validationDetail?.exceptions?.length ?? 0) > 0 ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="mb-2 text-xs font-semibold text-amber-900">Exception yang wajib diperiksa ({validationDetail?.exceptions?.length})</p><div className="space-y-2">{validationDetail?.exceptions?.map((item, index) => <div key={`${item.id ?? index}`} className="rounded border border-amber-100 bg-white p-2 text-xs"><div className="flex items-center justify-between gap-2"><b>{String(item.exception_type ?? "EXCEPTION")}</b><StatusBadge status={String(item.severity ?? item.status ?? "OPEN")}/></div><p className="mt-1 text-slate-700">{String(item.exception_summary ?? item.description ?? "-")}</p>{item.asset_code ? <p className="mt-1 text-slate-500">{String(item.asset_code)} · {String(item.asset_name ?? "")}</p> : null}</div>)}</div></div> : null}
+                    <Textarea value={validationNote} onChange={(event) => setValidationNote(event.target.value)} placeholder="Catatan keputusan / alasan pengembalian…" />
+                    <div className="flex flex-wrap gap-2">
+                      {tab === "validation_returned" ? (
+                        <Button loading={validationActions.decide.isPending} onClick={() => void runValidationDecision("RESUBMIT")}><RotateCcw className="h-4 w-4" /> Kirim Ulang</Button>
+                      ) : tab !== "ncr_due" ? (
+                        <>
+                          <Button loading={validationActions.decide.isPending} onClick={() => void runValidationDecision("APPROVE")}><Check className="h-4 w-4" /> {tab === "validation_approval" ? "Approve" : "Validasi"}</Button>
+                          <Button variant="secondary" loading={validationActions.decide.isPending} onClick={() => void runValidationDecision("RETURN")}><RotateCcw className="h-4 w-4" /> Kembalikan</Button>
+                          <Button variant="danger" loading={validationActions.decide.isPending} onClick={() => void runValidationDecision("REJECT")}><X className="h-4 w-4" /> Tolak</Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {externalHref ? <div className="border-t border-slate-100 pt-4"><Button variant="secondary" onClick={() => window.open(externalHref, "_self")}><ExternalLink className="h-4 w-4"/> Buka Sumber Transaksi</Button></div> : null}
+              </div>
             ) : tab === "preventive_missing" || tab === "asset_missing_pic" ? (
               <div className="space-y-4">
                 <div>

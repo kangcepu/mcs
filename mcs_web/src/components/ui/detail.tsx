@@ -106,7 +106,7 @@ export function Timeline({
   if (entries.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
-        Belum ada riwayat.
+        Belum ada History.
       </p>
     );
   }

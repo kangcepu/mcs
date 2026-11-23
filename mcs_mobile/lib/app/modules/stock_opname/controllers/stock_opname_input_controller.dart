@@ -382,7 +382,7 @@ class StockOpnameInputController extends GetxController {
 
         Get.snackbar(
           'Success',
-          'Stock Opname berhasil dikunci',
+          'Hasil count dikirim ke checker',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.green,
           colorText: Colors.white,
@@ -394,7 +394,7 @@ class StockOpnameInputController extends GetxController {
       } else {
         Get.snackbar(
           'Error',
-          (result['message'] ?? 'Failed to lock stock opname').toString(),
+          (result['message'] ?? 'Gagal submit hasil Stock Opname').toString(),
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red,
           colorText: Colors.white,

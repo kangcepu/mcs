@@ -664,6 +664,8 @@ class _HomePageState extends State<HomePage> {
         return 'Asset\nMutation';
       case 'Scan QR Asset':
         return 'Scan QR\nAsset';
+      case 'Analisis Gambar':
+        return 'Analisis\nGambar';
       default:
         return title;
     }

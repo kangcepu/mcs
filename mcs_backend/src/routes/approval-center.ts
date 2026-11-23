@@ -27,6 +27,7 @@ import { authenticate } from '../auth.js';
 import { asyncHandler, HttpError, ok } from '../http.js';
 import { getVoidCenterList } from '../lib/void-center.js';
 import type { AuthRequest } from '../types.js';
+import { requestPreventiveWoCloseValidation } from '../lib/validation-engine.js';
 
 export const approvalCenterRouter = Router();
 
@@ -118,7 +119,14 @@ async function woDecision(req: AuthRequest, res: import('express').Response, act
   try {
     if (action === 'approve') await approveWo(module, woNumber, user, comment);
     else if (action === 'reject') await rejectWo(module, woNumber, user, comment);
-    else if (action === 'close') await closeWo(module, woNumber, user, comment);
+    else if (action === 'close') {
+      const validation = await requestPreventiveWoCloseValidation(module, woNumber, user, comment);
+      if (validation) {
+        ok(res, { module, wo_number: woNumber, action: 'submitted_for_validation', validation }, 'WO dikirim ke Close Review.');
+        return;
+      }
+      await closeWo(module, woNumber, user, comment);
+    }
     else await voidWo(module, woNumber, user, comment);
   } catch (error) {
     if (error instanceof HttpError) throw error;

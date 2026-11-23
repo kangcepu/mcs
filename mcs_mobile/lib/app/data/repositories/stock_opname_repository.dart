@@ -126,23 +126,18 @@ class StockOpnameRepository {
 
   Future<Map<String, dynamic>> lockStockOpname(String noSO) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.put(
-        Uri.parse(ApiConstants.lockSO(noSO)),
-        headers: headers,
+      final response = await _mcsApi.post(
+        '/v2/stock-opname-operations/${Uri.encodeComponent(noSO)}/submit',
       );
-
-      if (response.statusCode == 200) {
-        return {'status': true, 'message': 'Stock Opname locked successfully'};
-      } else {
-        final responseBody = json.decode(response.body);
-        return {
-          'status': false,
-          'message': responseBody['message'] ?? 'Failed to lock'
-        };
-      }
+      final body = response.data;
+      return {
+        'status': true,
+        'message': body is Map
+            ? body['message'] ?? 'Hasil count dikirim ke checker'
+            : 'Hasil count dikirim ke checker'
+      };
     } catch (e) {
-      return {'status': false, 'message': 'Failed to connect to the server'};
+      return {'status': false, 'message': 'Gagal submit hasil Stock Opname: $e'};
     }
   }
 

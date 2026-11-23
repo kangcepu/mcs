@@ -147,3 +147,96 @@ export async function getUnlockedStockOpnames(token: string, user: User): Promis
     return [];
   }
 }
+
+export type ValidationQueueKey = 'validation_pending' | 'validation_approval' | 'validation_returned' | 'validation_close_review';
+
+/**
+ * Antrean Validation Engine untuk My Work. Assignment dapat eksplisit pada
+ * request atau berasal dari master assignment berdasarkan user/position dan
+ * scope organisasi. Permission/delegation detail akan menjadi gate aksi pada
+ * tahap UI keputusan; daftar ini sudah row-level dan tidak membuka lintas scope.
+ */
+export async function getValidationQueue(user: User, queue: ValidationQueueKey): Promise<Record<string, unknown>[]> {
+  if (!(await tableExists('validation_request')) || !(await tableExists('validation_assignment'))
+    || !(await tableExists('validation_rule'))) return [];
+
+  const configs: Record<ValidationQueueKey, { states: string[]; direct: string; actors: string[] }> = {
+    validation_pending: { states: ['SUBMITTED', 'CHECKING'], direct: 'r.checker_user_id', actors: ['CHECKER', 'VERIFIER'] },
+    validation_approval: { states: ['PENDING_APPROVAL'], direct: 'r.approver_user_id', actors: ['APPROVER'] },
+    validation_returned: { states: ['RETURNED'], direct: 'r.maker_user_id', actors: ['MAKER'] },
+    validation_close_review: { states: ['PENDING_CLOSE_REVIEW'], direct: 'r.close_reviewer_user_id', actors: ['CLOSE_REVIEWER', 'CHECKER', 'VERIFIER'] },
+  };
+  const config = configs[queue];
+  const stateMarks = config.states.map(() => '?').join(',');
+  const actorMarks = config.actors.map(() => '?').join(',');
+  const position = String(user.id_position ?? '').trim();
+  const data = await rows<Record<string, unknown>>(
+    `SELECT r.id validation_id,r.request_number,r.source_type,r.source_id,r.source_reference,r.source_route,
+       r.title,r.description,r.module_code,r.domain_code,r.company_id company,r.site_id,r.department_id,
+       r.division_id,r.asset_id,r.asset_code,r.state status,r.risk_level,r.submitted_at,r.due_at,
+       r.return_reason,r.maker_user_id,m.fullname maker_name,vr.rule_code,vr.rule_name
+     FROM validation_request r
+     JOIN validation_rule vr ON vr.id=r.rule_id
+     LEFT JOIN tb_user m ON m.id_user=r.maker_user_id
+     WHERE r.state IN (${stateMarks})
+       AND (
+         ${config.direct}=?
+         OR ((r.company_id IS NULL OR r.company_id='' OR r.company_id IN (?,?)) AND EXISTS (
+           SELECT 1 FROM validation_assignment va
+           LEFT JOIN validation_scope vs ON vs.id=va.scope_id AND vs.status='ACTIVE'
+           WHERE va.rule_id=r.rule_id AND va.actor_type IN (${actorMarks}) AND va.status='ACTIVE'
+             AND va.valid_from<=NOW() AND (va.valid_until IS NULL OR va.valid_until>=NOW())
+             AND (va.user_id=? OR (va.user_id IS NULL AND va.position_code=?))
+             AND (vs.id IS NULL OR (
+               (vs.company_id IS NULL OR vs.company_id='' OR vs.company_id=r.company_id)
+               AND (vs.site_id IS NULL OR vs.site_id='' OR vs.site_id=r.site_id)
+               AND (vs.department_id IS NULL OR vs.department_id='' OR vs.department_id=r.department_id)
+               AND (vs.division_id IS NULL OR vs.division_id='' OR vs.division_id=r.division_id)
+               AND (vs.domain_code IS NULL OR vs.domain_code='' OR vs.domain_code=r.domain_code)
+             ))
+         ))
+       )
+     ORDER BY CASE r.risk_level WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END,
+       r.due_at IS NULL,r.due_at,r.submitted_at DESC
+     LIMIT 500`,
+    [...config.states, user.id_user, String(user.id_company ?? ''), String(user.company_name ?? ''), ...config.actors, user.id_user, position],
+  );
+  return data.map((item) => ({ ...item, queue_role: queue, is_overdue: Boolean(item.due_at && String(item.due_at) < new Date().toISOString()) }));
+}
+
+/** NCR dari domain yang sudah live, dipersonalisasi berdasarkan assigned_to. */
+export async function getAssignedNcrDue(user: User): Promise<Record<string, unknown>[]> {
+  const actorNames = [String(user.username ?? '').trim(), String(user.fullname ?? '').trim()].filter(Boolean);
+  if (!actorNames.length) return [];
+  const output: Record<string, unknown>[] = [];
+  const marks = actorNames.map(() => '?').join(',');
+  if (await tableExists('validation_ncr')) output.push(...await rows<Record<string, unknown>>(
+    `SELECT CONCAT('VALIDATION:',n.id) validation_id,n.ncr_number source_reference,'VALIDATION_NCR' source_type,
+       COALESCE(r.source_route,'/my-work') source_route,n.title,n.description,COALESCE(r.module_code,'GV04') module_code,
+       r.asset_code,n.status,n.severity risk_level,n.created_at submitted_at,n.due_at,
+       COALESCE(n.assigned_to,u.fullname) assigned_to
+     FROM validation_ncr n LEFT JOIN validation_request r ON r.id=n.request_id
+     LEFT JOIN tb_user u ON u.id_user=n.assigned_to_user_id
+     WHERE (n.assigned_to_user_id=? OR n.assigned_to IN (${marks}))
+       AND n.status NOT IN ('CLOSED','CANCELLED','REJECTED')`, [user.id_user, ...actorNames],
+  ));
+  if (await tableExists('preventive_ncr')) output.push(...await rows<Record<string, unknown>>(
+    `SELECT CONCAT('PREVENTIVE:',id) validation_id,ncr_number source_reference,'PREVENTIVE_NCR' source_type,
+       '/preventive-ncr' source_route,title,description,module_code,asset_code,status,severity risk_level,
+       detected_at submitted_at,due_date due_at,assigned_to
+     FROM preventive_ncr WHERE assigned_to IN (${marks}) AND status NOT IN ('CLOSED','CANCELLED','REJECTED')`, actorNames,
+  ));
+  if (await tableExists('sparepart_governance_ncr')) output.push(...await rows<Record<string, unknown>>(
+    `SELECT CONCAT('SPAREPART:',id) validation_id,ncr_number source_reference,'SPAREPART_NCR' source_type,
+       '/spareparts' source_route,title,description,'SPAREPART' module_code,NULL asset_code,status,severity risk_level,
+       created_at submitted_at,due_date due_at,assigned_to
+     FROM sparepart_governance_ncr WHERE assigned_to IN (${marks}) AND status NOT IN ('CLOSED','CANCELLED','REJECTED')`, actorNames,
+  ));
+  if (await tableExists('energy_governance_ncr')) output.push(...await rows<Record<string, unknown>>(
+    `SELECT CONCAT('ENERGY:',id) validation_id,ncr_number source_reference,'ENERGY_NCR' source_type,
+       '/governance' source_route,title,description,'ENERGY' module_code,NULL asset_code,status,severity risk_level,
+       detected_at submitted_at,due_date due_at,assigned_to
+     FROM energy_governance_ncr WHERE assigned_to IN (${marks}) AND status NOT IN ('CLOSED','CANCELLED','REJECTED')`, actorNames,
+  ));
+  return output.sort((a, b) => String(a.due_at ?? '9999').localeCompare(String(b.due_at ?? '9999')));
+}

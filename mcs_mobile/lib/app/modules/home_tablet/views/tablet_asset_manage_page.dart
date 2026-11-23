@@ -6,6 +6,7 @@ import '../../../core/utils/wo_status.dart';
 import '../../../data/providers/api_service.dart';
 import 'tablet_asset_detail_page.dart';
 import 'tablet_asset_pic_summary_page.dart';
+import '../widgets/tablet_submodule_mini_dashboard.dart';
 
 /// Padanan tablet untuk `mcs_web/src/app/(app)/assets/page.tsx` ("Asset
 /// Manage", href `/assets` — BUKAN halaman "Report Assets" yang terpisah).
@@ -246,6 +247,8 @@ class _TabletAssetManagePageState extends State<TabletAssetManagePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const TabletSubmoduleMiniDashboard(group: 'ASSET'),
+          const SizedBox(height: 12),
           _buildFilterBar(),
           const SizedBox(height: 12),
           Expanded(child: _buildTableCard()),

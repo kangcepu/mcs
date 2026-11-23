@@ -98,7 +98,7 @@ export function UtilityOperations({ profile, canWrite }: { profile: EnergyAssetP
 
       <div className="p-5">
         {query.isLoading ? <LoadingSkeleton rows={4} /> : query.error ? <ErrorState error={query.error} onRetry={() => query.refetch()} /> : !operations.length ? (
-          <EmptyState title="Belum ada riwayat inspeksi" description="Catat kondisi pertama untuk membentuk baseline operasi Compressor atau Boiler." />
+          <EmptyState title="Belum ada History inspeksi" description="Catat kondisi pertama untuk membentuk baseline operasi Compressor atau Boiler." />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[1120px] text-sm">

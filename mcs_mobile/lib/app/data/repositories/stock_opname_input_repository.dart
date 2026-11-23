@@ -795,8 +795,8 @@ class StockOpnameInputRepository {
 
   Future<Map<String, dynamic>> lockStockOpname(String noSO) async {
     try {
-      final response = await http.put(
-        Uri.parse(ApiConstants.lockSO(noSO)),
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/v2/stock-opname-operations/${Uri.encodeComponent(noSO)}/submit'),
         headers: await _getHeaders(),
       );
 
@@ -807,7 +807,7 @@ class StockOpnameInputRepository {
       final decoded = json.decode(response.body);
       return {
         'status': false,
-        'message': _readMessage(decoded, 'Failed to lock stock opname'),
+        'message': _readMessage(decoded, 'Gagal submit hasil Stock Opname'),
       };
     } catch (e) {
       return {'status': false, 'message': 'Failed to connect: $e'};

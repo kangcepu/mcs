@@ -30,6 +30,7 @@ import {
   Truck,
   Zap,
   PackagePlus,
+  ScanText,
   type LucideIcon,
 } from "lucide-react";
 import type { AreaKey } from "@/lib/permissions";
@@ -81,12 +82,6 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/my-work",
         icon: ListTodo,
         area: "myWork",
-      },
-      {
-        label: "Scheduler",
-        href: "/scheduler",
-        icon: Timer,
-        area: "scheduler",
       },
       {
         label: "Dashboards",
@@ -178,6 +173,13 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       ...ENERGY_NAV_ITEMS,
       {
+        label: "General Affair",
+        href: "/general-affair",
+        icon: Building2,
+        area: "workOrders",
+        match: "/general-affair",
+      },
+      {
         label: "Asset Management",
         href: "/assets",
         icon: Boxes,
@@ -197,6 +199,26 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: ArrowLeftRight,
         area: "assetMutations",
         match: "/asset-mutations",
+      },
+      {
+        label: "Scheduler",
+        href: "/scheduler",
+        icon: Timer,
+        area: "scheduler",
+      },
+      {
+        label: "Stock Opname",
+        href: "/stock-opname",
+        icon: ClipboardCheck,
+        area: "stockOpname",
+        match: "/stock-opname",
+      },
+      {
+        label: "AI Image Analysis",
+        href: "/ai-image-analysis",
+        icon: ScanText,
+        area: "aiImageAnalysis",
+        match: "/ai-image-analysis",
       },
     ],
   },
@@ -247,7 +269,7 @@ export const NAV_SECTIONS: NavSection[] = [
             area: "masterUserAlias",
           },
           {
-            label: "Branding & Storage",
+            label: "System Settings",
             href: "/master-data/branding",
             icon: Palette,
             area: "masterBranding",

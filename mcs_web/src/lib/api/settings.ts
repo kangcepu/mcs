@@ -163,6 +163,55 @@ export function removeFirebaseCredentials(): Promise<ApiResponse<FirebaseCredent
   return apiV2.delete<FirebaseCredentials>("/settings/firebase-credentials");
 }
 
+/* ---------------- OpenCode LLM ---------------- */
+
+export interface OpenCodeModel {
+  id: string;
+  name: string;
+  owned_by?: string;
+}
+
+export interface OpenCodeLlmSettings {
+  provider: "OPENCODE_GO";
+  enabled: boolean;
+  base_url: string;
+  api_key_set: boolean;
+  api_key_hint: string | null;
+  default_model: string;
+  models: OpenCodeModel[];
+  models_synced_at: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface OpenCodeLlmSettingsInput {
+  enabled: boolean;
+  base_url: string;
+  api_key?: string;
+  default_model?: string;
+  sync_models?: boolean;
+}
+
+export function getOpenCodeLlmSettings(signal?: AbortSignal): Promise<ApiResponse<OpenCodeLlmSettings>> {
+  return apiV2.get<OpenCodeLlmSettings>("/settings/llm/opencode-go", { signal });
+}
+
+export function saveOpenCodeLlmSettings(body: OpenCodeLlmSettingsInput): Promise<ApiResponse<OpenCodeLlmSettings>> {
+  return apiV2.put<OpenCodeLlmSettings>("/settings/llm/opencode-go", body);
+}
+
+export function syncOpenCodeModels(body: { base_url?: string; api_key?: string }): Promise<ApiResponse<OpenCodeLlmSettings>> {
+  return apiV2.post<OpenCodeLlmSettings>("/settings/llm/opencode-go/sync-models", body);
+}
+
+export function testOpenCodeConnection(body: { base_url?: string; api_key?: string }): Promise<ApiResponse<{ ok: true; model_count: number; message: string }>> {
+  return apiV2.post<{ ok: true; model_count: number; message: string }>("/settings/llm/opencode-go/test", body);
+}
+
+export function removeOpenCodeApiKey(): Promise<ApiResponse<OpenCodeLlmSettings>> {
+  return apiV2.delete<OpenCodeLlmSettings>("/settings/llm/opencode-go/api-key");
+}
+
 /* ---------------- Bulk sync (copy lokal → MinIO) ---------------- */
 
 export type StorageSyncStatus =

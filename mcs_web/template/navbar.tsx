@@ -2,30 +2,35 @@
 
 // Template navbar/header utama aplikasi.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronLeft, UserCog } from "lucide-react";
+import { Bell, ChevronLeft, RefreshCw, UserCog, Wifi, WifiOff } from "lucide-react";
+import { useIsFetching, useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { useMe, useLogout } from "@/hooks/use-auth";
 import { useNotificationSummary } from "@/hooks/use-notifications";
 import { usePageHeader } from "@/components/layout/page-header-context";
 import { formatNumber } from "@/lib/format";
 import { pick } from "@/lib/display";
 import { cn } from "@/lib/utils";
+import {
+  getRealtimeConnectionState,
+  subscribeRealtimeConnection,
+} from "@/lib/realtime";
 
 const ROUTE_TITLES: Record<string, string> = {
   dashboard: "Dashboard",
   "work-orders": "Work Order",
   "daily-control": "Daily Control",
-  assets: "Manajemen Aset",
-  "asset-mutations": "Mutasi Aset",
+  assets: "Asset Management",
+  "asset-mutations": "Asset Mutation",
   "material-usage": "Material Usage",
   "approval-center": "Approval Center",
   "void-center": "Void Center",
   "preventive-schedules": "Preventive Schedule",
   "master-data": "Master Data",
   reports: "Report",
-  profile: "Profil",
+  profile: "Profile",
 };
 
 function formatHeaderDate(date: Date): string {
@@ -58,6 +63,122 @@ function useClock() {
   };
 }
 
+function formatSyncTimestamp(date: Date | null): string {
+  if (!date) return "Waiting for data";
+  return date
+    .toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+    .replace(" at ", ", ");
+}
+
+function DataSyncStatus() {
+  const queryClient = useQueryClient();
+  const fetching = useIsFetching();
+  const mutating = useIsMutating();
+  const realtimeState = useSyncExternalStore(
+    subscribeRealtimeConnection,
+    getRealtimeConnectionState,
+    () => "disconnected",
+  );
+  const [online, setOnline] = useState(true);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const updateOnline = () => setOnline(navigator.onLine);
+    updateOnline();
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateLastSync = () => {
+      const latest = queryClient
+        .getQueryCache()
+        .getAll()
+        .reduce(
+          (value, query) =>
+            query.state.status === "success"
+              ? Math.max(value, query.state.dataUpdatedAt)
+              : value,
+          0,
+        );
+      if (latest > 0) {
+        setLastSync((current) =>
+          current?.getTime() === latest ? current : new Date(latest),
+        );
+      }
+    };
+    updateLastSync();
+    return queryClient.getQueryCache().subscribe(updateLastSync);
+  }, [queryClient]);
+
+  const busy = fetching + mutating > 0;
+  const status = !online
+    ? "Offline"
+    : busy
+      ? "Syncing"
+      : realtimeState === "connected"
+        ? "Real-Time"
+        : realtimeState === "connecting"
+          ? "Connecting"
+          : "Reconnecting";
+  const healthy = online && realtimeState === "connected";
+  const timestamp = formatSyncTimestamp(lastSync);
+  const StatusIcon = !online ? WifiOff : busy ? RefreshCw : Wifi;
+
+  return (
+    <div
+      className={cn(
+        "flex h-11 shrink-0 items-center gap-2 rounded-xl border bg-white px-2",
+        healthy ? "border-emerald-200" : "border-amber-200",
+      )}
+      title={`Data: ${status}. Last sync: ${timestamp}`}
+      aria-label={`Data status: ${status}. Last sync: ${timestamp}`}
+    >
+      <span
+        className={cn(
+          "grid h-8 w-8 shrink-0 place-items-center rounded-lg",
+          healthy
+            ? "bg-emerald-50 text-emerald-600"
+            : "bg-amber-50 text-amber-700",
+        )}
+      >
+        <StatusIcon className={cn("h-[18px] w-[18px]", busy && "animate-spin")} />
+      </span>
+      <span className="hidden min-w-[172px] leading-tight md:block">
+        <span
+          className={cn(
+            "flex items-center gap-1.5 text-xs font-semibold",
+            healthy ? "text-emerald-700" : "text-amber-700",
+          )}
+        >
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              healthy ? "bg-emerald-500" : "bg-amber-500",
+            )}
+          />
+          Data: {status}
+        </span>
+        <span className="mt-0.5 block whitespace-nowrap text-[10px] tabular-nums text-slate-500">
+          Last Sync: {timestamp}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 /** Maksimal tiga huruf agar badge avatar tetap terbaca di header. */
 function fullNameInitials(fullname?: string | null): string {
   const letters = (fullname ?? "")
@@ -80,7 +201,7 @@ export function AppHeader({
   const pathname = usePathname();
   const { data: user } = useMe();
   // Header memakai full name dengan avatar berupa inisial, tanpa foto profil.
-  const displayName = user?.fullname || "Memuat…";
+  const displayName = user?.fullname || "Loading…";
   const avatarInitials = fullNameInitials(user?.fullname);
   const logout = useLogout();
   const { header } = usePageHeader();
@@ -115,7 +236,7 @@ export function AppHeader({
       {/* Tombol collapse — tab gelap menyatu dengan tepi sidebar, keluar sedikit */}
       <button
         onClick={onToggleSidebar}
-        aria-label={collapsed ? "Buka menu" : "Tutup menu"}
+        aria-label={collapsed ? "Expand menu" : "Collapse menu"}
         className="relative z-50 grid h-16 w-10 shrink-0 place-items-center rounded-r-[2rem] border-y border-r border-white/10 bg-gradient-to-b from-[#09111f] to-[#070d18] text-white shadow-[0_10px_20px_rgba(5,11,23,0.18)] transition-colors hover:from-[#111d31] hover:to-[#0d1728]"
       >
         <ChevronLeft
@@ -136,7 +257,9 @@ export function AppHeader({
 
       {/* Kanan */}
       <div className="flex items-center gap-4">
-        <div className="hidden min-w-[152px] items-center justify-center gap-2 border-r border-slate-200 pr-4 sm:flex">
+        <DataSyncStatus />
+
+        <div className="hidden min-w-[152px] items-center justify-center gap-2 border-r border-slate-200 pr-4 lg:flex">
           <ClockIcon />
           <div className="min-w-[104px] text-center leading-tight">
             <p className="font-mono text-sm font-semibold tabular-nums text-slate-800">
@@ -151,7 +274,7 @@ export function AppHeader({
         <div className="relative">
           <button
             className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Notifikasi"
+            aria-label="Notifications"
             onClick={(e) => {
               e.stopPropagation();
               setNotifOpen((v) => !v);
@@ -171,17 +294,17 @@ export function AppHeader({
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                <p className="text-sm font-semibold text-slate-800">Notifikasi</p>
+                <p className="text-sm font-semibold text-slate-800">Notifications</p>
                 <span className="text-xs text-slate-400">
-                  {formatNumber(notifCount)} item
+                  {formatNumber(notifCount)} items
                 </span>
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {notif.isLoading ? (
-                  <p className="px-3 py-6 text-center text-sm text-slate-400">Memuat…</p>
+                  <p className="px-3 py-6 text-center text-sm text-slate-400">Loading…</p>
                 ) : notifItems.length === 0 ? (
                   <p className="px-3 py-6 text-center text-sm text-slate-400">
-                    Tidak ada notifikasi.
+                    No notifications.
                   </p>
                 ) : (
                   notifItems.slice(0, 20).map((n, i) => {
@@ -210,14 +333,14 @@ export function AppHeader({
                 onClick={() => setNotifOpen(false)}
                 className="block border-t border-slate-100 px-3 py-2 text-center text-xs font-medium text-brand-600 hover:bg-slate-50"
               >
-                Lihat semua Work Order
+                View all Work Orders
               </Link>
             </div>
           ) : null}
         </div>
 
         <div className="group relative">
-          <button className="flex min-w-0 items-center gap-2" aria-label="Menu profil">
+          <button className="flex min-w-0 items-center gap-2" aria-label="Profile menu">
             <span
               aria-hidden="true"
               className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold tracking-tight text-brand-700 ring-1 ring-brand-200"
@@ -242,13 +365,13 @@ export function AppHeader({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
             >
               <UserCog className="h-4 w-4 text-slate-400" />
-              Profil
+              Profile
             </Link>
             <button
               onClick={logout}
               className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
             >
-              Logout
+              Log out
             </button>
           </div>
         </div>

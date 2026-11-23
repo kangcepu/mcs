@@ -6,7 +6,7 @@ import {
   getPendingWoClosings,
   getPendingMaterialRequests,
 } from '../lib/approval-center.js';
-import { getAssignedStockOpnameSchedules, getMissingAssetPics, getUnlockedStockOpnames, getWoTodo } from '../lib/my-work.js';
+import { getAssignedNcrDue, getAssignedStockOpnameSchedules, getMissingAssetPics, getUnlockedStockOpnames, getValidationQueue, getWoTodo } from '../lib/my-work.js';
 import type { AuthRequest } from '../types.js';
 import { getPreventiveCoverageAssets } from '../lib/preventive-coverage.js';
 
@@ -23,7 +23,13 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
   const user = (req as AuthRequest).user!;
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
-  const [woApprovals, woClosings, materials, woTodo, soSchedules, soUnlocked, preventiveMissing, assetMissingPic] = await Promise.all([
+  const [validations, validationApprovals, validationReturned, closeReviews, ncrDue,
+    woApprovals, woClosings, materials, woTodo, soSchedules, soUnlocked, preventiveMissing, assetMissingPic] = await Promise.all([
+    getValidationQueue(user, 'validation_pending'),
+    getValidationQueue(user, 'validation_approval'),
+    getValidationQueue(user, 'validation_returned'),
+    getValidationQueue(user, 'validation_close_review'),
+    getAssignedNcrDue(user),
     getPendingWoApprovals(user),
     getPendingWoClosings(user),
     getPendingMaterialRequests(user),
@@ -35,6 +41,36 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
   ]);
 
   const categories = [
+    {
+      key: 'validation_pending',
+      label: 'Menunggu Validasi',
+      count: validations.length,
+      items: validations.slice(0, PREVIEW_LIMIT),
+    },
+    {
+      key: 'validation_approval',
+      label: 'Menunggu Approval',
+      count: validationApprovals.length,
+      items: validationApprovals.slice(0, PREVIEW_LIMIT),
+    },
+    {
+      key: 'validation_returned',
+      label: 'Dikembalikan ke Saya',
+      count: validationReturned.length,
+      items: validationReturned.slice(0, PREVIEW_LIMIT),
+    },
+    {
+      key: 'validation_close_review',
+      label: 'Menunggu Close Review',
+      count: closeReviews.length,
+      items: closeReviews.slice(0, PREVIEW_LIMIT),
+    },
+    {
+      key: 'ncr_due',
+      label: 'NCR Due',
+      count: ncrDue.length,
+      items: ncrDue.slice(0, PREVIEW_LIMIT),
+    },
     {
       key: 'wo_approvals',
       label: 'Approve WO',
@@ -92,6 +128,11 @@ myWorkRouter.get('/my-work/summary', authenticate, asyncHandler(async (req, res)
 }));
 
 const CATEGORY_SEARCH_KEYS: Record<string, string[]> = {
+  validation_pending: ['request_number', 'source_reference', 'title', 'description', 'module_code', 'company', 'asset_code', 'maker_name'],
+  validation_approval: ['request_number', 'source_reference', 'title', 'description', 'module_code', 'company', 'asset_code', 'maker_name'],
+  validation_returned: ['request_number', 'source_reference', 'title', 'description', 'module_code', 'company', 'asset_code', 'return_reason'],
+  validation_close_review: ['request_number', 'source_reference', 'title', 'description', 'module_code', 'company', 'asset_code', 'maker_name'],
+  ncr_due: ['source_reference', 'title', 'description', 'module_code', 'asset_code', 'assigned_to'],
   wo_approvals: ['wo_number', 'job_title', 'asset_name', 'company'],
   wo_closings: ['wo_number', 'job_title', 'asset_name', 'company'],
   materials: ['wo_number', 'job_title', 'request_code', 'requested_by_name'],
@@ -113,6 +154,11 @@ myWorkRouter.get('/my-work/list', authenticate, asyncHandler(async (req, res) =>
 
   let items: Record<string, unknown>[];
   switch (category) {
+    case 'validation_pending': items = await getValidationQueue(user, 'validation_pending'); break;
+    case 'validation_approval': items = await getValidationQueue(user, 'validation_approval'); break;
+    case 'validation_returned': items = await getValidationQueue(user, 'validation_returned'); break;
+    case 'validation_close_review': items = await getValidationQueue(user, 'validation_close_review'); break;
+    case 'ncr_due': items = await getAssignedNcrDue(user); break;
     case 'wo_approvals': items = await getPendingWoApprovals(user) as unknown as Record<string, unknown>[]; break;
     case 'wo_closings': items = await getPendingWoClosings(user) as unknown as Record<string, unknown>[]; break;
     case 'materials': items = await getPendingMaterialRequests(user) as unknown as Record<string, unknown>[]; break;

@@ -200,12 +200,12 @@ function FleetManual() {
         ]} />
       </GuideSection>
 
-      <GuideSection icon={Wrench} title="4. Preventive, Service, dan Corrective History" description="Simpan riwayat pekerjaan kendaraan serta kaitkan ke Work Order bila tersedia.">
+      <GuideSection icon={Wrench} title="4. Preventive, Service, dan Corrective History" description="Simpan History pekerjaan kendaraan serta kaitkan ke Work Order bila tersedia.">
         <Workflow steps={[
           { title: "Pantau preventive due", description: <>Ringkasan Fleet menampilkan due berdasarkan interval hari dan/atau km/jam yang diatur pada profil.</> },
           { title: "Catat service", description: <>Pada tab Preventive & Service isi jenis pekerjaan, waktu mulai–selesai, meter, workshop, keluhan, dan pekerjaan yang dilakukan.</> },
           { title: "Tautkan WO", description: <>Isi modul serta nomor WO existing jika pekerjaan berasal dari WO Maintenance, MESO, atau GA.</> },
-          { title: "Selesaikan riwayat", description: <>Ubah status menjadi Completed setelah pekerjaan selesai dan pastikan meter serta ringkasan pekerjaan sudah benar.</> },
+          { title: "Selesaikan History", description: <>Ubah status menjadi Completed setelah pekerjaan selesai dan pastikan meter serta ringkasan pekerjaan sudah benar.</> },
         ]} />
       </GuideSection>
 

@@ -822,10 +822,10 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
         const SizedBox(height: 14),
         _panel(
           child: _section(
-            'Riwayat PIC Utama',
+            'History PIC Utama',
             'Jejak penetapan dan perpindahan penanggung jawab aset.',
             pics.isEmpty
-                ? const Text('Belum ada riwayat PIC.',
+                ? const Text('Belum ada History PIC.',
                     style: TextStyle(fontSize: 12, color: _muted))
                 : Column(
                     children: pics
@@ -841,10 +841,10 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
         const SizedBox(height: 14),
         _panel(
           child: _section(
-            'Riwayat Lokasi',
+            'History Lokasi',
             'Jejak ruangan atau lokasi yang pernah ditempati aset ini.',
             locations.isEmpty
-                ? const Text('Belum ada riwayat lokasi.',
+                ? const Text('Belum ada History lokasi.',
                     style: TextStyle(fontSize: 12, color: _muted))
                 : Column(
                     children: locations.map((row) {
@@ -864,10 +864,10 @@ class _TabletAssetDetailPageState extends State<TabletAssetDetailPage> {
         const SizedBox(height: 14),
         _panel(
           child: _section(
-            'Riwayat Pekerjaan',
+            'History Pekerjaan',
             'Seluruh work order yang pernah terkait dengan aset ini.',
             workOrders.isEmpty
-                ? const Text('Belum ada riwayat pekerjaan.',
+                ? const Text('Belum ada History pekerjaan.',
                     style: TextStyle(fontSize: 12, color: _muted))
                 : Column(
                     children: workOrders.map((row) {

@@ -107,6 +107,7 @@ class Company {
 }
 
 class Permissions {
+  final Map<String, int> raw;
   final int woIt;
   final int woMtc;
   final int woMtcAll;
@@ -138,6 +139,7 @@ class Permissions {
   final int reportSo;
 
   Permissions({
+    this.raw = const {},
     required this.woIt,
     required this.woMtc,
     required this.woMtcAll,
@@ -171,6 +173,7 @@ class Permissions {
 
   factory Permissions.fromJson(Map<String, dynamic> json) {
     return Permissions(
+      raw: json.map((key, value) => MapEntry(key, _parsePermission(value))),
       woIt: _parsePermission(json['wo_it']),
       woMtc: _parsePermission(json['wo_mtc']),
       woMtcAll: _parsePermission(json['wo_mtc_all']),
@@ -201,7 +204,7 @@ class Permissions {
       listOfAsset: _parsePermission(json['list_of_asset']),
       recapWo: _parsePermission(json['recap_wo']),
       reportCr: _parsePermission(json['report_cr']),
-      reportSo: _parsePermission(json['report_so'] ?? 1),
+      reportSo: _parsePermission(json['report_so']),
     );
   }
 
@@ -214,6 +217,7 @@ class Permissions {
 
   Map<String, dynamic> toJson() {
     return {
+      ...raw,
       'wo_it': woIt,
       'wo_mtc': woMtc,
       'wo_mtc_all': woMtcAll,
@@ -245,4 +249,8 @@ class Permissions {
       'report_so': reportSo,
     };
   }
+
+  bool has(String permission) => (raw[permission] ?? 0) == 1;
+  bool hasAny(Iterable<String> permissions) =>
+      permissions.isEmpty || permissions.any(has);
 }

@@ -150,7 +150,7 @@ const SO_COLS: ReportCol[] = [
 const ASSET_HISTORY_COLS: ReportCol[] = [
   {
     key: "history_type",
-    header: "Riwayat",
+    header: "History",
     width: "20mm",
     render: (r) => String(r.history_type ?? "WORK_ORDER") === "LOCATION" ? "Lokasi" : "Pekerjaan",
   },

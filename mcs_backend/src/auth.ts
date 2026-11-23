@@ -18,6 +18,8 @@ export const permissionFields = [
   'wo_cross_access_is', 'wo_complete', 'wo_preventive', 'preventive_alarm', 'preventive_alarm_sound', 'write_off', 'wo_category_general',
   'wo_category_electrical', 'wo_category_mould', 'mtc_area_gsu_wnb', 'mtc_area_gsu_inject', 'mtc_area_ru_sawmill',
   'mtc_area_ru_production', 'report_so',
+  'stock_opname', 'ai_image_analysis_view', 'ai_image_analysis_create',
+  'ai_image_analysis_retry', 'ai_image_analysis_verify',
 ] as const;
 
 export const md5 = (value: string): string => crypto.createHash('md5').update(value).digest('hex');

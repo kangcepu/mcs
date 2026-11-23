@@ -134,7 +134,7 @@ export default function DbBackupPage() {
   const handleRun = async () => {
     try {
       await run.mutateAsync();
-      toast.info("Backup dimulai", "Status akan diperbarui di riwayat.");
+      toast.info("Backup dimulai", "Status akan diperbarui di History.");
       setPage(1);
     } catch (e) {
       toast.error("Gagal memulai backup", e instanceof ApiError ? e.message : undefined);
@@ -267,7 +267,7 @@ export default function DbBackupPage() {
             </select>
           </Field>
 
-          <Field label="Jumlah backup yang disimpan" hint="Backup lama melewati batas ini dihapus dari MinIO, riwayatnya tetap tercatat.">
+          <Field label="Jumlah backup yang disimpan" hint="Backup lama melewati batas ini dihapus dari MinIO, History tetap tercatat.">
             <Input
               type="number"
               min={1}
@@ -288,7 +288,7 @@ export default function DbBackupPage() {
       </div>
 
       <div className="card mt-4 p-6">
-        <h2 className="mb-4 text-sm font-semibold text-slate-900">Riwayat backup</h2>
+        <h2 className="mb-4 text-sm font-semibold text-slate-900">History Backup</h2>
 
         {logsQuery.isLoading ? (
           <LoadingSkeleton rows={4} />

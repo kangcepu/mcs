@@ -711,17 +711,14 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
       width: double.infinity,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF071426), Color(0xFF102A56)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x260F172A),
-            blurRadius: 22,
-            offset: Offset(0, 10),
+            color: Color(0x0F0F172A),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -746,7 +743,7 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                               fontSize: 9.5,
                               letterSpacing: 1.3,
                               fontWeight: FontWeight.w800,
-                              color: Color(0xFF93C5FD),
+                              color: Color(0xFF2563EB),
                             ),
                           ),
                         ],
@@ -757,14 +754,14 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                         style: TextStyle(
                           fontSize: 21,
                           fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                          color: Color(0xFF0F172A),
                         ),
                       ),
                       SizedBox(height: 3),
                       Text(
                         'Kondisi operasional lintas domain berdasarkan scope akses aktif.',
                         style:
-                            TextStyle(fontSize: 11, color: Color(0xFFCBD5E1)),
+                            TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
                     ],
                   ),
@@ -773,10 +770,9 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .08),
+                    color: const Color(0xFFECFDF5),
                     borderRadius: BorderRadius.circular(999),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: .10)),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
                   ),
                   child: const Row(
                     children: [
@@ -785,20 +781,22 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                       SizedBox(width: 6),
                       Text('Data parsial tervalidasi',
                           style: TextStyle(
-                              fontSize: 9.5, color: Color(0xFFE2E8F0))),
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF047857))),
                     ],
                   ),
                 ),
                 const SizedBox(width: 6),
                 IconButton(
                   onPressed: _load,
-                  color: Colors.white,
+                  color: const Color(0xFF475569),
                   icon: _fetching
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
+                              strokeWidth: 2, color: Color(0xFF2563EB)))
                       : const Icon(Icons.refresh, size: 19),
                 ),
               ],
@@ -854,7 +852,7 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                             decoration: BoxDecoration(
                               color: active
                                   ? const Color(0xFF2563EB)
-                                  : Colors.white.withValues(alpha: .07),
+                                  : const Color(0xFFF1F5F9),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text('$r hari',
@@ -863,7 +861,7 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                                     fontWeight: FontWeight.w700,
                                     color: active
                                         ? Colors.white
-                                        : const Color(0xFFCBD5E1))),
+                                        : const Color(0xFF64748B))),
                           ),
                         );
                       }).toList(),
@@ -874,10 +872,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
             ),
           ),
           Container(
-            decoration: BoxDecoration(
-                border: Border(
-                    top: BorderSide(
-                        color: Colors.white.withValues(alpha: .10)))),
+            decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -910,9 +906,8 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
     return Container(
       width: 155,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      decoration: BoxDecoration(
-          border: Border(
-              right: BorderSide(color: Colors.white.withValues(alpha: .10)))),
+      decoration: const BoxDecoration(
+          border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
       child: Row(
         children: [
           Container(
@@ -920,14 +915,14 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
             height: 34,
             decoration: BoxDecoration(
               color:
-                  attention ? const Color(0x26F59E0B) : const Color(0x262563EB),
+                  attention ? const Color(0xFFFFF7ED) : const Color(0xFFEFF4FF),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon,
                 size: 18,
                 color: attention
-                    ? const Color(0xFFFCD34D)
-                    : const Color(0xFF93C5FD)),
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFF2563EB)),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -938,12 +933,12 @@ class _TabletDashboardPageState extends State<TabletDashboardPage> {
                     style: const TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w800,
-                        color: Colors.white)),
+                        color: Color(0xFF0F172A))),
                 Text(label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontSize: 9.5, color: Color(0xFF94A3B8))),
+                        fontSize: 9.5, color: Color(0xFF64748B))),
               ],
             ),
           ),

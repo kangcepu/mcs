@@ -321,7 +321,7 @@ export default function AssetDetailPage({
               </section>
               <section className="card p-5">
                 <div className="mb-4">
-                  <h2 className="text-sm font-semibold text-slate-800">Riwayat PIC Utama</h2>
+                  <h2 className="text-sm font-semibold text-slate-800">History PIC Utama</h2>
                   <p className="mt-1 text-xs text-slate-500">Jejak penetapan dan perpindahan penanggung jawab aset.</p>
                 </div>
                 <Timeline
@@ -334,7 +334,7 @@ export default function AssetDetailPage({
               </section>
               <section className="card p-5">
                 <div className="mb-4">
-                  <h2 className="text-sm font-semibold text-slate-800">Riwayat Lokasi</h2>
+                  <h2 className="text-sm font-semibold text-slate-800">History Lokasi</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     Jejak ruangan/lokasi yang pernah ditempati aset ini.
                   </p>
@@ -367,7 +367,7 @@ export default function AssetDetailPage({
 
               <section className="card p-5">
                 <div className="mb-4">
-                  <h2 className="text-sm font-semibold text-slate-800">Riwayat Pekerjaan</h2>
+                  <h2 className="text-sm font-semibold text-slate-800">History Pekerjaan</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     Seluruh work order yang pernah terkait dengan aset ini.
                   </p>

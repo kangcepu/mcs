@@ -69,7 +69,7 @@ export function MoveChildAssetModal({
         ) : target.code === currentParentCode ? (
           <p className="text-xs text-amber-600">Asset sudah tertaut ke parent tersebut.</p>
         ) : (
-          <p className="text-xs text-slate-500">Perpindahan akan tercatat pada History → Riwayat Lokasi.</p>
+          <p className="text-xs text-slate-500">Perpindahan akan tercatat pada History → History Lokasi.</p>
         )}
       </div>
     </Modal>

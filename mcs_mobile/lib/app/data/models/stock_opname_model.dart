@@ -3,6 +3,7 @@ class StockOpname {
   final String tgl;
   final bool isBOM;
   final String? lockedDate; // nullable agar bisa null jika belum dikunci
+  final String workflowStatus;
   final List<String> companies;
   final List<String> categories;
   final List<String> locations;
@@ -12,6 +13,7 @@ class StockOpname {
     required this.tgl,
     required this.isBOM,
     required this.lockedDate,
+    required this.workflowStatus,
     required this.companies,
     required this.categories,
     required this.locations,
@@ -23,6 +25,7 @@ class StockOpname {
       tgl: json['Tanggal'] ?? 'N/A',
       isBOM: json['IsBOM'] == 1,
       lockedDate: json['LockedDate'], // langsung ambil string (nullable)
+      workflowStatus: '${json['workflow_status'] ?? (json['LockedDate'] != null ? 'LOCKED' : 'COUNTING')}'.toUpperCase(),
       companies: json['companies'] != null && json['companies'] is List
           ? List<String>.from(json['companies'])
           : ['N/A'],
@@ -35,11 +38,13 @@ class StockOpname {
     );
   }
 
-  bool get isLocked =>
-      lockedDate != null &&
-      lockedDate!.isNotEmpty &&
-      lockedDate != '0000-00-00' &&
-      lockedDate != '-';
+  bool get isLocked {
+    final sourceLocked = lockedDate != null &&
+        lockedDate!.isNotEmpty &&
+        lockedDate != '0000-00-00' &&
+        lockedDate != '-';
+    return sourceLocked || !const ['COUNTING', 'RECOUNT'].contains(workflowStatus);
+  }
 }
 
 class StockOpnameScheduleAssignment {

@@ -67,6 +67,8 @@ import '../../modules/approval/views/approval_page.dart';
 import '../../modules/daily_control/views/daily_control_page.dart';
 import '../../modules/wo_void/views/wo_void_page.dart';
 import '../../modules/wo_void/controllers/wo_void_controller.dart';
+import '../../modules/ai_image_analysis/views/ai_image_analysis_page.dart';
+import '../widgets/permission_route_gate.dart';
 
 class AppRoutes {
   static const String login = '/login';
@@ -125,6 +127,7 @@ class AppRoutes {
   static const String dailyControl = '/daily_control';
   static const String approval = '/approval';
   static const String woVoid = '/wo_void';
+  static const String aiImageAnalysis = '/ai-image-analysis';
 
   static List<GetPage> routes = [
     GetPage(
@@ -138,6 +141,18 @@ class AppRoutes {
     GetPage(
       name: home,
       page: () => const HomeRouterPage(),
+    ),
+    GetPage(
+      name: aiImageAnalysis,
+      page: () => const PermissionRouteGate(
+        anyOf: [
+          'ai_image_analysis_view',
+          'ai_image_analysis_create',
+          'ai_image_analysis_retry',
+          'ai_image_analysis_verify',
+        ],
+        child: AiImageAnalysisPage(),
+      ),
     ),
     GetPage(
       name: woVoid,
@@ -268,49 +283,70 @@ class AppRoutes {
     ),
     GetPage(
       name: stockOpnameList,
-      page: () => const StockOpnameListPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: StockOpnameListPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => StockOpnameController());
       }),
     ),
     GetPage(
       name: stockOpnameInput,
-      page: () => const StockOpnameInputPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: StockOpnameInputPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => StockOpnameInputController());
       }),
     ),
     GetPage(
       name: stockOpnameInputBOM,
-      page: () => const StockOpnameInputBOMPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: StockOpnameInputBOMPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => StockOpnameInputBOMController());
       }),
     ),
     GetPage(
       name: stockOpnameNonAsset,
-      page: () => const NonAssetListPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: NonAssetListPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => NonAssetController());
       }),
     ),
     GetPage(
       name: stockOpnameNonPart,
-      page: () => const NonPartListPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: NonPartListPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => NonPartController());
       }),
     ),
     GetPage(
       name: stockOpnameScan,
-      page: () => const BarcodeScanPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: BarcodeScanPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => StockOpnameInputController());
       }),
     ),
     GetPage(
       name: stockOpnameStatus,
-      page: () => const StatusSoPage(),
+      page: () => const PermissionRouteGate(
+        anyOf: ['stock_opname', 'schedule'],
+        child: StatusSoPage(),
+      ),
       binding: BindingsBuilder(() {
         Get.lazyPut(() => StatusSoController());
       }),

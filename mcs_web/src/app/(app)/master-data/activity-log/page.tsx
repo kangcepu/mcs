@@ -224,7 +224,7 @@ export default function LogEventPage() {
   if (!canRead(user, "masterUser")) return <PageContainer title="Log Event"><AccessDenied /></PageContainer>;
 
   return (
-    <PageContainer title="Log Event" description="Riwayat aktivitas penting di seluruh sistem — aktivitas umum, perubahan master data, dan perubahan Work Order.">
+    <PageContainer title="Log Event" description="History aktivitas penting di seluruh sistem — aktivitas umum, perubahan master data, dan perubahan Work Order.">
       <Tabs
         items={[
           { key: "system", label: "Semua Aktivitas" },

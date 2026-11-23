@@ -11,6 +11,7 @@ import { useBranding, useUpdateBranding } from "@/hooks/use-settings";
 import { StorageSettingsCard } from "@/components/settings/storage-settings-card";
 import { CompanyLogosCard } from "@/components/settings/company-logos-card";
 import { FirebaseCredentialsCard } from "@/components/settings/firebase-credentials-card";
+import { OpenCodeLlmSettingsCard } from "@/components/settings/opencode-llm-settings-card";
 import { PERMISSIONS } from "@/lib/permissions";
 import { ApiError } from "@/types/api";
 import { formatDateTime } from "@/lib/format";
@@ -147,8 +148,8 @@ function Inner() {
 
   return (
     <PageContainer
-      title="Branding & Storage"
-      description="Manage the application logo (sidebar, login, favicon) and external file-storage endpoint (MinIO/S3)."
+      title="System Settings"
+      description="Kelola branding, storage, notifikasi, dan integrasi LLM aplikasi."
     >
       <div className="space-y-4">
       {isLoading ? (
@@ -272,6 +273,8 @@ function Inner() {
         <StorageSettingsCard />
 
         <FirebaseCredentialsCard />
+
+        <OpenCodeLlmSettingsCard />
       </div>
     </PageContainer>
   );

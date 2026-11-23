@@ -179,69 +179,72 @@ class WoDetailPage extends StatelessWidget {
       child: _buildSimpleInfoCard(
         title: 'Aksi Cepat',
         child: Obx(() => AbsorbPointer(
-          absorbing: controller.isProcessing.value,
-          child: Opacity(
-            opacity: controller.isProcessing.value ? 0.5 : 1,
-            child: Column(
-          children: [
-            if (controller.canExecute) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildQuickActionButton(
-                      label: 'Update Progress',
-                      icon: Icons.edit_note,
-                      backgroundColor: AppColors.primary,
-                      onTap: () =>
-                          _showJobExplanationDialog(context, controller),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildQuickActionButton(
-                      label: 'Labor / PIC',
-                      icon: Icons.groups_2_outlined,
-                      backgroundColor: const Color(0xFFF59E0B),
-                      onTap: () => _showAddLaborDialog(context, controller),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildQuickActionButton(
-                      label: 'Request Part',
-                      icon: Icons.inventory_2_outlined,
-                      backgroundColor: const Color(0xFF9333EA),
-                      onTap: () => _showAddMaterialDialog(context, controller),
-                    ),
-                  ),
-                  if (controller.canComplete) ...[
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildQuickActionButton(
-                        label: 'Complete',
-                        icon: Icons.done_all,
-                        backgroundColor: const Color(0xFF16A34A),
-                        onTap: () => _showCompleteDialog(context, controller),
+              absorbing: controller.isProcessing.value,
+              child: Opacity(
+                opacity: controller.isProcessing.value ? 0.5 : 1,
+                child: Column(
+                  children: [
+                    if (controller.canExecute) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildQuickActionButton(
+                              label: 'Update Progress',
+                              icon: Icons.edit_note,
+                              backgroundColor: AppColors.primary,
+                              onTap: () => _showJobExplanationDialog(
+                                  context, controller),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildQuickActionButton(
+                              label: 'Labor / PIC',
+                              icon: Icons.groups_2_outlined,
+                              backgroundColor: const Color(0xFFF59E0B),
+                              onTap: () =>
+                                  _showAddLaborDialog(context, controller),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildQuickActionButton(
+                              label: 'Request Part',
+                              icon: Icons.inventory_2_outlined,
+                              backgroundColor: const Color(0xFF9333EA),
+                              onTap: () =>
+                                  _showAddMaterialDialog(context, controller),
+                            ),
+                          ),
+                          if (controller.canComplete) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildQuickActionButton(
+                                label: 'Complete',
+                                icon: Icons.done_all,
+                                backgroundColor: const Color(0xFF16A34A),
+                                onTap: () =>
+                                    _showCompleteDialog(context, controller),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ] else if (controller.canClose)
+                      _buildQuickActionButton(
+                        label: 'Close Work Order',
+                        icon: Icons.close_fullscreen,
+                        backgroundColor: const Color(0xFFDC2626),
+                        onTap: () => _showCloseDialog(context, controller),
+                      ),
                   ],
-                ],
+                ),
               ),
-            ] else if (controller.canClose)
-              _buildQuickActionButton(
-                label: 'Close Work Order',
-                icon: Icons.close_fullscreen,
-                backgroundColor: const Color(0xFFDC2626),
-                onTap: () => _showCloseDialog(context, controller),
-              ),
-          ],
-            ),
-          ),
-        )),
+            )),
       ),
     );
   }
@@ -370,7 +373,7 @@ class WoDetailPage extends StatelessWidget {
       WoDetailController controller, BuildContext context) {
     final approvals = controller.approvals;
     return _buildSimpleInfoCard(
-      title: 'Riwayat & Approval',
+      title: 'History & Approval',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -419,7 +422,7 @@ class WoDetailPage extends StatelessWidget {
           if (approvals.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text('Belum ada riwayat approval',
+              child: Text('Belum ada History approval',
                   style: TextStyle(color: AppColors.textSecondary)),
             ),
           if (controller.canApprove) ...[
@@ -678,7 +681,8 @@ class WoDetailPage extends StatelessWidget {
                     return;
                   }
                   if (selectedServicePhotos.isEmpty) {
-                    Get.snackbar('Error', 'Bukti foto/video service wajib diupload');
+                    Get.snackbar(
+                        'Error', 'Bukti foto/video service wajib diupload');
                     return;
                   }
                   Get.back();
@@ -1089,8 +1093,7 @@ class WoDetailPage extends StatelessWidget {
   Color _statusBackground(String status) =>
       _statusColor(status).withOpacity(0.12);
 
-  String _statusLabel(String status) =>
-      WoStatusLabels.of(status);
+  String _statusLabel(String status) => WoStatusLabels.of(status);
 
   Widget _buildDetailsCard(WoDetailController controller) {
     final header = controller.woHeader;
@@ -1191,8 +1194,8 @@ class WoDetailPage extends StatelessWidget {
                   return InkWell(
                     onTap: () => isVideo
                         ? Get.to(() => VideoPlayerPage(
-                              title: items[index]['name']?.toString() ??
-                                  'Video',
+                              title:
+                                  items[index]['name']?.toString() ?? 'Video',
                               networkUrl: url,
                             ))
                         : _showImagePreview(url),

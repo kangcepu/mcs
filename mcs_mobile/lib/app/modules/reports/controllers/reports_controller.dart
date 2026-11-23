@@ -73,7 +73,7 @@ class ReportsController extends GetxController {
     ),
     const ReportItem(
       title: 'Asset History',
-      subtitle: 'Riwayat perawatan asset',
+      subtitle: 'History perawatan asset',
       icon: Icons.history_toggle_off,
       color: Color(0xFF0EA5E9),
       target: ReportTarget.assetHistory,

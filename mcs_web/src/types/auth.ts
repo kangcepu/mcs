@@ -15,6 +15,11 @@ export const PERMISSIONS = {
   voidWorkOrder: "wo_void",
   approvalAll: "approval_all",
   mcsMobileUpload: "mcs_mobile_upload",
+  stockOpname: "stock_opname",
+  aiImageAnalysisView: "ai_image_analysis_view",
+  aiImageAnalysisCreate: "ai_image_analysis_create",
+  aiImageAnalysisRetry: "ai_image_analysis_retry",
+  aiImageAnalysisVerify: "ai_image_analysis_verify",
 } as const;
 
 export type PermissionSlug = string;

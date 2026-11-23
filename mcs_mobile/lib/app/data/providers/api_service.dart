@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart' hide Response;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/api_constants.dart';
@@ -11,6 +12,10 @@ class ApiService {
   late final Dio _dio;
   static final ApiService _instance = ApiService._internal();
   static bool _handlingSessionExpiry = false;
+  static int _activeRequestCount = 0;
+  static final ValueNotifier<int> activeRequests = ValueNotifier<int>(0);
+  static final ValueNotifier<DateTime?> lastSuccessfulSync =
+      ValueNotifier<DateTime?>(null);
 
   factory ApiService() {
     return _instance;
@@ -32,6 +37,8 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          _activeRequestCount += 1;
+          activeRequests.value = _activeRequestCount;
           final prefs = await SharedPreferences.getInstance();
           final token = prefs.getString('token');
 
@@ -55,6 +62,7 @@ class ApiService {
           if (data is String) {
             final lower = data.toLowerCase();
             if (lower.contains('<!doctype') || lower.contains('<html')) {
+              _finishRequest(success: false);
               return handler.reject(
                 DioException(
                   requestOptions: response.requestOptions,
@@ -72,9 +80,11 @@ class ApiService {
               'RESPONSE[${response.statusCode}] PATH: ${response.requestOptions.path}',
             );
           }
+          _finishRequest(success: true);
           return handler.next(response);
         },
         onError: (DioException e, handler) {
+          _finishRequest(success: false);
           if (ApiConstants.enableHttpLog) {
             // ignore: avoid_print
             print(
@@ -99,6 +109,12 @@ class ApiService {
   }
 
   Dio get dio => _dio;
+
+  static void _finishRequest({required bool success}) {
+    _activeRequestCount = (_activeRequestCount - 1).clamp(0, 1 << 30);
+    activeRequests.value = _activeRequestCount;
+    if (success) lastSuccessfulSync.value = DateTime.now();
+  }
 
   static Future<void> _handleSessionExpired() async {
     if (_handlingSessionExpiry) return;

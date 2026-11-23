@@ -64,7 +64,7 @@ export default function AssetHistoryReportPage() {
       const all = await collectAll();
       printReportPdf({
         title: "Asset History",
-        subtitle: `Riwayat aktivitas aset ${assetName || assetCode}`,
+        subtitle: `History aktivitas aset ${assetName || assetCode}`,
         meta: [
           { label: "Aset", value: [assetName, assetCode].filter(Boolean).join(" · ") },
           { label: "Total baris", value: String(all.length) },
@@ -87,7 +87,7 @@ export default function AssetHistoryReportPage() {
   return (
     <PageContainer
       title="Asset History"
-      description="Cari dengan nama, kode, atau scan QR untuk melihat riwayat lokasi dan pekerjaan aset."
+      description="Cari dengan nama, kode, atau scan QR untuk melihat History lokasi dan pekerjaan aset."
       actions={
         rows.length > 0 ? (
           <div className="flex gap-2">
@@ -118,7 +118,7 @@ export default function AssetHistoryReportPage() {
           <Field
             label="Pilih Aset"
             required
-            hint={assetCode ? "Riwayat dimuat untuk aset yang dipilih." : "Ketik nama atau kode, lalu pilih aset dari daftar."}
+            hint={assetCode ? "History dimuat untuk aset yang dipilih." : "Ketik nama atau kode, lalu pilih aset dari daftar."}
           >
             <AssetPicker
               selectedName={assetName}
@@ -162,8 +162,8 @@ export default function AssetHistoryReportPage() {
           isLoading={isLoading}
           error={error}
           onRetry={() => refetch()}
-          emptyTitle="Tidak ada riwayat"
-          emptyDescription={`Tidak ditemukan riwayat untuk aset ${assetName || assetCode}.`}
+          emptyTitle="Tidak ada History"
+          emptyDescription={`Tidak ditemukan History untuk aset ${assetName || assetCode}.`}
         />
       )}
     </PageContainer>

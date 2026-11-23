@@ -48,17 +48,14 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
     super.dispose();
   }
 
-  int get _correctiveCount => _history
-      .where((item) => _kindOf(item) == _HistoryKind.corrective)
-      .length;
+  int get _correctiveCount =>
+      _history.where((item) => _kindOf(item) == _HistoryKind.corrective).length;
 
-  int get _preventiveCount => _history
-      .where((item) => _kindOf(item) == _HistoryKind.preventive)
-      .length;
+  int get _preventiveCount =>
+      _history.where((item) => _kindOf(item) == _HistoryKind.preventive).length;
 
-  int get _projectCount => _history
-      .where((item) => _kindOf(item) == _HistoryKind.project)
-      .length;
+  int get _projectCount =>
+      _history.where((item) => _kindOf(item) == _HistoryKind.project).length;
 
   List<WorkOrderMtc> get _visibleHistory {
     if (_filter == _HistoryFilter.all) return _history;
@@ -68,9 +65,7 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
         : _filter == _HistoryFilter.preventive
             ? _HistoryKind.preventive
             : _HistoryKind.project;
-    return _history
-        .where((item) => _kindOf(item) == expectedKind)
-        .toList();
+    return _history.where((item) => _kindOf(item) == expectedKind).toList();
   }
 
   _HistoryKind _kindOf(WorkOrderMtc workOrder) {
@@ -97,8 +92,8 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
                 ? Center(
                     child: Text(
                       _filter == _HistoryFilter.all
-                          ? 'Belum ada riwayat WO untuk asset ini.'
-                          : 'Belum ada riwayat untuk filter ini.',
+                          ? 'Belum ada History WO untuk asset ini.'
+                          : 'Belum ada History untuk filter ini.',
                     ),
                   )
                 : ListView.separated(

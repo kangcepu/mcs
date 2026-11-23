@@ -64,9 +64,9 @@ class _StockOpnameInputBOMPageState extends State<StockOpnameInputBOMPage> {
                     ? null
                     : () {
                         Get.defaultDialog(
-                          title: 'Lock Stock Opname',
-                          middleText: 'Yakin ingin lock stock opname ini?',
-                          textConfirm: 'Lock',
+                          title: 'Submit Hasil Stock Opname',
+                          middleText: 'Kirim hasil count ke checker? Data hanya dapat diubah lagi jika diminta recount.',
+                          textConfirm: 'Submit',
                           textCancel: 'Batal',
                           confirmTextColor: Colors.white,
                           onConfirm: () async {
@@ -484,13 +484,13 @@ class _StockOpnameInputBOMPageState extends State<StockOpnameInputBOMPage> {
               if (!isLocked)
                 ListTile(
                   leading: const Icon(Icons.lock),
-                  title: const Text('Lock SO'),
+                  title: const Text('Submit Hasil'),
                   onTap: () {
                     Get.back();
                     Get.defaultDialog(
-                      title: 'Lock Stock Opname',
-                      middleText: 'Yakin ingin lock stock opname ini?',
-                      textConfirm: 'Lock',
+                      title: 'Submit Hasil Stock Opname',
+                      middleText: 'Kirim hasil count ke checker? Data hanya dapat diubah lagi jika diminta recount.',
+                      textConfirm: 'Submit',
                       textCancel: 'Batal',
                       confirmTextColor: Colors.white,
                       onConfirm: () async {

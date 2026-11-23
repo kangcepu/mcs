@@ -1371,7 +1371,7 @@ class WoOperationalRepository {
           await _apiService.get(ApiConstants.voidHistoryWoOperational);
       final payload = _ensureSuccessPayload(
         response.data,
-        fallback: 'Gagal memuat riwayat void',
+        fallback: 'Gagal memuat History void',
       );
       final data = payload['data'];
       if (data is! Map) return {};
@@ -1384,7 +1384,7 @@ class WoOperationalRepository {
     } on DioException catch (e) {
       throw Exception(_extractErrorMessage(
         e.response?.data,
-        fallback: 'Gagal memuat riwayat void',
+        fallback: 'Gagal memuat History void',
       ));
     }
   }

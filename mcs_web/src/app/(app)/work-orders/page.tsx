@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, RefreshCw } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { SubmoduleMiniDashboard } from "@/components/dashboard/submodule-mini-dashboard";
 import { Tabs } from "@/components/ui/tabs";
 import { FilterBar, FilterDate, FilterSelect } from "@/components/ui/filter-bar";
 import { MTC_AREA_OPTIONS, mtcAreaLabel } from "@/lib/mtc-area";
@@ -193,6 +194,7 @@ export default function WorkOrdersPage() {
         </div>
       }
     >
+      <SubmoduleMiniDashboard group="MAINTENANCE" />
       <Tabs
         items={tabItems}
         value={activeModule}

@@ -62,7 +62,7 @@ const ASSET_COLS: Col[] = [
 const WO_ASSET = (r: Row): string => [pick(r, ['asset_name', 'AssetName']), pick(r, ['asset_code', 'AssetCode'])].filter(Boolean).join(' - ');
 
 const HISTORY_COLS: Col[] = [
-  { header: 'Riwayat', width: 14, value: (r) => pick(r, ['history_type']) === 'LOCATION' ? 'Lokasi' : 'Pekerjaan' },
+  { header: 'History', width: 14, value: (r) => pick(r, ['history_type']) === 'LOCATION' ? 'Lokasi' : 'Pekerjaan' },
   { header: 'No. WO', width: 24, value: (r) => pick(r, ['wo_number']) },
   { header: 'Tanggal', width: 12, value: (r) => fmtDate(r.date) },
   { header: 'Asset', width: 36, value: WO_ASSET },

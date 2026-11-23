@@ -18,6 +18,7 @@ import { DEFAULT_PER_PAGE } from "@/types/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { AssetListItem } from "@/types/asset";
 import { pick, isAssetInactive } from "@/lib/display";
+import { SubmoduleMiniDashboard } from "@/components/dashboard/submodule-mini-dashboard";
 
 // Form asset membawa banyak field/master option; muat saat dibutuhkan saja.
 const AssetFormModal = dynamic(
@@ -151,6 +152,7 @@ export default function AssetsPage() {
         </div>
       }
     >
+      <SubmoduleMiniDashboard group="ASSET" />
       <FilterBar
         search={values.q}
         onSearchChange={(q) => setValues({ q }, { resetPage: true })}

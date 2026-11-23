@@ -233,7 +233,7 @@ class _HistoryView extends StatelessWidget {
             if (controller.historyError.value.isNotEmpty) {
               return _Notice(
                 icon: Icons.error_outline,
-                title: 'Gagal memuat riwayat',
+                title: 'Gagal memuat History',
                 message: controller.historyError.value,
                 onRetry: controller.loadHistory,
               );
@@ -251,8 +251,8 @@ class _HistoryView extends StatelessWidget {
                       height: 320,
                       child: _Notice(
                         icon: Icons.history_toggle_off,
-                        title: 'Tidak ada riwayat',
-                        message: 'Tidak ditemukan riwayat untuk aset $label.',
+                        title: 'Tidak ada History',
+                        message: 'Tidak ditemukan History untuk aset $label.',
                       ),
                     ),
                   ],
@@ -348,7 +348,7 @@ class _SelectedHeader extends StatelessWidget {
             return Row(
               children: [
                 Text(
-                  '${controller.historyTotal.value} riwayat',
+                  '${controller.historyTotal.value} History',
                   style: const TextStyle(fontSize: 12, color: _kMuted),
                 ),
                 const Spacer(),

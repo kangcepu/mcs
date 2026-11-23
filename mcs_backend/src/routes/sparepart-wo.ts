@@ -141,7 +141,7 @@ sparepartWoRouter.get(
       params,
     );
     const total = Number(count?.total ?? 0);
-    ok(res, { items, summary }, "Riwayat sparepart Asset/WO berhasil dimuat.", {
+    ok(res, { items, summary }, "History sparepart Asset/WO berhasil dimuat.", {
       page, per_page: perPage, total, total_pages: Math.max(1, Math.ceil(total / perPage)),
     });
   }),

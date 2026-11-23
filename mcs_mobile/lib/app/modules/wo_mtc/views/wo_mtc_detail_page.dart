@@ -120,7 +120,7 @@ class WoMtcDetailPage extends StatelessWidget {
       (icon: Icons.description_outlined, label: 'Ringkasan'),
       (icon: Icons.verified_user_outlined, label: 'Preventive'),
       (icon: Icons.inventory_2_outlined, label: 'Resource'),
-      (icon: Icons.history, label: 'Riwayat'),
+      (icon: Icons.history, label: 'History'),
     ];
 
     return Padding(
@@ -1489,8 +1489,8 @@ class WoMtcDetailPage extends StatelessWidget {
                   return InkWell(
                     onTap: () => isVideo
                         ? Get.to(() => VideoPlayerPage(
-                              title: items[index]['name']?.toString() ??
-                                  'Video',
+                              title:
+                                  items[index]['name']?.toString() ?? 'Video',
                               networkUrl: url,
                             ))
                         : _showImagePreview(url),
@@ -2922,11 +2922,10 @@ class WoMtcDetailPage extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 12),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundImage:
-                    ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
-                        ? NetworkImage(
-                            ApiConstants.getAvatarUrl(approval.avatar))
-                        : null,
+                backgroundImage: ApiConstants.getAvatarUrl(approval.avatar)
+                        .isNotEmpty
+                    ? NetworkImage(ApiConstants.getAvatarUrl(approval.avatar))
+                    : null,
                 onBackgroundImageError:
                     ApiConstants.getAvatarUrl(approval.avatar).isNotEmpty
                         ? (_, __) {}
@@ -3510,7 +3509,8 @@ class WoMtcDetailPage extends StatelessWidget {
           ElevatedButton(
             onPressed: () {
               if (selectedServicePhotos.isEmpty) {
-                Get.snackbar('Error', 'Bukti foto/video service wajib diupload');
+                Get.snackbar(
+                    'Error', 'Bukti foto/video service wajib diupload');
                 return;
               }
               Get.back();

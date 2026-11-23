@@ -46,6 +46,21 @@ async function soGet(path: string, token: string): Promise<SoFetchResult> {
   }
 }
 
+export async function lockStockOpnameSource(authorization: string, noSo: string): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SO_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${SO_BASE_URL}/api/no-stock-opname/${encodeURIComponent(noSo)}/lock`, {
+      method: 'PUT', headers: { Authorization: authorization.startsWith('Bearer ') ? authorization : `Bearer ${authorization}`, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { message?: string } | null;
+      throw new Error(payload?.message ?? `Service Stock Opname HTTP ${response.status}`);
+    }
+  } finally { clearTimeout(timer); }
+}
+
 function extractList(body: unknown): Record<string, unknown>[] {
   if (Array.isArray(body)) return body as Record<string, unknown>[];
   if (body && typeof body === 'object') {
@@ -60,6 +75,14 @@ export async function getStockOpnameHeaders(token: string): Promise<Record<strin
   const result = await soGet('/api/no-stock-opname', token);
   if (!result.ok) throw new Error('SO_SERVICE_UNREACHABLE');
   return extractList(result.body);
+}
+
+export async function getStockOpnameUnregisteredFindings(token: string, noSo: string): Promise<{ assets: Record<string, unknown>[]; parts: Record<string, unknown>[] }> {
+  const [assets, parts] = await Promise.all([
+    soGet(`/api/no-asset-stock-opname/${encodeURIComponent(noSo)}`, token),
+    soGet(`/api/non-part-stock-opname/${encodeURIComponent(noSo)}`, token),
+  ]);
+  return { assets: assets.ok ? extractList(assets.body) : [], parts: parts.ok ? extractList(parts.body) : [] };
 }
 
 export function stockOpnameHeaderNo(row: Record<string, unknown>): string {

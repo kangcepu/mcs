@@ -190,7 +190,7 @@ class _WoQrScanPageState extends State<WoQrScanPage> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.history_outlined),
                   title: const Text('Asset History'),
-                  subtitle: const Text('Lihat riwayat WO mesin ini'),
+                  subtitle: const Text('Lihat History WO mesin ini'),
                   onTap: () => Navigator.of(context)
                       .pop(const _ScanSelection.assetHistory()),
                 ),

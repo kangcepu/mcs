@@ -374,7 +374,7 @@ async function removeOldTechnicalProfile(connection: PoolConnection, profileId: 
     const utility = await connectionOne<{ id: number }>(connection, 'SELECT id FROM energy_utility_profile WHERE energy_profile_id=? LIMIT 1', [profileId]);
     if (!utility) return;
     const usage = await connectionOne<{ total: number }>(connection, 'SELECT COUNT(*) AS total FROM energy_utility_operation WHERE utility_profile_id=?', [utility.id]);
-    if (Number(usage?.total ?? 0) > 0) throw new HttpError(409, 'Jenis asset tidak dapat diubah karena utility sudah memiliki riwayat inspeksi.');
+    if (Number(usage?.total ?? 0) > 0) throw new HttpError(409, 'Jenis asset tidak dapat diubah karena utility sudah memiliki History inspeksi.');
     await connection.execute('DELETE FROM energy_utility_profile WHERE id=?', [utility.id]);
   }
 }

@@ -360,8 +360,31 @@ async function getEnterpriseSnapshot(
   }
 
   const ga = params.byModule.find((item) => item.module === 'ga');
-  const gaDomain: DashboardDomainSnapshot = ga
-    ? {
+  let gaDomain: DashboardDomainSnapshot;
+  if (!ga) {
+    gaDomain = unavailableDomain('ga', 'General Affair', 'no_permission', 'WO GA tidak termasuk cakupan user ini.');
+  } else if (await tableExists('ga_task')) {
+    const scope = params.company ? ' WHERE company_code=?' : '';
+    const values = params.company ? [params.company] : [];
+    const summary = await one<{ open_count:number; pending_count:number; completed_count:number; overdue_count:number }>(`SELECT
+      SUM(status IN ('PLANNED','IN_PROGRESS','REJECTED')) open_count,
+      SUM(status IN ('SUBMITTED','CHECKED')) pending_count,
+      SUM(status IN ('APPROVED','CLOSED')) completed_count,
+      SUM(due_at<NOW() AND status NOT IN ('APPROVED','CLOSED')) overdue_count
+      FROM ga_task${scope}`, values);
+    gaDomain = {
+      key:'ga',label:'General Affair',status:'available',
+      primary:{label:'Task GA aktif',value:Number(summary?.open_count??0),unit:'task'},
+      secondary:[
+        {label:'Menunggu validasi',value:Number(summary?.pending_count??0),unit:'task'},
+        {label:'Selesai disetujui',value:Number(summary?.completed_count??0),unit:'task'},
+        {label:'Overdue',value:Number(summary?.overdue_count??0),unit:'task'},
+      ],
+      detail_route:'/general-affair',
+      note:'GA01–GA10 aktif: field task, preventive, CCTV, weighbridge, NCR, dan weekly governance.',
+    };
+  } else {
+    gaDomain = {
         key: 'ga', label: 'General Affair', status: 'available',
         primary: { label: 'WO GA aktif', value: Number(ga.open ?? 0) + Number(ga.in_progress ?? 0), unit: 'WO' },
         secondary: [
@@ -369,9 +392,9 @@ async function getEnterpriseSnapshot(
           { label: 'WO GA ditutup', value: Number(ga.closed ?? 0), unit: 'WO' },
         ],
         detail_route: '/work-orders?module=ga',
-        note: 'GA01–GA10 belum aktif; snapshot memakai WO GA yang sudah berjalan.',
-      }
-    : unavailableDomain('ga', 'General Affair', 'no_permission', 'WO GA tidak termasuk cakupan user ini.');
+        note: 'Fondasi GA01–GA10 belum dimigrasikan; snapshot sementara memakai WO GA.',
+      };
+  }
 
   let sparepartDomain: DashboardDomainSnapshot;
   const canReadSparepart = hasAnyPermission(user, ['material_usage', 'approval_all']);

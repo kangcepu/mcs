@@ -153,7 +153,7 @@ export function MasterDataView({
               onClick={() =>
                 confirm.ask({
                   title: "Nonaktifkan user?",
-                  description: "User tidak dapat login, tetapi data dan riwayatnya tetap tersimpan.",
+                  description: "User tidak dapat login, tetapi data dan History tetap tersimpan.",
                   tone: "danger",
                   confirmLabel: "Nonaktifkan",
                   onConfirm: async () => {

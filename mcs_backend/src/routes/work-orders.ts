@@ -4,13 +4,14 @@ import { Router } from 'express';
 import multer from 'multer';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate, requirePermission } from '../auth.js';
-import { execute, one, rows, transaction } from '../db.js';
+import { execute, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, HttpError, ok, created } from '../http.js';
 import { companyFilterVariants, resolveCompanyCode } from '../lib/employee-api.js';
 import { normalizeAreaKey } from '../lib/daily-control.js';
 import { saveUploadedFile } from '../lib/storage.js';
 import { getGaPreventiveParts, getItPreventiveParts, getMaintenancePreventiveParts, getMesoPreventiveParts, saveGaPreventiveParts, saveItPreventiveParts, saveMaintenancePreventiveParts, saveMesoPreventiveParts } from '../lib/preventive-parts.js';
 import { isPendingWoApproval, isPendingWoClosing } from '../lib/approval-center.js';
+import { requestPreventiveWoCloseValidation } from '../lib/validation-engine.js';
 import { visibilityScope as mesoVisibilityScope } from './wo-meso.js';
 import { visibilityScope as isVisibilityScope } from './wo-is.js';
 import { visibilityScope as gaVisibilityScope } from './wo-ga.js';
@@ -275,14 +276,52 @@ workOrderRouter.get('/work-orders', authenticate, asyncHandler(async (req, res) 
 }));
 workOrderRouter.get('/work-orders/detail', authenticate, asyncHandler(async (req, res) => {
   const domain = domainOf(String(req.query.module ?? 'maintenance')); const wo = String(req.query.wo_number ?? ''); if (!wo) throw new HttpError(400, 'wo_number is required'); const d = domains[domain]; const item = await header(domain, wo); if (!item) throw new HttpError(404, 'Work order not found');
-  const [executors, labors, materials, approvals, evidences] = await Promise.all([rows('SELECT * FROM tb_job_executor WHERE wo_number=? ORDER BY id', [wo]), rows('SELECT * FROM tb_detail_labor WHERE wo_number=? ORDER BY id_detail_labor', [wo]), rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo]), rows(`SELECT * FROM \`${d.approval}\` WHERE wo_number=? ORDER BY created_at`, [wo]), rows('SELECT * FROM tb_wo_service_evidence WHERE wo_number=? ORDER BY created_at', [wo])]);
+  const auditReady = await tableExists('tb_system_activity_log');
+  const [executors, labors, materials, approvals, evidences, activity] = await Promise.all([
+    rows('SELECT * FROM tb_job_executor WHERE wo_number=? ORDER BY id', [wo]),
+    rows('SELECT * FROM tb_detail_labor WHERE wo_number=? ORDER BY id_detail_labor', [wo]),
+    rows('SELECT * FROM tb_detail_material WHERE wo_number=? ORDER BY id_detail_material', [wo]),
+    rows(`SELECT * FROM \`${d.approval}\` WHERE wo_number=? ORDER BY created_at`, [wo]),
+    rows('SELECT * FROM tb_wo_service_evidence WHERE wo_number=? ORDER BY created_at', [wo]),
+    auditReady ? rows<Record<string, unknown>>(
+      `SELECT id,action,route,method,actor_fullname,actor_username,request_data,created_at
+       FROM tb_system_activity_log
+       WHERE outcome='success'
+         AND (module='Work Order' OR route LIKE 'api/v2/maintenance/%'
+           OR route LIKE 'api/v2/meso/%' OR route LIKE 'api/v2/production/%'
+           OR route LIKE 'api/v2/is/%' OR route LIKE 'api/v2/ga/%')
+         AND (reference=? OR request_data LIKE ?)
+       ORDER BY created_at,id`,
+      [wo, `%${wo}%`],
+    ) : Promise.resolve([]),
+  ]);
   // Nama field harus persis `labors`/`evidences` (jamak) — itu yang dibaca
   // halaman detail WO web, bukan `labor`/`evidence`.
-  // "Riwayat" di legacy PHP bukan tabel terpisah — dia baca tabel approval
-  // yang sama ini secara kronologis (fullname+comment+created_at, gak ada
-  // kolom action/status terstruktur di sana juga), jadi disini di-mapping
-  // ulang ke bentuk yang dibaca komponen Timeline, bukan query baru.
-  const histories = approvals.map((a) => ({ actor: a.fullname, note: a.comment, at: a.created_at }));
+  const auditHistories = activity.map((entry) => {
+    let payload: Record<string, unknown> = {};
+    try { payload = JSON.parse(String(entry.request_data ?? '{}')) as Record<string, unknown>; } catch { payload = {}; }
+    return {
+      actor: String(entry.actor_fullname ?? entry.actor_username ?? 'SYSTEM'),
+      action: String(entry.action ?? 'Updated'),
+      note: String(payload.comment ?? payload.reason ?? payload.job_explanation ?? payload.note ?? ''),
+      at: entry.created_at,
+      source: 'SYSTEM_AUDIT',
+    };
+  });
+  const auditSignatures = new Set(auditHistories.map((entry) => `${entry.actor}|${entry.note}`.toLowerCase()));
+  const legacyHistories = approvals
+    .map((a) => ({ actor: a.fullname, action: 'Approval', note: a.comment, at: a.created_at, source: 'APPROVAL' }))
+    .filter((entry) => !auditSignatures.has(`${entry.actor ?? ''}|${entry.note ?? ''}`.toLowerCase()));
+  const createdHistory = {
+    actor: String((item as Record<string, unknown>).creator ?? 'SYSTEM'),
+    action: 'Work Order Created',
+    note: String((item as Record<string, unknown>).job_title ?? ''),
+    at: (item as Record<string, unknown>).created_at ?? (item as Record<string, unknown>).date,
+    source: 'WORK_ORDER',
+  };
+  const histories = [createdHistory, ...legacyHistories, ...auditHistories]
+    .filter((entry) => entry.at)
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
   // Web hanya nampilin tombol Setujui/Tolak/Tutup kalau `actions.can_*` ada —
   // sebelumnya field ini gak pernah dikirim sama sekali, jadi tombolnya gak
   // pernah muncul di halaman detail WO (harus lewat Approval Center). Pakai
@@ -338,6 +377,13 @@ async function transition(req: AuthRequest, res: import('express').Response, act
     };
     if (!(await isPendingWoClosing(req.user!, moduleKey[domain], wo))) {
       throw new HttpError(403, 'WO is not available for closing by this user', 'APPROVAL_NOT_PENDING');
+    }
+    if (domain === 'production') {
+      const validation = await requestPreventiveWoCloseValidation(moduleKey[domain], wo, req.user!, comment);
+      if (validation) {
+        ok(res, { wo_number: wo, status: 'PENDING_CLOSE_REVIEW', validation }, 'WO dikirim ke Close Review');
+        return;
+      }
     }
   }
 

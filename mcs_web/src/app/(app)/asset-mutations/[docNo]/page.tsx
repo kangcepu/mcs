@@ -166,7 +166,7 @@ export default function AssetMutationDetailPage({
           </div>
 
           <div className="card p-5">
-            <h3 className="mb-3 text-sm font-semibold text-slate-900">Riwayat Approval</h3>
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">History Approval</h3>
             <Timeline
               entries={approvals.map((a) => ({
                 title: dash(pick(a, ["action", "status", "note"])),
