@@ -3,6 +3,21 @@
 -- perubahan struktur maupun data pada tabel asset.
 -- Jalankan manual setelah migration AI Image sebelumnya. Aman dijalankan ulang.
 
+CREATE TABLE IF NOT EXISTS ai_image_machine_master (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  asset_id INT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  created_by_id INT DEFAULT NULL,
+  created_by VARCHAR(120) DEFAULT NULL,
+  updated_by_id INT DEFAULT NULL,
+  updated_by VARCHAR(120) DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_ai_machine_master_asset (asset_id),
+  KEY idx_ai_machine_master_status (status,asset_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS ai_image_parameter_master (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   asset_id INT NOT NULL,
@@ -54,6 +69,15 @@ SET @sql := IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_image_analysis' AND COLUMN_NAME='parameter_id'),
   'SELECT 1','ALTER TABLE ai_image_analysis ADD COLUMN parameter_id BIGINT UNSIGNED DEFAULT NULL AFTER asset_name');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Pertahankan seluruh machine yang sudah mempunyai hasil analisis lama.
+-- INSERT IGNORE membuat blok ini aman dijalankan ulang dan tidak mengubah
+-- konfigurasi master machine yang sudah dibuat user.
+INSERT IGNORE INTO ai_image_machine_master
+  (asset_id,status,created_by,updated_by,created_at,updated_at)
+SELECT DISTINCT asset_id,'ACTIVE','SYSTEM-MIGRATION','SYSTEM-MIGRATION',NOW(),NOW()
+FROM ai_image_analysis
+WHERE asset_id IS NOT NULL;
 
 SET @sql := IF(EXISTS(SELECT 1 FROM information_schema.STATISTICS
   WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_image_analysis' AND INDEX_NAME='idx_ai_analysis_parameter'),

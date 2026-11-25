@@ -134,6 +134,10 @@ export function getAiImageMachine(assetId: number) {
   return apiV2.get<AiMachineDetail>(`/ai-image-analysis/machines/${assetId}`);
 }
 
+export function addAiImageMachine(assetId: number) {
+  return apiV2.post<AiMachineItem>("/ai-image-analysis/machines", { asset_id: assetId });
+}
+
 export function getAiImageParameterHistory(parameterId: number) {
   return apiV2.get<{ parameter: AiMachineParameter; analyses: AiImageAnalysisItem[] }>(`/ai-image-analysis/parameters/${parameterId}/history`);
 }

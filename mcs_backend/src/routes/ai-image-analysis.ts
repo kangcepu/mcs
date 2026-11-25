@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import multer from 'multer';
 import { authenticate, requirePermission } from '../auth.js';
-import { execute, one, rows, tableExists, transaction } from '../db.js';
+import { execute, hasColumn, one, rows, tableExists, transaction } from '../db.js';
 import { asyncHandler, created, HttpError, ok } from '../http.js';
 import { kickAiImageAnalysisQueue } from '../lib/ai-image-analysis-worker.js';
 import { buildAiImageAnalysisExport, cleanAiOcrText } from '../lib/ai-image-analysis-export.js';
@@ -40,7 +40,12 @@ async function ensureSchema(): Promise<void> {
 
 async function ensureMachineSchema(): Promise<void> {
   await ensureSchema();
-  if (!await tableExists('ai_image_parameter_master')) {
+  const schemaReady = await tableExists('ai_image_parameter_master')
+    && await tableExists('ai_image_machine_master')
+    && await tableExists('ai_image_parameter_audit')
+    && await hasColumn('ai_image_analysis', 'parameter_id')
+    && await hasColumn('tb_user', 'ai_image_analysis_master');
+  if (!schemaReady) {
     throw new HttpError(503, 'Migration 20261125_ai_image_machine_parameter_master.sql belum dijalankan.', 'AI_MACHINE_PARAMETER_SCHEMA_REQUIRED');
   }
 }
@@ -111,13 +116,15 @@ async function detail(id: number): Promise<Record<string, unknown>> {
 }
 
 aiImageAnalysisRouter.get('/ai-image-analysis/assets', authenticate, canView, asyncHandler(async (req, res) => {
+  await ensureMachineSchema();
   const q = String(req.query.q ?? '').trim();
   if (q.length < 2) return ok(res, []);
   const data = await rows(
-    `SELECT AssetID asset_id,AssetCode asset_code,AssetName asset_name,CompanyName company_name,LocationAsset location_name
-     FROM asset WHERE active='active' AND CategoryAsset='Mesin Pabrik'
-       AND (AssetCode LIKE ? OR AssetName LIKE ? OR AliasName LIKE ?)
-     ORDER BY active='active' DESC,AssetName LIMIT 30`, [`%${q}%`, `%${q}%`, `%${q}%`],
+    `SELECT a.AssetID asset_id,a.AssetCode asset_code,a.AssetName asset_name,a.CompanyName company_name,a.LocationAsset location_name
+     FROM asset a LEFT JOIN ai_image_machine_master m ON m.asset_id=a.AssetID AND m.status='ACTIVE'
+     WHERE a.active='active' AND a.CategoryAsset='Mesin Pabrik' AND m.id IS NULL
+       AND (a.AssetCode LIKE ? OR a.AssetName LIKE ? OR a.AliasName LIKE ?)
+     ORDER BY a.AssetName LIMIT 30`, [`%${q}%`, `%${q}%`, `%${q}%`],
   );
   ok(res, data);
 }));
@@ -126,7 +133,7 @@ aiImageAnalysisRouter.get('/ai-image-analysis/machines', authenticate, canView, 
   await ensureMachineSchema();
   const q = String(req.query.q ?? '').trim();
   const company = String(req.query.company ?? '').trim();
-  const where = ["a.active='active'", "a.CategoryAsset='Mesin Pabrik'"];
+  const where = ["m.status='ACTIVE'"];
   const params: unknown[] = [];
   if (q) { where.push('(a.AssetCode LIKE ? OR a.AssetName LIKE ? OR a.AliasName LIKE ? OR a.LocationAsset LIKE ?)'); params.push(...Array(4).fill(`%${q}%`)); }
   if (company) { where.push('a.CompanyName=?'); params.push(company); }
@@ -136,7 +143,8 @@ aiImageAnalysisRouter.get('/ai-image-analysis/machines', authenticate, canView, 
        COALESCE(p.parameter_count,0) parameter_count,COALESCE(x.analysis_count,0) analysis_count,
        COALESCE(x.unmapped_count,0) unmapped_count,x.latest_analysis_at,x.latest_status,
        COALESCE(x.attention_count,0) attention_count
-     FROM asset a
+     FROM ai_image_machine_master m
+     JOIN asset a ON a.AssetID=m.asset_id
      LEFT JOIN (SELECT asset_id,COUNT(*) parameter_count FROM ai_image_parameter_master WHERE status='ACTIVE' GROUP BY asset_id) p ON p.asset_id=a.AssetID
      LEFT JOIN (
        SELECT asset_id,COUNT(*) analysis_count,SUM(parameter_id IS NULL) unmapped_count,MAX(created_at) latest_analysis_at,
@@ -149,13 +157,34 @@ aiImageAnalysisRouter.get('/ai-image-analysis/machines', authenticate, canView, 
   ok(res, data);
 }));
 
+aiImageAnalysisRouter.post('/ai-image-analysis/machines', authenticate, canManageMaster, asyncHandler(async (req, res) => {
+  await ensureMachineSchema();
+  const assetId = Number(req.body.asset_id);
+  if (!Number.isSafeInteger(assetId) || assetId <= 0) throw new HttpError(422, 'Asset machine wajib dipilih.');
+  const machine = await one<Record<string, unknown>>(
+    `SELECT AssetID asset_id,AssetCode asset_code,AssetName asset_name,CompanyName company_name,LocationAsset location_name
+     FROM asset WHERE AssetID=? AND active='active' AND CategoryAsset='Mesin Pabrik' LIMIT 1`, [assetId],
+  );
+  if (!machine) throw new HttpError(422, 'Machine aktif berkategori Mesin Pabrik tidak ditemukan.');
+  const user = actor(req as AuthRequest);
+  await execute(
+    `INSERT INTO ai_image_machine_master
+      (asset_id,status,created_by_id,created_by,updated_by_id,updated_by,created_at,updated_at)
+     VALUES (?,'ACTIVE',?,?,?,?,NOW(),NOW())
+     ON DUPLICATE KEY UPDATE status='ACTIVE',updated_by_id=VALUES(updated_by_id),updated_by=VALUES(updated_by),updated_at=NOW()`,
+    [assetId, user.id, user.name, user.id, user.name],
+  );
+  created(res, machine, 'Machine ditambahkan ke Master AI');
+}));
+
 aiImageAnalysisRouter.get('/ai-image-analysis/machines/:assetId', authenticate, canView, asyncHandler(async (req, res) => {
   await ensureMachineSchema();
   const assetId = Number(req.params.assetId);
   const machine = await one<Record<string, unknown>>(
     `SELECT AssetID asset_id,AssetCode asset_code,AssetName asset_name,AliasName alias_name,brand,
        CompanyName company_name,LocationAsset location_name,CategoryAsset category
-     FROM asset WHERE AssetID=? AND active='active' AND CategoryAsset='Mesin Pabrik' LIMIT 1`, [assetId],
+     FROM asset a JOIN ai_image_machine_master m ON m.asset_id=a.AssetID AND m.status='ACTIVE'
+     WHERE a.AssetID=? LIMIT 1`, [assetId],
   );
   if (!machine) throw new HttpError(404, 'Machine tidak ditemukan pada Asset Management.');
   const parameters = await rows<Record<string, unknown>>(

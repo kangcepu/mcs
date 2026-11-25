@@ -55,12 +55,27 @@ class _AiImageMachineBrowserState extends State<AiImageMachineBrowser> {
   final _search = TextEditingController();
   Timer? _debounce;
   bool _loading = true;
+  bool _canMaster = false;
+  String? _loadError;
   List<Map<String, dynamic>> _machines = const [];
 
   @override
   void initState() {
     super.initState();
+    _loadPermission();
     _load();
+  }
+
+  Future<void> _loadPermission() async {
+    final allowed =
+        await PermissionService.hasAny(const ['ai_image_analysis_master']);
+    if (mounted) setState(() => _canMaster = allowed);
+  }
+
+  Future<void> _addMachine() async {
+    final added = await showDialog<bool>(
+        context: context, builder: (_) => const _AddMachineDialog());
+    if (added == true) _load();
   }
 
   @override
@@ -71,16 +86,23 @@ class _AiImageMachineBrowserState extends State<AiImageMachineBrowser> {
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
     try {
       final response = await ApiService().get('/v2/ai-image-analysis/machines',
           queryParameters: {'q': _search.text.trim()});
       if (mounted) setState(() => _machines = _list(response));
     } catch (error) {
-      if (mounted)
+      if (mounted) {
+        setState(() => _loadError = _error(error));
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(_error(error)),
             backgroundColor: Colors.red.shade700));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -97,31 +119,58 @@ class _AiImageMachineBrowserState extends State<AiImageMachineBrowser> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            TextField(
-                controller: _search,
-                onChanged: _changed,
-                decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'Cari kode, nama, atau lokasi machine...',
-                    suffixIcon: _search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              _search.clear();
-                              _load();
-                            }))),
+            Row(children: [
+              Expanded(
+                  child: TextField(
+                      controller: _search,
+                      onChanged: _changed,
+                      decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: 'Cari machine dalam Master AI...',
+                          suffixIcon: _search.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    _search.clear();
+                                    _load();
+                                  })))),
+              if (_canMaster) ...[
+                const SizedBox(width: 10),
+                FilledButton.icon(
+                    onPressed: _addMachine,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Tambah Machine'))
+              ]
+            ]),
             const SizedBox(height: 14),
             if (_loading)
               const Center(
                   child: Padding(
                       padding: EdgeInsets.all(48),
                       child: CircularProgressIndicator()))
+            else if (_loadError != null)
+              Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(children: [
+                    Icon(Icons.error_outline,
+                        size: 44, color: Colors.red.shade400),
+                    const SizedBox(height: 12),
+                    const Text('Master AI belum siap',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(_loadError!, textAlign: TextAlign.center),
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                        onPressed: _load,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Coba Lagi'))
+                  ]))
             else if (_machines.isEmpty)
               const _Empty(
-                  title: 'Machine tidak ditemukan',
+                  title: 'Master AI masih kosong',
                   subtitle:
-                      'AI Image hanya menampilkan asset aktif berkategori Mesin Pabrik.')
+                      'Tambahkan machine secara manual dari Asset Management.')
             else
               LayoutBuilder(builder: (context, box) {
                 final count = box.maxWidth >= 1050
@@ -152,6 +201,108 @@ class _AiImageMachineBrowserState extends State<AiImageMachineBrowser> {
           ],
         ),
       );
+}
+
+class _AddMachineDialog extends StatefulWidget {
+  const _AddMachineDialog();
+  @override
+  State<_AddMachineDialog> createState() => _AddMachineDialogState();
+}
+
+class _AddMachineDialogState extends State<_AddMachineDialog> {
+  final _search = TextEditingController();
+  bool _loading = false, _saving = false;
+  List<Map<String, dynamic>> _assets = const [];
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _find() async {
+    if (_search.text.trim().length < 2) return;
+    setState(() => _loading = true);
+    try {
+      final response = await ApiService().get('/v2/ai-image-analysis/assets',
+          queryParameters: {'q': _search.text.trim()});
+      if (mounted) setState(() => _assets = _list(response));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_error(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _add(Map<String, dynamic> asset) async {
+    setState(() => _saving = true);
+    try {
+      await ApiService().post('/v2/ai-image-analysis/machines',
+          data: {'asset_id': asset['asset_id']});
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_error(error)),
+            backgroundColor: Colors.red.shade700));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+          title: const Text('Tambah Machine ke Master AI'),
+          content: SizedBox(
+              width: 620,
+              height: 460,
+              child: Column(children: [
+                TextField(
+                    controller: _search,
+                    autofocus: true,
+                    onSubmitted: (_) => _find(),
+                    decoration: InputDecoration(
+                        hintText: 'Kode atau nama machine...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: IconButton(
+                            onPressed: _loading ? null : _find,
+                            icon: const Icon(Icons.arrow_forward)))),
+                const SizedBox(height: 12),
+                Expanded(
+                    child: _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _assets.isEmpty
+                            ? const _Empty(
+                                title: 'Cari machine',
+                                subtitle:
+                                    'Ketik minimal 2 karakter. Hanya asset aktif kategori Mesin Pabrik.')
+                            : ListView.separated(
+                                itemCount: _assets.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (_, index) {
+                                  final asset = _assets[index];
+                                  return ListTile(
+                                      title: Text('${asset['asset_name']}',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700)),
+                                      subtitle: Text(
+                                          '${asset['asset_code']} · ${asset['company_name'] ?? '-'} · ${asset['location_name'] ?? '-'}'),
+                                      trailing:
+                                          const Icon(Icons.add_circle_outline),
+                                      enabled: !_saving,
+                                      onTap: () => _add(asset));
+                                }))
+              ])),
+          actions: [
+            TextButton(
+                onPressed: _saving ? null : () => Navigator.pop(context, false),
+                child: const Text('Tutup'))
+          ]);
 }
 
 class _MachineCard extends StatelessWidget {
