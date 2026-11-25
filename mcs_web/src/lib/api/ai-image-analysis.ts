@@ -32,6 +32,10 @@ export interface AiImageAnalysisItem {
   asset_id: number;
   asset_code: string;
   asset_name: string;
+  parameter_id?: number | null;
+  parameter_code?: string | null;
+  parameter_name?: string | null;
+  parameter_group?: string | null;
   activity_name: string;
   reference_note?: string | null;
   captured_at?: string | null;
@@ -60,6 +64,48 @@ export interface AiImageAnalysisItem {
   audits?: Array<Record<string, unknown>>;
 }
 
+export interface AiMachineItem extends AiAssetOption {
+  alias_name?: string | null;
+  brand?: string | null;
+  parameter_count: number;
+  analysis_count: number;
+  unmapped_count: number;
+  latest_analysis_at?: string | null;
+  latest_status?: string | null;
+  attention_count: number;
+}
+
+export interface AiMachineParameter {
+  id: number;
+  asset_id: number;
+  parameter_code: string;
+  parameter_name: string;
+  parameter_group?: string | null;
+  description?: string | null;
+  reference_type: "NONE" | "RANGE" | "TARGET" | "TEXT";
+  minimum_value?: number | null;
+  target_value?: number | null;
+  maximum_value?: number | null;
+  reference_text?: string | null;
+  unit?: string | null;
+  photo_instruction?: string | null;
+  minimum_photo_count: number;
+  check_interval_days?: number | null;
+  sort_order: number;
+  is_required: number;
+  status: "ACTIVE" | "INACTIVE";
+  analysis_count?: number;
+  latest_analysis_at?: string | null;
+  latest_status?: string | null;
+  latest_analysis_id?: number | null;
+}
+
+export interface AiMachineDetail {
+  machine: AiMachineItem;
+  parameters: AiMachineParameter[];
+  unmapped_analyses: AiImageAnalysisItem[];
+}
+
 export interface AiAssetOption {
   asset_id: number;
   asset_code: string;
@@ -78,6 +124,26 @@ export function getAiImageAnalysis(id: number) {
 
 export function searchAiImageAssets(q: string) {
   return apiV2.get<AiAssetOption[]>("/ai-image-analysis/assets", { params: { q } });
+}
+
+export function getAiImageMachines(params?: Record<string, string | number | undefined>) {
+  return apiV2.get<AiMachineItem[]>("/ai-image-analysis/machines", { params });
+}
+
+export function getAiImageMachine(assetId: number) {
+  return apiV2.get<AiMachineDetail>(`/ai-image-analysis/machines/${assetId}`);
+}
+
+export function getAiImageParameterHistory(parameterId: number) {
+  return apiV2.get<{ parameter: AiMachineParameter; analyses: AiImageAnalysisItem[] }>(`/ai-image-analysis/parameters/${parameterId}/history`);
+}
+
+export function createAiMachineParameter(assetId: number, data: Partial<AiMachineParameter>) {
+  return apiV2.post<AiMachineParameter>(`/ai-image-analysis/machines/${assetId}/parameters`, data);
+}
+
+export function updateAiMachineParameter(id: number, data: Partial<AiMachineParameter>) {
+  return apiV2.patch<AiMachineParameter>(`/ai-image-analysis/parameters/${id}`, data);
 }
 
 export function createAiImageAnalysis(formData: FormData): Promise<ApiResponse<AiImageAnalysisItem>> {

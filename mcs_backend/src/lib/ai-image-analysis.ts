@@ -128,6 +128,19 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function cleanOcrText(value: unknown): string {
+  const normalized = text(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+    .replace(/[–—]/g, '-').replace(/…/g, '...')
+    .replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n');
+  return normalized.split('\n').map((line) => line.split(/\s+/).map((token) => {
+    const unusual = (token.match(/[^\x20-\x7E\u00B0\u00B1\u00B5]/g) ?? []).length;
+    return unusual >= 2 ? '[tidak terbaca]' : token;
+  }).join(' ').replace(/(?:\[tidak terbaca\]\s*){2,}/g, '[tidak terbaca] ')).join('\n')
+    .replace(/[ \t]{2,}/g, ' ').trim();
+}
+
 async function requestOpenCode(input: {
   baseUrl: string;
   apiKey: string;
@@ -256,6 +269,7 @@ Kembalikan HANYA JSON valid tanpa markdown dengan struktur:
   }]
 }
 Jangan menghilangkan angka berulang. Bedakan posisi/step dengan mencantumkannya pada section atau parameter. Confidence antara 0 dan 1.
+Jangan menyalin simbol acak, karakter rusak, overlay tanggal/perangkat, atau watermark kamera sebagai data mesin. Untuk bagian yang benar-benar tidak dapat dibaca gunakan teks "[tidak terbaca]", bukan rangkaian karakter tebakan.
 Rekomendasi produk dan bahan hanya boleh diturunkan dari temuan, aktivitas, atau acuan pengguna. Bila bukti tidak cukup, kembalikan array kosong. Gunakan kategori dan spesifikasi teknis, bukan merek dagang, kecuali merek terlihat jelas pada foto.`;
 
   try {
@@ -310,7 +324,7 @@ Rekomendasi produk dan bahan hanya boleh diturunkan dari temuan, aktivitas, atau
       throw new HttpError(502, 'Model mengembalikan JSON kosong tanpa teks OCR atau parameter.', 'LLM_EMPTY_RESULT');
     }
     return {
-      raw_text: text(parsed.raw_text), machine_label: text(parsed.machine_label), calibration_label: text(parsed.calibration_label),
+      raw_text: cleanOcrText(parsed.raw_text), machine_label: text(parsed.machine_label), calibration_label: text(parsed.calibration_label),
       captured_at: text(parsed.captured_at) || null, summary: text(parsed.summary),
       findings: (Array.isArray(parsed.findings) ? parsed.findings : []).map((item) => {
         const row = item as Record<string, unknown>;

@@ -67,7 +67,7 @@ import '../../modules/approval/views/approval_page.dart';
 import '../../modules/daily_control/views/daily_control_page.dart';
 import '../../modules/wo_void/views/wo_void_page.dart';
 import '../../modules/wo_void/controllers/wo_void_controller.dart';
-import '../../modules/ai_image_analysis/views/ai_image_analysis_page.dart';
+import '../../modules/ai_image_analysis/views/ai_image_machine_page.dart';
 import '../widgets/permission_route_gate.dart';
 
 class AppRoutes {
@@ -150,8 +150,9 @@ class AppRoutes {
           'ai_image_analysis_create',
           'ai_image_analysis_retry',
           'ai_image_analysis_verify',
+          'ai_image_analysis_master',
         ],
-        child: AiImageAnalysisPage(),
+        child: AiImageMachinePage(),
       ),
     ),
     GetPage(

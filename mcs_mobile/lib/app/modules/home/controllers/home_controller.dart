@@ -915,6 +915,7 @@ class HomeController extends GetxController
             'ai_image_analysis_create',
             'ai_image_analysis_retry',
             'ai_image_analysis_verify',
+            'ai_image_analysis_master',
           ]);
           break;
       }
@@ -1004,6 +1005,7 @@ class HomeController extends GetxController
             'ai_image_analysis_create',
             'ai_image_analysis_retry',
             'ai_image_analysis_verify',
+            'ai_image_analysis_master',
           ]);
           break;
       }

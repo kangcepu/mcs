@@ -84,6 +84,7 @@ class _AiImageAnalysisPageState extends State<AiImageAnalysisPage> {
   bool _canVerify = false;
   Timer? _poller;
   Timer? _searchDebounce;
+  DateTimeRange? _dateRange;
 
   bool get _hasActive => _rows
       .any((row) => _activeStatuses.contains(row['status']?.toString() ?? ''));
@@ -127,6 +128,10 @@ class _AiImageAnalysisPageState extends State<AiImageAnalysisPage> {
       final response =
           await ApiService().get('/v2/ai-image-analysis', queryParameters: {
         'q': _searchController.text.trim(),
+        if (_dateRange != null)
+          'date_from': DateFormat('yyyy-MM-dd').format(_dateRange!.start),
+        if (_dateRange != null)
+          'date_to': DateFormat('yyyy-MM-dd').format(_dateRange!.end),
         'per_page': 50,
       });
       if (mounted) setState(() => _rows = _responseList(response));
@@ -145,6 +150,19 @@ class _AiImageAnalysisPageState extends State<AiImageAnalysisPage> {
   void _onSearch(String _) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 450), _load);
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: _dateRange,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _dateRange = selected);
+    await _load();
   }
 
   Future<void> _create() async {
@@ -210,6 +228,31 @@ class _AiImageAnalysisPageState extends State<AiImageAnalysisPage> {
                       icon: const Icon(Icons.close_rounded)),
             ),
           ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+          child: Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _pickDateRange,
+                icon: const Icon(Icons.date_range_outlined, size: 18),
+                label: Text(_dateRange == null
+                    ? 'Semua tanggal'
+                    : '${DateFormat('dd MMM yyyy').format(_dateRange!.start)} – ${DateFormat('dd MMM yyyy').format(_dateRange!.end)}'),
+              ),
+            ),
+            if (_dateRange != null) ...[
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: 'Hapus filter tanggal',
+                onPressed: () {
+                  setState(() => _dateRange = null);
+                  _load();
+                },
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ]),
         ),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),

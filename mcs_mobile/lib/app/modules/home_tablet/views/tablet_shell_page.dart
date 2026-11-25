@@ -11,7 +11,7 @@ import 'tablet_my_work_page.dart';
 import 'tablet_work_orders_page.dart';
 import 'tablet_asset_manage_page.dart';
 import 'tablet_system_settings_page.dart';
-import 'tablet_ai_image_analysis_page.dart';
+import '../../ai_image_analysis/views/ai_image_machine_page.dart';
 import 'tablet_general_affair_page.dart';
 import '../widgets/tablet_submodule_mini_dashboard.dart';
 import '../../../data/models/user_model.dart';
@@ -387,7 +387,7 @@ class _TabletShellPageState extends State<TabletShellPage> {
       return const TabletSystemSettingsPage();
     }
     if (_selectedKey == 'ai_image_analysis') {
-      return const TabletAiImageAnalysisPage();
+      return const AiImageMachineBrowser();
     }
     if (_selectedKey == 'general_affair') {
       return const TabletGeneralAffairPage();

@@ -263,7 +263,8 @@ const List<TabletNavSection> tabletNavSections = [
           'ai_image_analysis_view',
           'ai_image_analysis_create',
           'ai_image_analysis_retry',
-          'ai_image_analysis_verify'
+          'ai_image_analysis_verify',
+          'ai_image_analysis_master'
         ],
       ),
     ],

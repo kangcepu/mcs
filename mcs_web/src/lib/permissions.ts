@@ -92,8 +92,9 @@ export const AREA_PERMISSIONS = {
       PERMISSIONS.aiImageAnalysisCreate,
       PERMISSIONS.aiImageAnalysisRetry,
       PERMISSIONS.aiImageAnalysisVerify,
+      PERMISSIONS.aiImageAnalysisMaster,
     ],
-    write: [PERMISSIONS.aiImageAnalysisCreate],
+    write: [PERMISSIONS.aiImageAnalysisCreate, PERMISSIONS.aiImageAnalysisMaster],
   },
   masterBackup: {
     read: [PERMISSIONS.userManagement],

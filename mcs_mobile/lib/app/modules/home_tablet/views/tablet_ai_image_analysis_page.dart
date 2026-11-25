@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/constants/api_constants.dart';
 import '../../../core/services/permission_service.dart';
@@ -25,6 +26,7 @@ class _TabletAiImageAnalysisPageState extends State<TabletAiImageAnalysisPage> {
   bool _canCreate = false;
   bool _canRetry = false;
   bool _canVerify = false;
+  DateTimeRange? _dateRange;
 
   @override
   void initState() {
@@ -74,8 +76,15 @@ class _TabletAiImageAnalysisPageState extends State<TabletAiImageAnalysisPage> {
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     try {
-      final response = await ApiService().get('/v2/ai-image-analysis',
-          queryParameters: {'q': _search, 'per_page': 100});
+      final response =
+          await ApiService().get('/v2/ai-image-analysis', queryParameters: {
+        'q': _search,
+        if (_dateRange != null)
+          'date_from': DateFormat('yyyy-MM-dd').format(_dateRange!.start),
+        if (_dateRange != null)
+          'date_to': DateFormat('yyyy-MM-dd').format(_dateRange!.end),
+        'per_page': 100
+      });
       if (mounted) setState(() => _rows = _list(response));
     } on DioException catch (error) {
       if (mounted) {
@@ -94,6 +103,19 @@ class _TabletAiImageAnalysisPageState extends State<TabletAiImageAnalysisPage> {
           content: Text(message),
           backgroundColor:
               error ? Colors.red.shade700 : Colors.green.shade700));
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: _dateRange,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _dateRange = selected);
+    await _load();
+  }
 
   Future<void> _create() async {
     final created = await showDialog<bool>(
@@ -150,18 +172,39 @@ class _TabletAiImageAnalysisPageState extends State<TabletAiImageAnalysisPage> {
                 label: const Text('Baca Foto')),
         ]),
         const SizedBox(height: 18),
-        TextField(
-            decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: 'Cari mesin, kalibrasi, atau teks OCR...',
-                suffixIcon: IconButton(
-                    icon: const Icon(Icons.refresh), onPressed: _load),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                filled: true,
-                fillColor: Colors.white),
-            onChanged: (value) => _search = value,
-            onSubmitted: (_) => _load()),
+        Row(children: [
+          Expanded(
+            child: TextField(
+                decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: 'Cari asset atau teks OCR...',
+                    suffixIcon: IconButton(
+                        icon: const Icon(Icons.refresh), onPressed: _load),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    filled: true,
+                    fillColor: Colors.white),
+                onChanged: (value) => _search = value,
+                onSubmitted: (_) => _load()),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: _pickDateRange,
+            icon: const Icon(Icons.date_range_outlined),
+            label: Text(_dateRange == null
+                ? 'Semua tanggal'
+                : '${DateFormat('dd MMM yyyy').format(_dateRange!.start)} – ${DateFormat('dd MMM yyyy').format(_dateRange!.end)}'),
+          ),
+          if (_dateRange != null)
+            IconButton(
+              tooltip: 'Hapus filter tanggal',
+              onPressed: () {
+                setState(() => _dateRange = null);
+                _load();
+              },
+              icon: const Icon(Icons.close),
+            ),
+        ]),
         const SizedBox(height: 14),
         Expanded(
             child: _loading

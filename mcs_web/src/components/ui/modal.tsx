@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Size = "sm" | "md" | "lg" | "xl" | "2xl";
+type Size = "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 
 const SIZE_CLASS: Record<Size, string> = {
   sm: "max-w-sm",
@@ -13,6 +13,7 @@ const SIZE_CLASS: Record<Size, string> = {
   lg: "max-w-lg",
   xl: "max-w-2xl",
   "2xl": "max-w-4xl",
+  "3xl": "max-w-6xl",
 };
 
 export function Modal({

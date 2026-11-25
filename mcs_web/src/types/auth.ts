@@ -20,6 +20,7 @@ export const PERMISSIONS = {
   aiImageAnalysisCreate: "ai_image_analysis_create",
   aiImageAnalysisRetry: "ai_image_analysis_retry",
   aiImageAnalysisVerify: "ai_image_analysis_verify",
+  aiImageAnalysisMaster: "ai_image_analysis_master",
 } as const;
 
 export type PermissionSlug = string;
